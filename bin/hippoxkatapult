@@ -1,0 +1,41 @@
+#!/usr/bin/env python
+
+"""
+
+Driver script for the hippoxkatapult package
+
+Given a MeerKAT captureBlockId:
+    - fetch dataset from archive (mocked up at the moment)
+    - unpack it set-it up in a staging directory
+    - set-up an oxkat run
+    - run oxkat pipeline stages, checking output after each stage
+    - generate catalogs with PyBDSF
+    - tidy up (keep images, catalogs, possibly MS for re-imaging)
+
+"""
+
+import os
+import sys
+from hippoxkatapult import config, archive
+
+#------------------------------------------------------------------------------------------------------------
+def makeParser():
+    parser=argparse.ArgumentParser("hippoxkatapult")
+    parser.add_argument("captureBlockId", help="MeerKAT observation to fetch and process\
+                        (identified by captureBlockId in the MeerKAT archive).")
+    return parser
+
+#------------------------------------------------------------------------------------------------------------
+if __name__ == '__main__':
+
+    parser=makeParser()
+    args=parser.parse_args()
+
+    # Download the oxkat version we want to use
+
+    #os.system("ln -s %s" % (os.path.abspath(msname)))
+
+    oxdirs=['setups', 'parsets', 'tools', 'oxkat']
+    for oxdir in oxdirs:
+        os.system("ln -s %s" % (OXKAT_DIR+os.path.sep+oxdir))
+

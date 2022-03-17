@@ -16,7 +16,8 @@ Given a MeerKAT captureBlockId:
 
 import os
 import sys
-from hippoxkatapult import config, archive
+import argparse
+from hippoxkatapult import startup, archive
 
 #------------------------------------------------------------------------------------------------------------
 def makeParser():
@@ -31,7 +32,7 @@ if __name__ == '__main__':
     parser=makeParser()
     args=parser.parse_args()
 
-    # Download the oxkat version we want to use
+    archive.stageMS(args.captureBlockId)
 
     #os.system("ln -s %s" % (os.path.abspath(msname)))
 

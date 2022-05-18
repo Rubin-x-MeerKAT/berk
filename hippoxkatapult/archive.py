@@ -36,10 +36,6 @@ def stageMS(captureBlockId):
         pathToTGZ=fetchFromArchive(captureBlockId)
         topDir=os.getcwd()
         os.chdir(config['stagingDir'])
-        print("staging - find/unpack - have to run as a slurm job and check result")
-        import IPython
-        IPython.embed()
-        sys.exit()
         jobID=jobs.submitJob("tar -zxvf %s" % (pathToTGZ), "unpack")
         os.chdir(topDir)
     assert(os.path.exists(MSPath))

@@ -17,11 +17,15 @@ Given a MeerKAT captureBlockId:
 import os
 import sys
 import argparse
+import subprocess
 from hippoxkatapult import startup, archive
 
 #------------------------------------------------------------------------------------------------------------
 def makeParser():
     parser=argparse.ArgumentParser("hippoxkatapult")
+    parser.add_argument("task", help="Task to run - either 'stage' (retrieve data from the archive, unpack\
+                        it, and prepare it for processing), or 'process' (everything else - calibration,\
+                        imaging etc.).")
     parser.add_argument("captureBlockId", help="MeerKAT observation to fetch and process\
                         (identified by captureBlockId in the MeerKAT archive).")
     return parser
@@ -31,12 +35,40 @@ if __name__ == '__main__':
 
     parser=makeParser()
     args=parser.parse_args()
+    captureBlockId=args.captureBlockId
 
-    archive.stageMS(args.captureBlockId)
+    if args.task == 'stage':
+        archive.fetchFromArchive(captureBlockId)
+        stagingDir=startup.config["stagingDir"]
+        MSPath=stagingDir+os.path.sep+captureBlockId+"_sdp_l0.ms"
+        if os.path.exists(MSPath) == False:
+            tgzPath=stagingDir+os.path.sep+"%s_sdp_l0.ms.tar.gz" % (captureBlockId)
+            process=subprocess.run(['screen', '-ls'], universal_newlines = True,
+                                   stdout = subprocess.PIPE, stderr=subprocess.STDOUT)
+            if process.stdout.find("unpack-%s" % (captureBlockId)) == -1:
+                os.system("screen -S unpack-%s -d -m tar -zxvf %s %s/" % (captureBlockId, tgzPath, stagingDir))
+                print("unpacking %s - this will take a while" % (tgzPath))
+            else:
+                print("already unpacking %s" % (tgzPath))
+            sys.exit()
 
-    #os.system("ln -s %s" % (os.path.abspath(msname)))
+    elif args.task == 'process':
+        print("processing")
+        import IPython
+        IPython.embed()
+        sys.exit()
 
-    oxdirs=['setups', 'parsets', 'tools', 'oxkat']
-    for oxdir in oxdirs:
-        os.system("ln -s %s" % (OXKAT_DIR+os.path.sep+oxdir))
+
+    # Each task is in its own script, which we submit through slurm. Each task can launch other slurm jobs.
+    #fetchJobID=jobs.submitJob("hippoxkatapult_fetch %s" % (args.captureBlockId), "fetch_%s" % (args.captureBlockId))
+    #unpackJobID=jobs.submitJob("hippoxkatapult_unpack %s" % (args.captureBlockId), "unpack_%s" % (args.captureBlockId))
+    #processJobID=jobs.submitJob("hippoxkatapult_process %s" % (args.captureBlockId), "process_%s" % (args.captureBlockId))
+
+    #archive.stageMS(args.captureBlockId)
+
+    ##os.system("ln -s %s" % (os.path.abspath(msname)))
+
+    #oxdirs=['setups', 'parsets', 'tools', 'oxkat']
+    #for oxdir in oxdirs:
+        #os.system("ln -s %s" % (OXKAT_DIR+os.path.sep+oxdir))
 

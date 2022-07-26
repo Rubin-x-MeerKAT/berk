@@ -43,9 +43,7 @@ if __name__ == '__main__':
         MSPath=stagingDir+os.path.sep+captureBlockId+"_sdp_l0.ms"
         if os.path.exists(MSPath) == False:
             tgzPath=stagingDir+os.path.sep+"%s_sdp_l0.ms.tar.gz" % (captureBlockId)
-            process=subprocess.run(['screen', '-ls'], universal_newlines = True,
-                                   stdout = subprocess.PIPE, stderr=subprocess.STDOUT)
-            if process.stdout.find("unpack-%s" % (captureBlockId)) == -1:
+            if archive.checkUnpacking(captureBlockId) == False:
                 os.system("screen -S unpack-%s -d -m tar -zxvf %s %s/" % (captureBlockId, tgzPath, stagingDir))
                 print("unpacking %s - this will take a while" % (tgzPath))
             else:

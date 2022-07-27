@@ -39,6 +39,7 @@ if __name__ == '__main__':
 
     stagingDir=startup.config["stagingDir"]
     MSPath=stagingDir+os.path.sep+captureBlockId+"_sdp_l0.ms"
+    topDir=os.getcwd()
 
     if args.task == 'stage':
         archive.fetchFromArchive(captureBlockId)
@@ -54,6 +55,7 @@ if __name__ == '__main__':
         sys.exit()
 
     elif args.task == 'process':
+
         # Move the unpacked MS into the staging dir (almost instant)
         if os.path.exists(MSPath) == False:
             for p in os.walk(stagingDir+os.path.sep+"scratch"):
@@ -61,21 +63,25 @@ if __name__ == '__main__':
                     break
             mvCmd="mv %s/%s %s/" % (p[0], p[1][0], stagingDir)
             os.system(mvCmd)
+
+        # Setup in processing dir
+        MSProcessDir=startup.config['processingDir']+os.path.sep+captureBlockId
+        if os.path.exists(MSProcessDir) == True:
+            raise Exception("Processing directory %s exists and is not empty - remove it and re-run, if you're sure you don't need its contents." % (MSProcessDir))
+        os.makedirs(MSProcessDir)
+        os.chdir(MSProcessDir)
+        os.system("ln -s %s" % (os.path.abspath(MSPath)))
+        oxdirs=['setups', 'tools', 'oxkat']
+        for oxdir in oxdirs:
+            os.system("ln -s %s" % (startup.config['oxkatDir']+os.path.sep+oxdir))
+
+        # 1GC - need to figure out dependency chaining to get FLAG to run automatically after this
+        os.system("python setups/1GC.py hippo")
+        os.system("sh submit_1GC_jobs.sh")
+
+        # Submit oxkat jobs
         print("processing")
         import IPython
         IPython.embed()
         sys.exit()
-
-    # Each task is in its own script, which we submit through slurm. Each task can launch other slurm jobs.
-    #fetchJobID=jobs.submitJob("hippoxkatapult_fetch %s" % (args.captureBlockId), "fetch_%s" % (args.captureBlockId))
-    #unpackJobID=jobs.submitJob("hippoxkatapult_unpack %s" % (args.captureBlockId), "unpack_%s" % (args.captureBlockId))
-    #processJobID=jobs.submitJob("hippoxkatapult_process %s" % (args.captureBlockId), "process_%s" % (args.captureBlockId))
-
-    #archive.stageMS(args.captureBlockId)
-
-    ##os.system("ln -s %s" % (os.path.abspath(msname)))
-
-    #oxdirs=['setups', 'parsets', 'tools', 'oxkat']
-    #for oxdir in oxdirs:
-        #os.system("ln -s %s" % (OXKAT_DIR+os.path.sep+oxdir))
 

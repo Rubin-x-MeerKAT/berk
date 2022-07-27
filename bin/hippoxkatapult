@@ -49,14 +49,22 @@ if __name__ == '__main__':
                 print("unpacking %s - this will take a while" % (tgzPath))
             else:
                 print("already unpacking %s" % (tgzPath))
-            sys.exit()
+        else:
+            print("measurement set %s is already staged" % (MSPath))
+        sys.exit()
 
     elif args.task == 'process':
+        # Move the unpacked MS into the staging dir (almost instant)
+        if os.path.exists(MSPath) == False:
+            for p in os.walk(stagingDir+os.path.sep+"scratch"):
+                if p[1][0] == os.path.split(MSPath)[-1]:
+                    break
+            mvCmd="mv %s/%s %s/" % (p[0], p[1][0], stagingDir)
+            os.system(mvCmd)
         print("processing")
         import IPython
         IPython.embed()
         sys.exit()
-
 
     # Each task is in its own script, which we submit through slurm. Each task can launch other slurm jobs.
     #fetchJobID=jobs.submitJob("hippoxkatapult_fetch %s" % (args.captureBlockId), "fetch_%s" % (args.captureBlockId))

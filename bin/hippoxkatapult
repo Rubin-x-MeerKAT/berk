@@ -37,14 +37,15 @@ if __name__ == '__main__':
     args=parser.parse_args()
     captureBlockId=args.captureBlockId
 
+    stagingDir=startup.config["stagingDir"]
+    MSPath=stagingDir+os.path.sep+captureBlockId+"_sdp_l0.ms"
+
     if args.task == 'stage':
         archive.fetchFromArchive(captureBlockId)
-        stagingDir=startup.config["stagingDir"]
-        MSPath=stagingDir+os.path.sep+captureBlockId+"_sdp_l0.ms"
         if os.path.exists(MSPath) == False:
             tgzPath=stagingDir+os.path.sep+"%s_sdp_l0.ms.tar.gz" % (captureBlockId)
             if archive.checkUnpacking(captureBlockId) == False:
-                os.system("screen -S unpack-%s -d -m tar -zxvf %s %s/" % (captureBlockId, tgzPath, stagingDir))
+                os.system("screen -S unpack-%s -d -m tar -zxvf %s -C %s/" % (captureBlockId, tgzPath, stagingDir))
                 print("unpacking %s - this will take a while" % (tgzPath))
             else:
                 print("already unpacking %s" % (tgzPath))

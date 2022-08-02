@@ -36,15 +36,18 @@ The pipeline runs through a single command with the format::
 Here, ``captureBlockId`` is used to identify the dataset in the MeerKAT archive,
 and ``task`` is one of:
 
-stage:   Fetch data from the archive, and unpack it where ``hippoxkatapult`` can find it.
-         (actually fetching data is not implemented yet).
+``stage``:
+    Fetch data from the archive, and unpack it where ``hippoxkatapult`` can find it.
+    (actually fetching data is not implemented yet).
 
-process: Calibrate and image the MeerKAT data using ``Oxkat``. At present, this
-         runs to the 2GC (self-calibration) stage, producing continuum images.
+``process``:
+    Calibrate and image the MeerKAT data using ``Oxkat``. At present, this
+    runs to the 2GC (self-calibration) stage, producing continuum images.
 
-analyse: Produce catalogs from the images, run various tests, output summary
-         statistics, and organise the data products that are to be retained and/or
-         distributed (this is not implemented yet).
+``analyse``:
+    Produce catalogs from the images, run various tests, output summary
+    statistics, and organise the data products that are to be retained and/or
+    distributed (this is not implemented yet).
 
 
 Requirements

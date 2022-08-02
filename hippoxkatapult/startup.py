@@ -10,7 +10,7 @@ import os, sys
 config={}
 
 # Processing and data products will be written in sub-dirs here
-config['rootDir']="/data/mjh/MeerKAT/MSS"
+config['rootDir']=os.environ["HIPPOXKATAPULT_ROOT"]
 
 # This should eventually be the scratch disk
 config['stagingDir']=config['rootDir']+os.path.sep+"staging"

@@ -1,0 +1,43 @@
+#!/usr/bin/env python
+
+"""
+
+Script to chain two Oxkat job scripts together and submit the jobs within
+
+"""
+
+import os
+import sys
+from hippoxkatapult import jobs
+import IPython
+
+if len(sys.argv) < 3:
+    print("Run: hippoxkatapult_chain dependentJobID script1.sh script2.sh")
+
+dependentJobID=sys.argv[1]
+script1FileName=sys.argv[2]
+script2FileName=sys.argv[3]
+
+with open(script1FileName) as inFile:
+    lines1=inFile.readlines()
+with open(script2FileName) as inFile:
+    lines2=inFile.readlines()
+
+lines=lines1+lines2
+
+sbatchCmds=[]
+for line in lines:
+    if line.find("sbatch") != -1:
+        sbatchCmd=line[line.find("sbatch") :].split(" |")[0]
+        if sbatchCmd.find("-d afterok:") != -1:
+            sbatchCmd=sbatchCmd.split("}")[-1].strip()
+        else:
+            sbatchCmd=sbatchCmd.split("sbatch")[-1].strip()
+        sbatchCmds.append(sbatchCmd)
+
+jobIDs=[dependentJobID]
+for cmd in sbatchCmds:
+    dependentJobIDs=jobIDs
+    jobName=os.path.split(cmd)[-1]
+    jobID=jobs.submitJob(cmd, jobName, dependentJobIDs = dependentJobIDs, cmdIsBatchScript = True)
+    jobIDs.append(jobID)

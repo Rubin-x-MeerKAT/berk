@@ -8,7 +8,8 @@ import subprocess, sys
 
 SLURM_TEMPLATE="""#!/bin/sh
 #SBATCH --nodes=$NODES
-#SBATCH --ntasks-per-node=$TASKS
+#SBATCH --ntasks=$TASKS
+#SBATCH --cpus-per-task=$CPUSPERTASK
 #SBATCH --mem=$MEM
 #SBATCH --time=$TIME
 #SBATCH --output=$JOBNAME.log
@@ -17,14 +18,15 @@ SLURM_TEMPLATE="""#!/bin/sh
 $CMD
 """
 
-def writeJobScript(cmd, jobName, nodes = 1, tasks = 1, mem = 8000, time = "12:00:00"):
+def writeJobScript(cmd, jobName, nodes = 1, tasks = 1, cpusPerTask = 1, mem = 8000, time = "12:00:00"):
     """Write a job script to run a command via slurm.
 
     Args:
         cmd (str): The command to run.
-        jobName (str): Name of the job (used for e.g. log files).
+        jobName (str): Name of the job (used for e.g. log files). Must not contain any spaces.
         nodes (int): Number of nodes on which the job will run.
-        tasks (int): Number of tasks to run per node.
+        tasks (int): Number of tasks.
+        cpusPerTask (int): Number of CPUs to use per task.
         mem (int): Requested memory (KB) for the job.
         time (str): Wall time limit for the job.
 
@@ -41,6 +43,7 @@ def writeJobScript(cmd, jobName, nodes = 1, tasks = 1, mem = 8000, time = "12:00
     script=script.replace("$JOBNAME", jobName)
     script=script.replace("$NODES", str(nodes))
     script=script.replace("$TASKS", str(tasks))
+    script=script.replace("$CPUSPERTASK", str(cpusPerTask))
     script=script.replace("$MEM", str(mem))
     script=script.replace("$TIME", str(time))
 
@@ -51,18 +54,22 @@ def writeJobScript(cmd, jobName, nodes = 1, tasks = 1, mem = 8000, time = "12:00
     return fileName
 
 
-def submitJob(cmd, jobName, dependentJobIDs = None, nodes = 1, tasks = 1, mem = 8000, time = "12:00:00"):
+def submitJob(cmd, jobName, dependentJobIDs = None, nodes = 1, tasks = 1, cpusPerTask = 1, mem = 8000, time = "12:00:00",
+              cmdIsBatchScript = False):
     """Submit a command to run on a node via Slurm.
 
     Args:
-        cmd (str): The command to run.
-        jobName (str): Name of the job (used for e.g. log files).
+        cmd (str): The command to run, OR the path to the batch script to submit (if cmdIsBatchScript = True).
+        jobName (str): Name of the job (used for e.g. log files). Must not contain any spaces.
         dependentJobIDs (list): If this job depends on a previous job completing sucessfully, give the
             job ID numbers here, as a list.
         nodes (int): Number of nodes on which the job will run.
-        tasks (int): Number of tasks to run per node.
+        tasks (int): Number of tasks to run.
+        cpusPerTask (int): Number of CPUs to use per task.
         mem (int): Requested memory (KB) for the job.
         time (str): Wall time limit for the job.
+        cmdIsBatchScript (bool): If False, a batch script is created for the command. If True, the cmd must be the path
+            to a pre-existing slurm batch script (in which case most parameters e.g. nodes, tasks etc. are redundant).
 
     Returns:
         The ID number of the submitted Slurm job.
@@ -85,7 +92,10 @@ def submitJob(cmd, jobName, dependentJobIDs = None, nodes = 1, tasks = 1, mem = 
     #with open(fileName, "w") as outFile:
         #outFile.write(script)
 
-    fileName=writeJobScript(cmd, jobName, nodes = nodes, tasks = tasks, mem = mem, time = time)
+    if cmdIsBatchScript == True:
+        fileName=cmd
+    else:
+        fileName=writeJobScript(cmd, jobName, nodes = nodes, tasks = tasks, mem = mem, time = time)
 
     args=['sbatch']
     if dependentJobIDs is not None:

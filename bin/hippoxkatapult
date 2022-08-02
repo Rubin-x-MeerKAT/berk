@@ -18,7 +18,7 @@ import os
 import sys
 import argparse
 import subprocess
-from hippoxkatapult import startup, archive
+from hippoxkatapult import startup, archive, jobs
 
 #------------------------------------------------------------------------------------------------------------
 def makeParser():
@@ -75,13 +75,42 @@ if __name__ == '__main__':
         for oxdir in oxdirs:
             os.system("ln -s %s" % (startup.config['oxkatDir']+os.path.sep+oxdir))
 
-        # 1GC - need to figure out dependency chaining to get FLAG to run automatically after this
+        # Generate the oxkat job scripts then spin through + submit them ourselves
+        # 1GC
         os.system("python setups/1GC.py hippo")
-        os.system("sh submit_1GC_jobs.sh")
+        sbatchCmds=[]
+        dependent=[]
+        with open("submit_1GC_jobs.sh") as inFile:
+            lines=inFile.readlines()
+            for line in lines:
+                if line.find("sbatch") != -1:
+                    sbatchCmd=line[line.find("sbatch") :].split(" |")[0]
+                    if sbatchCmd.find("-d afterok:") != -1:
+                        sbatchCmd=sbatchCmd.split("}")[-1].strip()
+                        dependent.append(True)
+                    else:
+                        sbatchCmd=sbatchCmd.split("sbatch")[-1].strip()
+                        dependent.append(False)
+                    sbatchCmds.append(sbatchCmd)
+        jobIDs=[]
+        for cmd, dep in zip(sbatchCmds, dependent):
+            if dep == False:
+                dependentJobIDs=None
+            else:
+                dependentJobIDs=jobIDs
+            jobName=os.path.split(cmd)[-1]
+            jobID=jobs.submitJob(cmd, jobName, dependentJobIDs = dependentJobIDs, cmdIsBatchScript = True)
+            jobIDs.append(jobID)
 
-        # Submit oxkat jobs
-        print("processing")
-        import IPython
-        IPython.embed()
-        sys.exit()
+        # Run the FLAG and 2GC setup scripts as a job, then chain them together
+        cmd="python setups/FLAG.py hippo"
+        jobID=jobs.submitJob(cmd, "SETUP_FLAG_JOBS", dependentJobIDs = jobIDs)
+        jobIDs.append(jobID)
+        cmd="python setups/2GC.py hippo"
+        jobID=jobs.submitJob(cmd, "SETUP_2GC_JOBS", dependentJobIDs = jobIDs)
+        jobIDs.append(jobID)
+        print("check")
+        cmd="hippoxkatapult_chain %s submit_flag_jobs.sh submit_2GC_jobs.sh" % (jobIDs[-1])
+        jobID=jobs.submitJob(cmd, "CHAIN_FLAG+2GC_JOBS", dependentJobIDs = jobIDs)
 
+        print("All jobs submitted")

@@ -18,6 +18,7 @@ import os
 import sys
 import argparse
 import subprocess
+import glob
 from hippoxkatapult import startup, archive, jobs
 
 #------------------------------------------------------------------------------------------------------------
@@ -112,5 +113,39 @@ if __name__ == '__main__':
         print("check")
         cmd="hippoxkatapult_chain %s submit_flag_jobs.sh submit_2GC_jobs.sh" % (jobIDs[-1])
         jobID=jobs.submitJob(cmd, "CHAIN_FLAG+2GC_JOBS", dependentJobIDs = jobIDs)
-
         print("All jobs submitted")
+
+    elif args.task == 'analyse':
+
+        # Setup in processing dir
+        MSProcessDir=startup.config['processingDir']+os.path.sep+captureBlockId
+        if os.path.exists(MSProcessDir) == False:
+            raise Exception("Processing directory %s does not exist - you need to process the data before the analyse task will run." % (MSProcessDir))
+        os.chdir(MSProcessDir)
+        os.system("ln -s %s" % (startup.config["catalogScriptsDir"]+os.path.sep+"sourcefinding.py"))
+        os.system("ln -s %s" % (startup.config["catalogScriptsDir"]+os.path.sep+"catalog_matching.py"))
+        os.system("ln -s %s" % (startup.config["catalogScriptsDir"]+os.path.sep+"parsets"))
+
+        # Source finding is fairly lightweight so we put everything in one job script
+        # We will have issues with needing to see the internet to fetch cross match catalogs though
+        # So we will need to cache NVSS catalogs for a given direction when doing 'stage'
+        imgPaths=glob.glob("IMAGES/*datamask-MFS-image.fits")
+        for i in imgPaths:
+            if i.find("pbcorr_trim") == -1:
+                imgPath=os.path.abspath(i)
+        cmd="mkat_primary_beam_correct %s -T" % (imgPath)
+
+        imgDir, imgFileName=os.path.split(imgPath)
+        pbcorrImgPath=imgDir+os.path.sep+"pbcorr_trim_"+imgFileName
+        cmd=cmd+"\npython sourcefinding.py c %s -o fits --survey MSS" % (pbcorrImgPath)
+
+        catPath=imgDir+os.path.sep+"pbcorr_trim_"+imgFileName.split(".ms_")[0]+"_pybdsf"+os.path.sep+\
+                "pbcorr_trim_"+imgFileName.split(".ms_")[0]+"_bdsfcat.fits"
+        cmd=cmd+"\npython catalog_matching.py %s NVSS --astro --flux" % (catPath)
+
+        jobID=jobs.submitJob(cmd, 'source-finding', dependentJobIDs = None, nodes = 1, tasks = 1, cpusPerTask = 20, mem = 8000,
+                             time = "02:00:00", cmdIsBatchScript = False)
+        print("Submitted source finding and analysis job")
+
+
+

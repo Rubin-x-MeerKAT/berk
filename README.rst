@@ -53,6 +53,10 @@ and ``task`` is one of:
 Requirements
 ------------
 
-* Everything that `Oxkat <https://github.com/IanHeywood/oxkat>`_ needs.
-* GNU Screen.
-* Slurm.
+Everything that `Oxkat <https://github.com/IanHeywood/oxkat>`_ needs plus:
+
+* GNU Screen
+* Slurm
+* katbeam
+* python-casacore
+* numpyencoder

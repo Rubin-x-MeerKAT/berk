@@ -23,7 +23,7 @@ setup(name='hippoxkatapult',
       description="Tools for running Oxkat on archival MeerKAT data on Hippo, UKZN's HPC facility.",
       packages=['hippoxkatapult'],
       #package_data={'meerkatapult': ['data/*']},
-      scripts=['bin/hippoxkatapult', 'bin/hippoxkatapult_chain'],
+      scripts=['bin/hippoxkatapult', 'bin/hippoxkatapult_chain', 'bin/mkat_primary_beam_correct'],
       #install_requires=["astropy >= 3.2",
                         #"numpy >= 1.10",
                         #"matplotlib >= 2.0"]

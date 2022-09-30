@@ -30,6 +30,9 @@ config['oxkatVersion']="0.3"
 config['oxkatDir']=config['cacheDir']+os.path.sep+"oxkat-%s" % (config['oxkatVersion'])
 config['oxkatURL']="https://github.com/IanHeywood/oxkat/archive/refs/tags/v%s.tar.gz" % (config['oxkatVersion'])
 
+# Image-processing (source finding scripts from Jonah)
+config['catalogScriptsDir']=config['cacheDir']+os.path.sep+"catalog-scripts"
+
 # Set-up ----------------------------------------------------------------------------------------------------
 dirsToMake=[config['stagingDir'], config['processingDir'], config['productsDir'], config['cacheDir']]
 for d in dirsToMake:
@@ -41,3 +44,7 @@ if os.path.exists(config['oxkatDir']) == False:
     os.system("wget %s" % (config['oxkatURL']))
     os.system("tar -zxvf v%s.tar.gz" % (config['oxkatVersion']))
     os.chdir(topDir)
+
+if os.path.exists(config['catalogScriptsDir']) == False:
+    os.system("git clone https://github.com/mattyowl/Image-processing %s" % (config["catalogScriptsDir"]))
+

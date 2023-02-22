@@ -50,6 +50,15 @@ and ``task`` is one of:
     distributed (this is not implemented yet).
 
 
+Notes
+-----
+
+* You can use ``process`` immediately, if the measurement set is already
+  unpacked (or symlinked) in the ``staging`` directory. The measurement
+  set needs to have a name in the format ``captureBlockId_*.ms`` for this
+  to work.
+
+
 Requirements
 ------------
 

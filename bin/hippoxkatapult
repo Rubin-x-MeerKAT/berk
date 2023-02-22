@@ -72,7 +72,7 @@ if __name__ == '__main__':
         os.makedirs(MSProcessDir)
         os.chdir(MSProcessDir)
         os.system("ln -s %s" % (os.path.abspath(MSPath)))
-        oxdirs=['setups', 'tools', 'oxkat']
+        oxdirs=['setups', 'tools', 'oxkat', 'data']
         for oxdir in oxdirs:
             os.system("ln -s %s" % (startup.config['oxkatDir']+os.path.sep+oxdir))
 
@@ -129,23 +129,27 @@ if __name__ == '__main__':
         # Source finding is fairly lightweight so we put everything in one job script
         # We will have issues with needing to see the internet to fetch cross match catalogs though
         # So we will need to cache NVSS catalogs for a given direction when doing 'stage'
+        # OR forget using catalog_matching.py here and just do later with database/catalog scripts
         imgPaths=glob.glob("IMAGES/*datamask-MFS-image.fits")
         for i in imgPaths:
             if i.find("pbcorr_trim") == -1:
                 imgPath=os.path.abspath(i)
-        cmd="mkat_primary_beam_correct %s -T" % (imgPath)
+            cmd="mkat_primary_beam_correct %s -T" % (imgPath)
 
-        imgDir, imgFileName=os.path.split(imgPath)
-        pbcorrImgPath=imgDir+os.path.sep+"pbcorr_trim_"+imgFileName
-        cmd=cmd+"\npython sourcefinding.py c %s -o fits --survey MSS" % (pbcorrImgPath)
+            imgDir, imgFileName=os.path.split(imgPath)
+            pbcorrImgPath=imgDir+os.path.sep+"pbcorr_trim_"+imgFileName
+            cmd=cmd+"\npython sourcefinding.py c %s -o fits --survey MSS" % (pbcorrImgPath)
 
-        catPath=imgDir+os.path.sep+"pbcorr_trim_"+imgFileName.split(".ms_")[0]+"_pybdsf"+os.path.sep+\
+            catPath=imgDir+os.path.sep+"pbcorr_trim_"+imgFileName.split(".ms_")[0]+"_pybdsf"+os.path.sep+\
                 "pbcorr_trim_"+imgFileName.split(".ms_")[0]+"_bdsfcat.fits"
-        cmd=cmd+"\npython catalog_matching.py %s NVSS --astro --flux" % (catPath)
+            cmd=cmd+"\npython catalog_matching.py %s NVSS --astro --flux" % (catPath)
 
-        jobID=jobs.submitJob(cmd, 'source-finding', dependentJobIDs = None, nodes = 1, tasks = 1, cpusPerTask = 20, mem = 8000,
-                             time = "02:00:00", cmdIsBatchScript = False)
-        print("Submitted source finding and analysis job")
+            jobID=jobs.submitJob(cmd, 'source-finding-%s' % (imgFileName), dependentJobIDs = None, nodes = 1, tasks = 1, cpusPerTask = 20, mem = 8000,
+                                 time = "24:00:00", cmdIsBatchScript = False)
+            print("Submitted source finding and analysis job %d" % (jobID))
+
+        # Copy the data products we want to keep
+        print("Tidy data products")
 
 
 

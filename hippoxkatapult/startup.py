@@ -9,6 +9,14 @@ import os, sys
 # Settings are hard-coded for now, but could be put into a YAML config file later ---------------------------
 config={}
 
+if "HIPPOXKATAPULT_ROOT" not in os.environ.keys():
+    raise Exception("You need to set the HIPPOXKATAPULT_ROOT environment variable - this defines the directory where all work will be done.")
+if "HIPPOXKATAPULT_MSCACHE" not in os.environ.keys():
+    raise Exception("You need to set the HIPPOXKATAPULT_MSCACHE environment variable - this defines the directory where retrieved measurement sets will be stored.")
+
+os.makedirs(os.environ["HIPPOXKATAPULT_MSCACHE"], exist_ok = True)
+os.makedirs(os.environ["HIPPOXKATAPULT_ROOT"], exist_ok = True)
+
 # Processing and data products will be written in sub-dirs here
 config['rootDir']=os.environ["HIPPOXKATAPULT_ROOT"]
 

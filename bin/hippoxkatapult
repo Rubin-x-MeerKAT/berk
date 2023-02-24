@@ -24,11 +24,16 @@ from hippoxkatapult import startup, archive, jobs
 #------------------------------------------------------------------------------------------------------------
 def makeParser():
     parser=argparse.ArgumentParser("hippoxkatapult")
-    parser.add_argument("task", help="Task to run - either 'stage' (retrieve data from the archive, unpack\
-                        it, and prepare it for processing), or 'process' (everything else - calibration,\
-                        imaging etc.).")
-    parser.add_argument("captureBlockId", help="MeerKAT observation to fetch and process\
-                        (identified by captureBlockId in the MeerKAT archive).")
+    parser.add_argument("task", help="Task to run - one of: 'stage' (retrieve data from archive, store under\
+                        $HIPPOXKATAPULT_MSCACHE location, link under 'staging' directory),\
+                        'process' (run calibration and imaging with Oxkat\
+                        up to 2GC), or 'analyze' (apply primary beam correction and make object catalogs with\
+                        PyBDSF).")
+    parser.add_argument("captureBlockId", help="MeerKAT observation to fetch and process.\
+                        For the 'stage' task, this must be a link to an .rdb file on the archive, of the form\
+                        https://archive-gw-1.kat.ac.za/captureBlockId/captureBlockId_sdp_l0.full.rdb?token=longTokenString.\
+                        For the other tasks ('process', 'analyse'), this should be the captureBlockId itself.")
+
     return parser
 
 #------------------------------------------------------------------------------------------------------------
@@ -130,10 +135,12 @@ if __name__ == '__main__':
         # We will have issues with needing to see the internet to fetch cross match catalogs though
         # So we will need to cache NVSS catalogs for a given direction when doing 'stage'
         # OR forget using catalog_matching.py here and just do later with database/catalog scripts
+        # WARNING: Needs updating to actual 2GC image (pcalmask)
         imgPaths=glob.glob("IMAGES/*datamask-MFS-image.fits")
         for i in imgPaths:
-            if i.find("pbcorr_trim") == -1:
-                imgPath=os.path.abspath(i)
+            if i.find("pbcorr_trim") != -1:
+                continue
+            imgPath=os.path.abspath(i)
             cmd="mkat_primary_beam_correct %s -T" % (imgPath)
 
             imgDir, imgFileName=os.path.split(imgPath)

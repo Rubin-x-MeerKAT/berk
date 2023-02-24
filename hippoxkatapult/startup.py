@@ -26,12 +26,21 @@ config['productsDir']=config['rootDir']+os.path.sep+"products"
 config['cacheDir']=config['rootDir']+os.path.sep+"cache"
 
 # Oxkat version to use
-config['oxkatVersion']="0.3"
+# OLD: Tagged version
+# config['oxkatVersion']="0.3"
+# config['oxkatDir']=config['cacheDir']+os.path.sep+"oxkat-%s" % (config['oxkatVersion'])
+# config['oxkatURL']="https://github.com/IanHeywood/oxkat/archive/refs/tags/v%s.tar.gz" % (config['oxkatVersion'])
+# CURRENT: From Matt's git fork
+config['oxkatVersion']="git"
 config['oxkatDir']=config['cacheDir']+os.path.sep+"oxkat-%s" % (config['oxkatVersion'])
-config['oxkatURL']="https://github.com/IanHeywood/oxkat/archive/refs/tags/v%s.tar.gz" % (config['oxkatVersion'])
+config['oxkatURL']="https://github.com/mattyowl/oxkat.git"
 
 # Image-processing (source finding scripts from Jonah)
 config['catalogScriptsDir']=config['cacheDir']+os.path.sep+"catalog-scripts"
+
+print("Using oxkat version: %s" % (config['oxkatVersion']))
+if config['oxkatVersion'] == "git":
+    print("Remember to remove %s before running hippoxkatapult if you need to fetch an updated version from the git repository" % (config['oxkatDir']))
 
 # Set-up ----------------------------------------------------------------------------------------------------
 dirsToMake=[config['stagingDir'], config['processingDir'], config['productsDir'], config['cacheDir']]
@@ -41,8 +50,11 @@ for d in dirsToMake:
 if os.path.exists(config['oxkatDir']) == False:
     topDir=os.getcwd()
     os.chdir(config['cacheDir'])
-    os.system("wget %s" % (config['oxkatURL']))
-    os.system("tar -zxvf v%s.tar.gz" % (config['oxkatVersion']))
+    if config['oxkatVersion'] != 'git':
+        os.system("wget %s" % (config['oxkatURL']))
+        os.system("tar -zxvf v%s.tar.gz" % (config['oxkatVersion']))
+    else:
+        os.system("git clone %s oxkat-%s" % (config['oxkatURL'], config['oxkatVersion']))
     os.chdir(topDir)
 
 if os.path.exists(config['catalogScriptsDir']) == False:

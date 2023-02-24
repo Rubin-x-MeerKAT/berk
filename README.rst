@@ -17,10 +17,9 @@ turn to generate useful high-level processed MeerKAT data (initially,
 continuum images and catalogs) for use by the community.
 
 This project is at an early stage. At the moment, data can be processed in one step
-to the 2GC (self-calibration stage), producing continuum images. Automated fetching
-from the archive is not implemented yet. We will add additional steps to perform
-automated quality checks, organise the output, and produce catalogs for ingestion
-into a database.
+to the 2GC (self-calibration stage), producing continuum images, and catalogs.
+Additional steps will be added to perform automated quality checks, organise the
+output, and ingest it into a database.
 
 
 Usage
@@ -45,9 +44,7 @@ and ``task`` is one of:
     runs to the 2GC (self-calibration) stage, producing continuum images.
 
 ``analyse``:
-    Produce catalogs from the images, run various tests, output summary
-    statistics, and organise the data products that are to be retained and/or
-    distributed (this is not implemented yet).
+    Produce catalogs from the images and run various tests.
 
 
 Notes
@@ -69,3 +66,5 @@ Everything that `Oxkat <https://github.com/IanHeywood/oxkat>`_ needs plus:
 * katbeam
 * python-casacore
 * numpyencoder
+* Jonah Wagenveld's `Image-processing <https://github.com/JonahDW/Image-processing>`_ scripts, that use `PyBDSF <https://pybdsf.readthedocs.io/en/latest/>`_.
+

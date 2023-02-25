@@ -9,22 +9,25 @@ from .startup import config
 from . import jobs
 
 #------------------------------------------------------------------------------------------------------------
-def fetchFromArchive(captureBlockId):
-    """Dummy routine (for now). Fetch the requested MeerKAT measurement set, identified using
-    captureBlockId (the equivalent of e.g. XMM ObsID), as a tar.gz.
+def fetchFromArchive(captureBlockIdLink):
+    """Fetch the dataset from the archive and write into the scratch area.
 
-    Returns:
-        None
+    Args:
+        captureBlockIdLink (str): Link copied from https://archive.sarao.ac.za of the form
+            https://archive-gw-1.kat.ac.za/captureBlockId/captureBlockId_sdp_l0.full.rdb?token=longTokenString.
 
     """
 
-    pathToTGZ=config['stagingDir']+os.path.sep+"%s_sdp_l0.ms.tar.gz" % (captureBlockId)
-    print("archive.fetchFromArchive - dummy retrieve - %s" % (pathToTGZ))
-    assert(os.path.exists(pathToTGZ))
+    # NOTE: We don't need routine any more
+    captureBlockId=captureBlockIdLink.split("https://archive-gw-1.kat.ac.za/")[-1].split("/")[0]
+    msPath=os.environ['HIPPOXKATAPULT_MSCACHE']+os.path.sep+"%s_sdp_l0.ms" % (captureBlockId)
+    cmd="mvftoms.py %s --flags cam,data_lost,ingest_rfi -o %s" % (captureBlockIdLink, msPath)
+    os.system("screen -S fetch-%s -d -m %s" % (cmd))
+    print("Fetching %s" % (msPath))
 
 #------------------------------------------------------------------------------------------------------------
-def checkUnpacking(captureBlockId):
-    """Check if the measurement set corresponding to the given captureBlockId is still unpacking.
+def checkFetchComplete(captureBlockId):
+    """Check if the measurement set corresponding to the given captureBlockId has been fetched.
 
     Note:
         This relies on GNU Screen.
@@ -33,7 +36,7 @@ def checkUnpacking(captureBlockId):
 
     process=subprocess.run(['screen', '-ls'], universal_newlines = True,
                            stdout = subprocess.PIPE, stderr = subprocess.STDOUT)
-    if process.stdout.find("unpack-%s" % (captureBlockId)) == -1:
+    if process.stdout.find("fetch-%s" % (captureBlockId)) == -1:
         return False
     else:
         return True

@@ -19,18 +19,19 @@ import sys
 import argparse
 import subprocess
 import glob
+import time
 from hippoxkatapult import startup, archive, jobs
 
 #------------------------------------------------------------------------------------------------------------
 def makeParser():
     parser=argparse.ArgumentParser("hippoxkatapult")
-    parser.add_argument("task", help="Task to run - one of: 'stage' (retrieve data from archive, store under\
-                        $HIPPOXKATAPULT_MSCACHE location, link under 'staging' directory),\
-                        'process' (run calibration and imaging with Oxkat\
+    parser.add_argument("task", help="Task to run - one of: 'fetch' (retrieve data from archive, store under\
+                        $HIPPOXKATAPULT_MSCACHE location),\
+                        'process' (link measurement set under 'staging' directory, run calibration and imaging with Oxkat\
                         up to 2GC), or 'analyze' (apply primary beam correction and make object catalogs with\
                         PyBDSF).")
     parser.add_argument("captureBlockId", help="MeerKAT observation to fetch and process.\
-                        For the 'stage' task, this must be a link to an .rdb file on the archive, of the form\
+                        For the 'fetch' task, this must be a link to an .rdb file on the archive, of the form\
                         https://archive-gw-1.kat.ac.za/captureBlockId/captureBlockId_sdp_l0.full.rdb?token=longTokenString.\
                         For the other tasks ('process', 'analyse'), this should be the captureBlockId itself.")
 
@@ -47,17 +48,19 @@ if __name__ == '__main__':
     MSPath=stagingDir+os.path.sep+captureBlockId+"_sdp_l0.ms"
     topDir=os.getcwd()
 
-    if args.task == 'stage':
-        archive.fetchFromArchive(captureBlockId)
-        if os.path.exists(MSPath) == False:
-            tgzPath=stagingDir+os.path.sep+"%s_sdp_l0.ms.tar.gz" % (captureBlockId)
-            if archive.checkUnpacking(captureBlockId) == False:
-                os.system("screen -S unpack-%s -d -m tar -zxvf %s -C %s/" % (captureBlockId, tgzPath, stagingDir))
-                print("unpacking %s - this will take a while" % (tgzPath))
-            else:
-                print("already unpacking %s" % (tgzPath))
+    if args.task == 'fetch':
+        captureBlockIdLink=captureBlockId
+        captureBlockId=captureBlockIdLink.split("https://archive-gw-1.kat.ac.za/")[-1].split("/")[0]
+        msPath=os.environ['HIPPOXKATAPULT_MSCACHE']+os.path.sep+"%s_sdp_l0.ms" % (captureBlockId)
+        if archive.checkFetchComplete(captureBlockId) == False:
+            cmd="mvftoms.py %s --flags cam,data_lost,ingest_rfi -o %s" % (captureBlockIdLink, msPath)
+            print("Run this command in GNU screen:")
+            print(cmd)
+            print("[yes, this is clunky - but automatically running in screen isn't working at the moment]")
+            os.system("screen -dmS fetch-%s bash -c '%s'" % (captureBlockId, cmd))
+            # print("Fetching %s" % (msPath))
         else:
-            print("measurement set %s is already staged" % (MSPath))
+            print("Already fetching %s" % (msPath))
         sys.exit()
 
     elif args.task == 'process':

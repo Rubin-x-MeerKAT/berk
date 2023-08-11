@@ -70,5 +70,6 @@ Everything that `Oxkat <https://github.com/IanHeywood/oxkat>`_ needs plus:
 * katbeam
 * python-casacore
 * numpyencoder
+* katdal
 * Jonah Wagenveld's `Image-processing <https://github.com/JonahDW/Image-processing>`_ scripts, that use `PyBDSF <https://pybdsf.readthedocs.io/en/latest/>`_.
 

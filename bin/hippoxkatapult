@@ -54,10 +54,11 @@ if __name__ == '__main__':
         msPath=os.environ['HIPPOXKATAPULT_MSCACHE']+os.path.sep+"%s_sdp_l0.ms" % (captureBlockId)
         if archive.checkFetchComplete(captureBlockId) == False:
             cmd="mvftoms.py %s --flags cam,data_lost,ingest_rfi -o %s" % (captureBlockIdLink, msPath)
-            print("Run this command in GNU screen:")
-            print(cmd)
-            print("[yes, this is clunky - but automatically running in screen isn't working at the moment]")
-            os.system("screen -dmS fetch-%s bash -c '%s'" % (captureBlockId, cmd))
+            os.system(cmd)
+            # print("Run this command in GNU screen:")
+            # print(cmd)
+            # print("[yes, this is clunky - but automatically running in screen isn't working at the moment]")
+            # os.system("screen -dmS fetch-%s bash -c '%s'" % (captureBlockId, cmd))
             # print("Fetching %s" % (msPath))
         else:
             print("Already fetching %s" % (msPath))

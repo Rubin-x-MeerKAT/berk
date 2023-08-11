@@ -65,7 +65,6 @@ Requirements
 
 Everything that `Oxkat <https://github.com/IanHeywood/oxkat>`_ needs plus:
 
-* GNU Screen
 * Slurm
 * katbeam
 * python-casacore

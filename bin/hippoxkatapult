@@ -25,12 +25,12 @@ from hippoxkatapult import startup, archive, jobs
 #------------------------------------------------------------------------------------------------------------
 def makeParser():
     parser=argparse.ArgumentParser("hippoxkatapult")
-    parser.add_argument("task", help="Task to run - one of: 'fetch' (retrieve data from archive, store under\
-                        $HIPPOXKATAPULT_MSCACHE location),\
-                        'process' (link measurement set under 'staging' directory, run calibration and imaging with Oxkat\
-                        up to 2GC), or 'analyze' (apply primary beam correction and make object catalogs with\
-                        PyBDSF).")
-    parser.add_argument("captureBlockId", help="MeerKAT observation to fetch and process.\
+    parser.add_argument("task", help="Task to run - one of:\
+                        'list' (list available data sets according to captureBlockId),\
+                        'fetch' (retrieve data from archive, store under $HIPPOXKATAPULT_MSCACHE location),\
+                        'process' (link measurement set under 'staging' directory, run calibration and imaging with Oxkat up to 2GC),\
+                        'analyse' (apply primary beam correction and make object catalogs with PyBDSF).")
+    parser.add_argument("-o", "--observation", dest="captureBlockId", default = None, help="MeerKAT observation to fetch and process.\
                         For the 'fetch' task, this must be a link to an .rdb file on the archive, of the form\
                         https://archive-gw-1.kat.ac.za/captureBlockId/captureBlockId_sdp_l0.full.rdb?token=longTokenString.\
                         For the other tasks ('process', 'analyse'), this should be the captureBlockId itself.")
@@ -44,9 +44,28 @@ if __name__ == '__main__':
     args=parser.parse_args()
     captureBlockId=args.captureBlockId
 
-    stagingDir=startup.config["stagingDir"]
-    MSPath=stagingDir+os.path.sep+captureBlockId+"_sdp_l0.ms"
+    # We can't just make this about the workload manager as it affects what we feed into oxkat
+    if 'HIPPOXKATAPULT_PLATFORM' not in os.environ.keys():
+        raise Exception("Set HIPPOXKATAPULT_PLATFORM environment variable to either 'hippo' or 'chpc'")
+    if os.environ['HIPPOXKATAPULT_PLATFORM'] == 'chpc':
+        workloadManager='pbs'
+    elif os.environ['HIPPOXKATAPULT_PLATFORM'] == 'hippo':
+        workloadManager='slurm'
+    else:
+        raise Exception("Environment variable HIPPOXKATAPULT_PLATFORM is not set to 'hippo' or 'chpc'")
+
+    # Tidy this up - make a dictionary of tasks with descriptions and use that also in help for the parser
+    validTasks=['list', 'fetch', 'process', 'analyse']
+    if args.task not in validTasks:
+        print("'%s' is not a valid task - exiting..." % (args.task))
+        sys.exit()
+
     topDir=os.getcwd()
+
+    needsCaptureBlockId=['fetch', 'process', 'analyse']
+    if captureBlockId is None and args.task in needsCaptureBlockId:
+        print("No observation provided - this should be either a captureBlockId (for the 'process', 'analyse' tasks) or a link to an .rdb file on the archive (for the 'fetch' task).")
+        sys.exit()
 
     if args.task == 'fetch':
         captureBlockIdLink=captureBlockId
@@ -64,15 +83,31 @@ if __name__ == '__main__':
             print("Already fetching %s" % (msPath))
         sys.exit()
 
+    elif args.task == 'list':
+        msList=glob.glob(os.environ['HIPPOXKATAPULT_MSCACHE']+os.path.sep+"*_sdp_l0.ms")
+        print("Available observations [captureBlockId]:")
+        # print("captureBlockId\tprocess\tanalyse\n")
+        # print("
+        for ms in msList:
+            captureBlockId=os.path.split(ms)[-1].split("_")[0]
+            print("%s" % (captureBlockId))
+        sys.exit()
+
     elif args.task == 'process':
 
         # Move the unpacked MS into the staging dir (almost instant)
-        if os.path.exists(MSPath) == False:
-            for p in os.walk(stagingDir+os.path.sep+"scratch"):
-                if p[1][0] == os.path.split(MSPath)[-1]:
-                    break
-            mvCmd="mv %s/%s %s/" % (p[0], p[1][0], stagingDir)
-            os.system(mvCmd)
+        # if os.path.exists(MSPath) == False:
+            # import IPython
+            # IPython.embed()
+            # sys.exit()
+            # for p in os.walk(stagingDir+os.path.sep+"scratch"):
+                # if p[1][0] == os.path.split(MSPath)[-1]:
+                    # break
+            # mvCmd="mv %s/%s %s/" % (p[0], p[1][0], stagingDir)
+            # os.system(mvCmd)
+
+        # Forget staging dir, just do a symbolic link to the MSCache dir
+        MSPath=os.environ['HIPPOXKATAPULT_MSCACHE']+os.path.sep+captureBlockId+"_sdp_l0.ms"
 
         # Setup in processing dir
         MSProcessDir=startup.config['processingDir']+os.path.sep+captureBlockId
@@ -87,13 +122,13 @@ if __name__ == '__main__':
 
         # Generate the oxkat job scripts then spin through + submit them ourselves
         # 1GC
-        os.system("python setups/1GC.py hippo")
-        sbatchCmds=[]
+        os.system("python3 setups/1GC.py %s" % os.environ['HIPPOXKATAPULT_PLATFORM'])
+        jobCmds=[]
         dependent=[]
         with open("submit_1GC_jobs.sh") as inFile:
             lines=inFile.readlines()
             for line in lines:
-                if line.find("sbatch") != -1:
+                if line.find("sbatch") != -1 and workloadManager == 'slurm':
                     sbatchCmd=line[line.find("sbatch") :].split(" |")[0]
                     if sbatchCmd.find("-d afterok:") != -1:
                         sbatchCmd=sbatchCmd.split("}")[-1].strip()
@@ -101,28 +136,38 @@ if __name__ == '__main__':
                     else:
                         sbatchCmd=sbatchCmd.split("sbatch")[-1].strip()
                         dependent.append(False)
-                    sbatchCmds.append(sbatchCmd)
+                    jobCmds.append(sbatchCmd)
+                elif line.find("qsub") != -1 and workloadManager == 'pbs':
+                    qsubCmd=line[line.find("qsub") :].split(" |")[0]
+                    if qsubCmd.find("-W depend=afterok") != -1:
+                        qsubCmd=qsubCmd.split("}")[-1].strip()
+                        dependent.append(True)
+                    else:
+                        qsubCmd=qsubCmd.split("qsub")[-1].strip()
+                        dependent.append(False)
+                    jobCmds.append(qsubCmd)
+
         jobIDs=[]
-        for cmd, dep in zip(sbatchCmds, dependent):
+        for cmd, dep in zip(jobCmds, dependent):
             if dep == False:
                 dependentJobIDs=None
             else:
                 dependentJobIDs=jobIDs
             jobName=os.path.split(cmd)[-1]
-            jobID=jobs.submitJob(cmd, jobName, dependentJobIDs = dependentJobIDs, cmdIsBatchScript = True)
+            jobID=jobs.submitJob(cmd, jobName, dependentJobIDs = dependentJobIDs, workloadManager = workloadManager, cmdIsBatchScript = True)
             jobIDs.append(jobID)
 
         # Run the FLAG and 2GC setup scripts as a job, then chain them together
-        cmd="python setups/FLAG.py hippo"
-        jobID=jobs.submitJob(cmd, "SETUP_FLAG_JOBS", dependentJobIDs = jobIDs)
+        cmd="python3 setups/FLAG.py %s" % (os.environ['HIPPOXKATAPULT_PLATFORM'])
+        jobID=jobs.submitJob(cmd, "SETUP_FLAG_JOBS", dependentJobIDs = jobIDs, workloadManager = workloadManager)
         jobIDs.append(jobID)
-        cmd="python setups/2GC.py hippo"
-        jobID=jobs.submitJob(cmd, "SETUP_2GC_JOBS", dependentJobIDs = jobIDs)
+        cmd="python3 setups/2GC.py %s" % (os.environ['HIPPOXKATAPULT_PLATFORM'])
+        jobID=jobs.submitJob(cmd, "SETUP_2GC_JOBS", dependentJobIDs = jobIDs, workloadManager = workloadManager)
         jobIDs.append(jobID)
-        print("check")
-        cmd="hippoxkatapult_chain %s submit_flag_jobs.sh submit_2GC_jobs.sh" % (jobIDs[-1])
-        jobID=jobs.submitJob(cmd, "CHAIN_FLAG+2GC_JOBS", dependentJobIDs = jobIDs)
+        cmd="hippoxkatapult_chain %s submit_flag_jobs.sh submit_2GC_jobs.sh" % (workloadManager)
+        jobID=jobs.submitJob(cmd, "CHAIN_FLAG+2GC_JOBS", dependentJobIDs = jobIDs, workloadManager = workloadManager)
         print("All jobs submitted")
+        sys.exit()
 
     elif args.task == 'analyse':
 
@@ -149,18 +194,20 @@ if __name__ == '__main__':
 
             imgDir, imgFileName=os.path.split(imgPath)
             pbcorrImgPath=imgDir+os.path.sep+"pbcorr_trim_"+imgFileName
-            cmd=cmd+"\npython sourcefinding.py c %s -o fits --survey MSS" % (pbcorrImgPath)
+            cmd=cmd+"\npython3 sourcefinding.py c %s -o fits --survey MSS" % (pbcorrImgPath)
 
-            catPath=imgDir+os.path.sep+"pbcorr_trim_"+imgFileName.split(".ms_")[0]+"_pybdsf"+os.path.sep+\
-                "pbcorr_trim_"+imgFileName.split(".ms_")[0]+"_bdsfcat.fits"
-            cmd=cmd+"\npython catalog_matching.py %s NVSS --astro --flux" % (catPath)
+            # The bit below isn't going to work on compute nodes - so we may as well move this
+            label=imgFileName.split(".ms_")[0].split(".")[0]
+            catPath=imgDir+os.path.sep+"pbcorr_trim_"+label+"_pybdsf"+os.path.sep+"pbcorr_trim_"+label+"_bdsfcat.fits"
+            cmd=cmd+"\npython3 catalog_matching.py %s NVSS --astro --flux" % (catPath)
 
-            jobID=jobs.submitJob(cmd, 'source-finding-%s' % (imgFileName), dependentJobIDs = None, nodes = 1, tasks = 1, cpusPerTask = 20, mem = 8000,
-                                 time = "24:00:00", cmdIsBatchScript = False)
+            jobID=jobs.submitJob(cmd, 'source-finding-%s' % (imgFileName), dependentJobIDs = None, nodes = 1, tasks = 20, mem = 64000,
+                                 time = "24:00:00", cmdIsBatchScript = False, workloadManager = workloadManager)
             print("Submitted source finding and analysis job %d" % (jobID))
 
         # Copy the data products we want to keep
         print("Tidy data products")
+        sys.exit()
 
 
 

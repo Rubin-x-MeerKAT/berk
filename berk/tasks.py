@@ -9,7 +9,7 @@ import sys
 import subprocess
 import glob
 import time
-from . import startup, archive
+from . import startup, archive, jobs
 
 #------------------------------------------------------------------------------------------------------------
 def fetch(captureBlockId):

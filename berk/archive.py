@@ -20,7 +20,7 @@ def fetchFromArchive(captureBlockIdLink):
 
     # NOTE: We don't need routine any more
     captureBlockId=captureBlockIdLink.split("https://archive-gw-1.kat.ac.za/")[-1].split("/")[0]
-    msPath=os.environ['HIPPOXKATAPULT_MSCACHE']+os.path.sep+"%s_sdp_l0.ms" % (captureBlockId)
+    msPath=os.environ['BERK_MSCACHE']+os.path.sep+"%s_sdp_l0.ms" % (captureBlockId)
     cmd="mvftoms.py %s --flags cam,data_lost,ingest_rfi -o %s" % (captureBlockIdLink, msPath)
     os.system("screen -S fetch-%s -d -m %s" % (cmd))
     print("Fetching %s" % (msPath))
@@ -51,7 +51,7 @@ def stageMS(captureBlockId):
 
     """
 
-    # NOTE: MOVE THIS INTO HIPPOXKATAPULT_UNPACK
+    # NOTE: MOVE THIS INTO BERK_UNPACK
     MSPath=config["stagingDir"]+os.path.sep+captureBlockId+"_sdp_l0.ms"
     if os.path.exists(MSPath) == False:
         pathToTGZ=fetchFromArchive(captureBlockId)

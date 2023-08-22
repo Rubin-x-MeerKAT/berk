@@ -2,7 +2,7 @@
 
 """
 
-Driver script for the hippoxkatapult package
+Driver script for the Berk package
 
 Given a MeerKAT captureBlockId:
     - fetch dataset from archive (mocked up at the moment)
@@ -20,14 +20,14 @@ import argparse
 import subprocess
 import glob
 import time
-from hippoxkatapult import startup, archive, jobs, tasks
+from berk import startup, archive, jobs, tasks
 
 #------------------------------------------------------------------------------------------------------------
 def makeParser():
-    parser=argparse.ArgumentParser("hippoxkatapult")
+    parser=argparse.ArgumentParser("berk")
     parser.add_argument("task", help="Task to run - one of:\
                         'list' (list downloaded observations available for processing by captureBlockId),\
-                        'fetch' (retrieve data from archive, store under $HIPPOXKATAPULT_MSCACHE location),\
+                        'fetch' (retrieve data from archive, store under $BERK_MSCACHE location),\
                         'process' (link measurement set under 'staging' directory, run calibration and imaging with Oxkat up to 2GC),\
                         'analyse' (apply primary beam correction and make object catalogs with PyBDSF),\
                         'collect' (collect data products for all processed observations - i.e., images and catalogs),\
@@ -63,7 +63,7 @@ if __name__ == '__main__':
         tasks.fetch(captureBlockId)
 
     elif args.task == 'list':
-        msList=glob.glob(os.environ['HIPPOXKATAPULT_MSCACHE']+os.path.sep+"*_sdp_l0.ms")
+        msList=glob.glob(os.environ['BERK_MSCACHE']+os.path.sep+"*_sdp_l0.ms")
         print("Downloaded observations available for processing [captureBlockId]:")
         # print("captureBlockId\tprocess\tanalyse\n")
         # print("

@@ -1,29 +1,24 @@
-# -*- coding: iso-8859-1 -*-
-#
-# meerkatapult install script
-
 import os
 import glob
 from setuptools import setup
 from setuptools import Extension
 import versioneer
 
-setup(name='hippoxkatapult',
+setup(name='berk',
       version=versioneer.get_version(),
       author='Matt Hilton',
-      author_email='hiltonm@ukzn.ac.za',
+      author_email='matt.hilton@wits.ac.za',
       classifiers=['Development Status :: 2 - Pre-Alpha',
                    'Environment :: Console',
                    'Intended Audience :: Science/Research',
-                   'License :: OSI Approved :: GNU General Public License v2 (GPLv2)',
+                   'License :: OSI Approved :: GNU General Public License v3 (GPLv3)',
                    'Natural Language :: English',
                    'Operating System :: POSIX',
                    'Programming Language :: Python',
                    'Topic :: Scientific/Engineering :: Astronomy'],
-      description="Tools for running Oxkat on archival MeerKAT data on Hippo, UKZN's HPC facility.",
-      packages=['hippoxkatapult'],
-      #package_data={'meerkatapult': ['data/*']},
-      scripts=['bin/hippoxkatapult', 'bin/hippoxkatapult_chain', 'bin/mkat_primary_beam_correct'],
+      description="A pipeline for producing and managing MeerKAT continuum survey data using Oxkat et al..",
+      packages=['berk'],
+      scripts=['bin/berk', 'bin/berk_chain', 'bin/mkat_primary_beam_correct'],
       #install_requires=["astropy >= 3.2",
                         #"numpy >= 1.10",
                         #"matplotlib >= 2.0"]

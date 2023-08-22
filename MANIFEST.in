@@ -1,2 +1,2 @@
 include versioneer.py
-include hippoxkatapult/_version.py
+include berk/_version.py

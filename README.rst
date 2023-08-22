@@ -1,4 +1,4 @@
-**Hippoxkatapult** provides a pipeline for fetching and processing archival
+**Berk** provides a pipeline for fetching and processing archival
 `MeerKAT <https://skaafrica.atlassian.net/wiki/spaces/ESDKB/overview?homepageId=41025669>`_
 data on a compute cluster using `Oxkat <https://github.com/IanHeywood/oxkat>`_
 for calibration and imaging, and `PyBDSF <https://www.astron.nl/citt/pybdsf/>`_
@@ -7,10 +7,10 @@ for generating object catalogs.
 * **License:** `GPL v3 <LICENSE>`_
 * **Authors:** Matt Hilton
 * **Installation:** ``python setup.py install --user``
-* **Support:** Please use the `GitHub issues page <https://github.com/mattyowl/hippoxkatapult/issues>`_,
+* **Support:** Please use the `GitHub issues page <https://github.com/mattyowl/berk/issues>`_,
   and/or contact `Matt Hilton <mailto:matt.hilton@mykolab.com>`_.
 
-**Hippoxkatapult** is being developed and deployed on `Hippo <https://astro.ukzn.ac.za/~hippo/>`_,
+**Berk** is being developed and deployed on `Hippo <https://astro.ukzn.ac.za/~hippo/>`_,
 the High Performance Computing facility at the University of KwaZulu-Natal, with
 the aim of using it to perform a serendipitous survey with MeerKAT, and in
 turn to generate useful high-level processed MeerKAT data (initially,
@@ -25,20 +25,20 @@ output, and ingest it into a database.
 Usage
 -----
 
-First set the ``HIPPOXKATAPULT_ROOT`` environment variable to point to where you
-want all the processing, and analysis to happen. Set the ``HIPPOXKATAPULT_MSCACHE``
+First set the ``BERK_ROOT`` environment variable to point to where you
+want all the processing, and analysis to happen. Set the ``BERK_MSCACHE``
 environment variable to point to a directory where retrieved measurement sets
 will be stored.
 
 The pipeline runs through a single command with the format::
 
-    hippoxkatapult task captureBlockId
+    berk task captureBlockId
 
 Here, ``captureBlockId`` is used to identify the dataset in the MeerKAT archive,
 and ``task`` is one of:
 
 ``fetch``:
-    Fetch data from the archive, and store it where ``hippoxkatapult`` can
+    Fetch data from the archive, and store it where ``berk`` can
     find it. Here, ``captureBlockId`` should actually be a link to a ``.rdb``
     file on the archive, of the form
     https://archive-gw-1.kat.ac.za/captureBlockId/captureBlockId_sdp_l0.full.rdb?token=longTokenString

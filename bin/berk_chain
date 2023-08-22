@@ -9,11 +9,11 @@ Script to chain two Oxkat job scripts together and submit the jobs within
 import os
 import sys
 import time
-from hippoxkatapult import jobs
+from berk import jobs
 import IPython
 
 if len(sys.argv) < 3:
-    print("Run: hippoxkatapult_chain workloadManager script1.sh script2.sh")
+    print("Run: berk_chain workloadManager script1.sh script2.sh")
 
 workloadManager=sys.argv[1]
 assert(workloadManager in ['slurm', 'pbs'])

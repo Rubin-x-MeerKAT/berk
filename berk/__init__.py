@@ -1,6 +1,6 @@
 """
 
-hippoxkatapult - tools for running oxkat on archival MeerKAT data
+Berk - a package for producing and managing MeerKAT continuum survey data.
 
 """
 

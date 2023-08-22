@@ -1,6 +1,6 @@
 """
 
-Startup routines and config for hippoxkatapult
+Startup routines and config for Berk
 
 """
 
@@ -9,32 +9,32 @@ import os, sys
 # Settings are hard-coded for now, but could be put into a YAML config file later ---------------------------
 config={}
 
-if "HIPPOXKATAPULT_ROOT" not in os.environ.keys():
-    raise Exception("You need to set the HIPPOXKATAPULT_ROOT environment variable - this defines the directory where all work will be done.")
-if "HIPPOXKATAPULT_MSCACHE" not in os.environ.keys():
-    raise Exception("You need to set the HIPPOXKATAPULT_MSCACHE environment variable - this defines the directory where retrieved measurement sets will be stored.")
+if "BERK_ROOT" not in os.environ.keys():
+    raise Exception("You need to set the BERK_ROOT environment variable - this defines the directory where all work will be done.")
+if "BERK_MSCACHE" not in os.environ.keys():
+    raise Exception("You need to set the BERK_MSCACHE environment variable - this defines the directory where retrieved measurement sets will be stored.")
 
-os.makedirs(os.environ["HIPPOXKATAPULT_MSCACHE"], exist_ok = True)
-os.makedirs(os.environ["HIPPOXKATAPULT_ROOT"], exist_ok = True)
+os.makedirs(os.environ["BERK_MSCACHE"], exist_ok = True)
+os.makedirs(os.environ["BERK_ROOT"], exist_ok = True)
 
 # For using 'collect' to fetch data products from (potentially) multiple locations
-if 'HIPPOXKATAPULT_NODES_FILE' in os.environ.keys():
-    config['nodesFile']=os.environ['HIPPOXKATAPULT_NODES_FILE']
+if 'BERK_NODES_FILE' in os.environ.keys():
+    config['nodesFile']=os.environ['BERK_NODES_FILE']
 else:
     config['nodesFile']=None
 
 # We can't just make this about the workload manager as it affects what we feed into oxkat
-if 'HIPPOXKATAPULT_PLATFORM' not in os.environ.keys():
-    raise Exception("Set HIPPOXKATAPULT_PLATFORM environment variable to either 'hippo' or 'chpc'")
-if os.environ['HIPPOXKATAPULT_PLATFORM'] == 'chpc':
+if 'BERK_PLATFORM' not in os.environ.keys():
+    raise Exception("Set BERK_PLATFORM environment variable to either 'hippo' or 'chpc'")
+if os.environ['BERK_PLATFORM'] == 'chpc':
     config['workloadManager']='pbs'
-elif os.environ['HIPPOXKATAPULT_PLATFORM'] == 'hippo':
+elif os.environ['BERK_PLATFORM'] == 'hippo':
     config['workloadManager']='slurm'
 else:
-    raise Exception("Environment variable HIPPOXKATAPULT_PLATFORM is not set to 'hippo' or 'chpc'")
+    raise Exception("Environment variable BERK_PLATFORM is not set to 'hippo' or 'chpc'")
 
 # Processing and data products will be written in sub-dirs here
-config['rootDir']=os.environ["HIPPOXKATAPULT_ROOT"]
+config['rootDir']=os.environ["BERK_ROOT"]
 
 # This should eventually be the scratch disk
 # config['stagingDir']=config['rootDir']+os.path.sep+"staging"
@@ -64,7 +64,7 @@ config['catalogScriptsDir']=config['cacheDir']+os.path.sep+"catalog-scripts"
 
 print("Using oxkat version: %s" % (config['oxkatVersion']))
 if config['oxkatVersion'] == "git":
-    print("Remember to remove %s before running hippoxkatapult if you need to fetch an updated version from the git repository" % (config['oxkatDir']))
+    print("Remember to remove %s before running berk if you need to fetch an updated version from the git repository" % (config['oxkatDir']))
 
 # Set-up ----------------------------------------------------------------------------------------------------
 dirsToMake=[config['processingDir'], config['productsDir'], config['cacheDir']]

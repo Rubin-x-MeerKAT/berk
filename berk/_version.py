@@ -43,8 +43,8 @@ def get_config():
     cfg.VCS = "git"
     cfg.style = "pep440"
     cfg.tag_prefix = "v"
-    cfg.parentdir_prefix = "hippoxkatapult-"
-    cfg.versionfile_source = "hippoxkatapult/_version.py"
+    cfg.parentdir_prefix = "berk-"
+    cfg.versionfile_source = "berk/_version.py"
     cfg.verbose = False
     return cfg
 

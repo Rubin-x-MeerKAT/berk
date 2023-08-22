@@ -1,6 +1,6 @@
 """
 
-Tasks that can be performed by hippoxkatapult
+Tasks that can be performed by Berk
 
 """
 
@@ -19,7 +19,7 @@ def fetch(captureBlockId):
 
     captureBlockIdLink=captureBlockId
     captureBlockId=captureBlockIdLink.split("https://archive-gw-1.kat.ac.za/")[-1].split("/")[0]
-    msPath=os.environ['HIPPOXKATAPULT_MSCACHE']+os.path.sep+"%s_sdp_l0.ms" % (captureBlockId)
+    msPath=os.environ['BERK_MSCACHE']+os.path.sep+"%s_sdp_l0.ms" % (captureBlockId)
     if archive.checkFetchComplete(captureBlockId) == False:
         cmd="mvftoms.py %s --flags cam,data_lost,ingest_rfi -o %s" % (captureBlockIdLink, msPath)
         os.system(cmd)
@@ -48,19 +48,19 @@ def collect():
     """
 
     print("Collecting processed data products...")
-    if 'HIPPOXKATAPULT_NODES_FILE' not in os.environ.keys():
-        print("You need to set the HIPPOXKATAPULT_NODES_FILE environment variable to use the 'collect' task.")
+    if 'BERK_NODES_FILE' not in os.environ.keys():
+        print("You need to set the BERK_NODES_FILE environment variable to use the 'collect' task.")
         sys.exit()
-    nodesFilePath=os.environ['HIPPOXKATAPULT_NODES_FILE']
+    nodesFilePath=os.environ['BERK_NODES_FILE']
     try:
         stubs=[]
-        with open(os.environ['HIPPOXKATAPULT_NODES_FILE'], "r") as inFile:
+        with open(os.environ['BERK_NODES_FILE'], "r") as inFile:
             for line in inFile.readlines():
                 stubs.append(line)
     except:
         import urllib.request  # the lib that handles the url stuff
         stubs=[]
-        for line in urllib.request.urlopen(os.environ['HIPPOXKATAPULT_NODES_FILE']):
+        for line in urllib.request.urlopen(os.environ['BERK_NODES_FILE']):
             l=line.decode('utf-8')
             if l[0] != "#" and len(l) > 3:
                 stubs.append(l.strip())
@@ -93,7 +93,7 @@ def process(captureBlockId):
     """
 
     # Forget staging dir, just do a symbolic link to the MSCache dir
-    MSPath=os.environ['HIPPOXKATAPULT_MSCACHE']+os.path.sep+captureBlockId+"_sdp_l0.ms"
+    MSPath=os.environ['BERK_MSCACHE']+os.path.sep+captureBlockId+"_sdp_l0.ms"
 
     # Setup in processing dir
     MSProcessDir=startup.config['processingDir']+os.path.sep+captureBlockId
@@ -108,7 +108,7 @@ def process(captureBlockId):
 
     # Generate the oxkat job scripts then spin through + submit them ourselves
     # 1GC
-    os.system("python3 setups/1GC.py %s" % os.environ['HIPPOXKATAPULT_PLATFORM'])
+    os.system("python3 setups/1GC.py %s" % os.environ['BERK_PLATFORM'])
     jobCmds=[]
     dependent=[]
     with open("submit_1GC_jobs.sh") as inFile:
@@ -144,13 +144,13 @@ def process(captureBlockId):
         jobIDs.append(jobID)
 
     # Run the FLAG and 2GC setup scripts as a job, then chain them together
-    cmd="python3 setups/FLAG.py %s" % (os.environ['HIPPOXKATAPULT_PLATFORM'])
+    cmd="python3 setups/FLAG.py %s" % (os.environ['BERK_PLATFORM'])
     jobID=jobs.submitJob(cmd, "SETUP_FLAG_JOBS", dependentJobIDs = jobIDs, workloadManager = startup.config['workloadManager'])
     jobIDs.append(jobID)
-    cmd="python3 setups/2GC.py %s" % (os.environ['HIPPOXKATAPULT_PLATFORM'])
+    cmd="python3 setups/2GC.py %s" % (os.environ['BERK_PLATFORM'])
     jobID=jobs.submitJob(cmd, "SETUP_2GC_JOBS", dependentJobIDs = jobIDs, workloadManager = startup.config['workloadManager'])
     jobIDs.append(jobID)
-    cmd="hippoxkatapult_chain %s submit_flag_jobs.sh submit_2GC_jobs.sh" % (workloadManager)
+    cmd="berk_chain %s submit_flag_jobs.sh submit_2GC_jobs.sh" % (workloadManager)
     jobID=jobs.submitJob(cmd, "CHAIN_FLAG+2GC_JOBS", dependentJobIDs = jobIDs, workloadManager = startup.config['workloadManager'])
     print("All jobs submitted")
     sys.exit()

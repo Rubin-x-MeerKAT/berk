@@ -1,0 +1,199 @@
+"""
+
+Tasks that can be performed by hippoxkatapult
+
+"""
+
+import os
+import sys
+import subprocess
+import glob
+import time
+from . import startup, archive
+
+#------------------------------------------------------------------------------------------------------------
+def fetch(captureBlockId):
+    """Fetch...
+
+    """
+
+    captureBlockIdLink=captureBlockId
+    captureBlockId=captureBlockIdLink.split("https://archive-gw-1.kat.ac.za/")[-1].split("/")[0]
+    msPath=os.environ['HIPPOXKATAPULT_MSCACHE']+os.path.sep+"%s_sdp_l0.ms" % (captureBlockId)
+    if archive.checkFetchComplete(captureBlockId) == False:
+        cmd="mvftoms.py %s --flags cam,data_lost,ingest_rfi -o %s" % (captureBlockIdLink, msPath)
+        os.system(cmd)
+        # print("Run this command in GNU screen:")
+        # print(cmd)
+        # print("[yes, this is clunky - but automatically running in screen isn't working at the moment]")
+        # os.system("screen -dmS fetch-%s bash -c '%s'" % (captureBlockId, cmd))
+        # print("Fetching %s" % (msPath))
+    else:
+        print("Already fetching %s" % (msPath))
+    sys.exit()
+
+#------------------------------------------------------------------------------------------------------------
+def store(captureBlockId):
+    """Store...
+
+    """
+
+    print("Task 'store' is not implemented yet.")
+    sys.exit()
+
+#------------------------------------------------------------------------------------------------------------
+def collect():
+    """Collect...
+
+    """
+
+    print("Collecting processed data products...")
+    if 'HIPPOXKATAPULT_NODES_FILE' not in os.environ.keys():
+        print("You need to set the HIPPOXKATAPULT_NODES_FILE environment variable to use the 'collect' task.")
+        sys.exit()
+    nodesFilePath=os.environ['HIPPOXKATAPULT_NODES_FILE']
+    try:
+        stubs=[]
+        with open(os.environ['HIPPOXKATAPULT_NODES_FILE'], "r") as inFile:
+            for line in inFile.readlines():
+                stubs.append(line)
+    except:
+        import urllib.request  # the lib that handles the url stuff
+        stubs=[]
+        for line in urllib.request.urlopen(os.environ['HIPPOXKATAPULT_NODES_FILE']):
+            l=line.decode('utf-8')
+            if l[0] != "#" and len(l) > 3:
+                stubs.append(l.strip())
+
+    # Get images
+    print("Collecting images...")
+    toPath=startup.config['productsDir']+os.path.sep+"images"
+    os.makedirs(toPath, exist_ok = True)
+    for s in stubs:
+        imgPath="processing/*/IMAGES/pbcorr*pcalmask-MFS-image.fits"
+        cmd="rsync -avP %s%s %s" % (s, os.path.sep+imgPath, toPath)
+        os.system(cmd)
+
+    # Get catalogs
+    print("Collecting catalogs...")
+    toPath=startup.config['productsDir']+os.path.sep+"catalogs"
+    os.makedirs(toPath, exist_ok = True)
+    for s in stubs:
+        catPath="processing/*/IMAGES/pbcorr_trim_*_pybdsf/*_bdsfcat.fits"
+        cmd="rsync -avP %s%s %s" % (s, os.path.sep+catPath, toPath)
+        os.system(cmd)
+
+    print("Finished!")
+    sys.exit()
+
+#------------------------------------------------------------------------------------------------------------
+def process(captureBlockId):
+    """Process...
+
+    """
+
+    # Forget staging dir, just do a symbolic link to the MSCache dir
+    MSPath=os.environ['HIPPOXKATAPULT_MSCACHE']+os.path.sep+captureBlockId+"_sdp_l0.ms"
+
+    # Setup in processing dir
+    MSProcessDir=startup.config['processingDir']+os.path.sep+captureBlockId
+    if os.path.exists(MSProcessDir) == True:
+        raise Exception("Processing directory %s exists and is not empty - remove it and re-run, if you're sure you don't need its contents." % (MSProcessDir))
+    os.makedirs(MSProcessDir)
+    os.chdir(MSProcessDir)
+    os.system("ln -s %s" % (os.path.abspath(MSPath)))
+    oxdirs=['setups', 'tools', 'oxkat', 'data']
+    for oxdir in oxdirs:
+        os.system("ln -s %s" % (startup.config['oxkatDir']+os.path.sep+oxdir))
+
+    # Generate the oxkat job scripts then spin through + submit them ourselves
+    # 1GC
+    os.system("python3 setups/1GC.py %s" % os.environ['HIPPOXKATAPULT_PLATFORM'])
+    jobCmds=[]
+    dependent=[]
+    with open("submit_1GC_jobs.sh") as inFile:
+        lines=inFile.readlines()
+        for line in lines:
+            if line.find("sbatch") != -1 and startup.config['workloadManager'] == 'slurm':
+                sbatchCmd=line[line.find("sbatch") :].split(" |")[0]
+                if sbatchCmd.find("-d afterok:") != -1:
+                    sbatchCmd=sbatchCmd.split("}")[-1].strip()
+                    dependent.append(True)
+                else:
+                    sbatchCmd=sbatchCmd.split("sbatch")[-1].strip()
+                    dependent.append(False)
+                jobCmds.append(sbatchCmd)
+            elif line.find("qsub") != -1 and startup.config['workloadManager'] == 'pbs':
+                qsubCmd=line[line.find("qsub") :].split(" |")[0]
+                if qsubCmd.find("-W depend=afterok") != -1:
+                    qsubCmd=qsubCmd.split("}")[-1].strip()
+                    dependent.append(True)
+                else:
+                    qsubCmd=qsubCmd.split("qsub")[-1].strip()
+                    dependent.append(False)
+                jobCmds.append(qsubCmd)
+
+    jobIDs=[]
+    for cmd, dep in zip(jobCmds, dependent):
+        if dep == False:
+            dependentJobIDs=None
+        else:
+            dependentJobIDs=jobIDs
+        jobName=os.path.split(cmd)[-1]
+        jobID=jobs.submitJob(cmd, jobName, dependentJobIDs = dependentJobIDs, workloadManager = startup.config['workloadManager'], cmdIsBatchScript = True)
+        jobIDs.append(jobID)
+
+    # Run the FLAG and 2GC setup scripts as a job, then chain them together
+    cmd="python3 setups/FLAG.py %s" % (os.environ['HIPPOXKATAPULT_PLATFORM'])
+    jobID=jobs.submitJob(cmd, "SETUP_FLAG_JOBS", dependentJobIDs = jobIDs, workloadManager = startup.config['workloadManager'])
+    jobIDs.append(jobID)
+    cmd="python3 setups/2GC.py %s" % (os.environ['HIPPOXKATAPULT_PLATFORM'])
+    jobID=jobs.submitJob(cmd, "SETUP_2GC_JOBS", dependentJobIDs = jobIDs, workloadManager = startup.config['workloadManager'])
+    jobIDs.append(jobID)
+    cmd="hippoxkatapult_chain %s submit_flag_jobs.sh submit_2GC_jobs.sh" % (workloadManager)
+    jobID=jobs.submitJob(cmd, "CHAIN_FLAG+2GC_JOBS", dependentJobIDs = jobIDs, workloadManager = startup.config['workloadManager'])
+    print("All jobs submitted")
+    sys.exit()
+
+#------------------------------------------------------------------------------------------------------------
+def analyse(captureBlockId):
+    """Analyse...
+
+    """
+
+    # Setup in processing dir
+    MSProcessDir=startup.config['processingDir']+os.path.sep+captureBlockId
+    if os.path.exists(MSProcessDir) == False:
+        raise Exception("Processing directory %s does not exist - you need to process the data before the analyse task will run." % (MSProcessDir))
+    os.chdir(MSProcessDir)
+    os.system("ln -s %s" % (startup.config["catalogScriptsDir"]+os.path.sep+"sourcefinding.py"))
+    os.system("ln -s %s" % (startup.config["catalogScriptsDir"]+os.path.sep+"catalog_matching.py"))
+    os.system("ln -s %s" % (startup.config["catalogScriptsDir"]+os.path.sep+"parsets"))
+
+    # Source finding is fairly lightweight so we put everything in one job script
+    # We will have issues with needing to see the internet to fetch cross match catalogs though
+    # So we will need to cache NVSS catalogs for a given direction when doing 'stage'
+    # OR forget using catalog_matching.py here and just do later with database/catalog scripts
+    imgPaths=glob.glob("IMAGES/*pcalmask-MFS-image.fits")
+    for i in imgPaths:
+        if i.find("pbcorr_trim") != -1:
+            continue
+        imgPath=os.path.abspath(i)
+        cmd="mkat_primary_beam_correct %s -T" % (imgPath)
+
+        imgDir, imgFileName=os.path.split(imgPath)
+        pbcorrImgPath=imgDir+os.path.sep+"pbcorr_trim_"+imgFileName
+        cmd=cmd+"\npython3 sourcefinding.py c %s -o fits --survey MSS" % (pbcorrImgPath)
+
+        # The bit below isn't going to work on compute nodes - so we may as well move this
+        label=imgFileName.split(".ms_")[0].split(".")[0]
+        catPath=imgDir+os.path.sep+"pbcorr_trim_"+label+"_pybdsf"+os.path.sep+"pbcorr_trim_"+label+"_bdsfcat.fits"
+        cmd=cmd+"\npython3 catalog_matching.py %s NVSS --astro --flux" % (catPath)
+
+        jobID=jobs.submitJob(cmd, 'source-finding-%s' % (imgFileName), dependentJobIDs = None, nodes = 1, tasks = 20, mem = 64000,
+                                time = "24:00:00", cmdIsBatchScript = False, workloadManager = startup.config['workloadManager'])
+        print("Submitted source finding and analysis job %d" % (jobID))
+    sys.exit()
+
+
+

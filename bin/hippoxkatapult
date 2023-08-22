@@ -95,14 +95,44 @@ if __name__ == '__main__':
             print("   %s" % (captureBlockId))
 
     elif args.task == 'collect':
-        print("Collecting processed data products")
-        import IPython
-        IPython.embed()
+        print("Collecting processed data products...")
+        if 'HIPPOXKATAPULT_NODES_FILE' not in os.environ.keys():
+            print("You need to set the HIPPOXKATAPULT_NODES_FILE environment variable to use the 'collect' task.")
+            sys.exit()
+        nodesFilePath=os.environ['HIPPOXKATAPULT_NODES_FILE']
+        try:
+            stubs=[]
+            with open(os.environ['HIPPOXKATAPULT_NODES_FILE'], "r") as inFile:
+                for line in inFile.readlines():
+                    stubs.append(line)
+        except:
+            import urllib.request  # the lib that handles the url stuff
+            stubs=[]
+            for line in urllib.request.urlopen(os.environ['HIPPOXKATAPULT_NODES_FILE']):
+                l=line.decode('utf-8')
+                if l[0] != "#" and len(l) > 3:
+                    stubs.append(l.strip())
+
+        # Get images
+        print("Collecting images...")
+        toPath=startup.config['productsDir']+os.path.sep+"images"
+        os.makedirs(toPath, exist_ok = True)
+        for s in stubs:
+            imgPath="processing/*/IMAGES/pbcorr*pcalmask-MFS-image.fits"
+            cmd="rsync -avP %s%s %s" % (s, os.path.sep+imgPath, toPath)
+            os.system(cmd)
+
+        # Get catalogs
+        print("Collecting catalogs...")
+        toPath=startup.config['productsDir']+os.path.sep+"catalogs"
+        os.makedirs(toPath, exist_ok = True)
+        for s in stubs:
+            catPath="processing/*/IMAGES/pbcorr_trim_*_pybdsf/*_bdsfcat.fits"
+            cmd="rsync -avP %s%s %s" % (s, os.path.sep+catPath, toPath)
+            os.system(cmd)
+
+        print("Finished!")
         sys.exit()
-        # What final processed images do we have? For now, we only keep the
-        imgPaths=glob.glob(startup.config['processingDir']+os.path.sep+"*"+os.path.sep+"IMAGES"+os.path.sep+"pbcorr*pcalmask*.fits")
-        # What final processed catalogs
-        # glob.glob(startup.config['processingDir']+os.path.sep+"*")
 
     elif args.task == 'process':
 

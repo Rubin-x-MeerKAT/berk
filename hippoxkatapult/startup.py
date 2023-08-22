@@ -17,6 +17,12 @@ if "HIPPOXKATAPULT_MSCACHE" not in os.environ.keys():
 os.makedirs(os.environ["HIPPOXKATAPULT_MSCACHE"], exist_ok = True)
 os.makedirs(os.environ["HIPPOXKATAPULT_ROOT"], exist_ok = True)
 
+# For using 'collect' to fetch data products from (potentially) multiple locations
+if 'HIPPOXKATAPULT_NODES_FILE' in os.environ.keys():
+    config['nodesFile']=os.environ['HIPPOXKATAPULT_NODES_FILE']
+else:
+    config['nodesFile']=None
+
 # Processing and data products will be written in sub-dirs here
 config['rootDir']=os.environ["HIPPOXKATAPULT_ROOT"]
 

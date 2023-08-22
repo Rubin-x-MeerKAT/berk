@@ -29,7 +29,9 @@ def makeParser():
                         'list' (list available data sets according to captureBlockId),\
                         'fetch' (retrieve data from archive, store under $HIPPOXKATAPULT_MSCACHE location),\
                         'process' (link measurement set under 'staging' directory, run calibration and imaging with Oxkat up to 2GC),\
-                        'analyse' (apply primary beam correction and make object catalogs with PyBDSF).")
+                        'analyse' (apply primary beam correction and make object catalogs with PyBDSF),\
+                        'collect' (collect data products for all processed observations - i.e., images and catalogs),\
+                        'store' - (store a more extensive set of processed data products for an observations for possible further processing in future).")
     parser.add_argument("-o", "--observation", dest="captureBlockId", default = None, help="MeerKAT observation to fetch and process.\
                         For the 'fetch' task, this must be a link to an .rdb file on the archive, of the form\
                         https://archive-gw-1.kat.ac.za/captureBlockId/captureBlockId_sdp_l0.full.rdb?token=longTokenString.\
@@ -55,14 +57,14 @@ if __name__ == '__main__':
         raise Exception("Environment variable HIPPOXKATAPULT_PLATFORM is not set to 'hippo' or 'chpc'")
 
     # Tidy this up - make a dictionary of tasks with descriptions and use that also in help for the parser
-    validTasks=['list', 'fetch', 'process', 'analyse']
+    validTasks=['list', 'fetch', 'process', 'analyse', 'collect']
     if args.task not in validTasks:
         print("'%s' is not a valid task - exiting..." % (args.task))
         sys.exit()
 
     topDir=os.getcwd()
 
-    needsCaptureBlockId=['fetch', 'process', 'analyse']
+    needsCaptureBlockId=['fetch', 'process', 'analyse', 'store']
     if captureBlockId is None and args.task in needsCaptureBlockId:
         print("No observation provided - this should be either a captureBlockId (for the 'process', 'analyse' tasks) or a link to an .rdb file on the archive (for the 'fetch' task).")
         sys.exit()
@@ -85,13 +87,22 @@ if __name__ == '__main__':
 
     elif args.task == 'list':
         msList=glob.glob(os.environ['HIPPOXKATAPULT_MSCACHE']+os.path.sep+"*_sdp_l0.ms")
-        print("Available observations [captureBlockId]:")
+        print("Downloaded observations available for processing [captureBlockId]:")
         # print("captureBlockId\tprocess\tanalyse\n")
         # print("
         for ms in msList:
             captureBlockId=os.path.split(ms)[-1].split("_")[0]
-            print("%s" % (captureBlockId))
+            print("   %s" % (captureBlockId))
+
+    elif args.task == 'collect':
+        print("Collecting processed data products")
+        import IPython
+        IPython.embed()
         sys.exit()
+        # What final processed images do we have? For now, we only keep the
+        imgPaths=glob.glob(startup.config['processingDir']+os.path.sep+"*"+os.path.sep+"IMAGES"+os.path.sep+"pbcorr*pcalmask*.fits")
+        # What final processed catalogs
+        # glob.glob(startup.config['processingDir']+os.path.sep+"*")
 
     elif args.task == 'process':
 
@@ -184,8 +195,7 @@ if __name__ == '__main__':
         # We will have issues with needing to see the internet to fetch cross match catalogs though
         # So we will need to cache NVSS catalogs for a given direction when doing 'stage'
         # OR forget using catalog_matching.py here and just do later with database/catalog scripts
-        # WARNING: Needs updating to actual 2GC image (pcalmask)
-        imgPaths=glob.glob("IMAGES/*datamask-MFS-image.fits")
+        imgPaths=glob.glob("IMAGES/*pcalmask-MFS-image.fits")
         for i in imgPaths:
             if i.find("pbcorr_trim") != -1:
                 continue
@@ -205,9 +215,6 @@ if __name__ == '__main__':
                                  time = "24:00:00", cmdIsBatchScript = False, workloadManager = workloadManager)
             print("Submitted source finding and analysis job %d" % (jobID))
 
-        # Copy the data products we want to keep
-        print("Tidy data products")
-        sys.exit()
 
 
 

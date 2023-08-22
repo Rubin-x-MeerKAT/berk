@@ -150,7 +150,7 @@ def process(captureBlockId):
     cmd="python3 setups/2GC.py %s" % (os.environ['BERK_PLATFORM'])
     jobID=jobs.submitJob(cmd, "SETUP_2GC_JOBS", dependentJobIDs = jobIDs, workloadManager = startup.config['workloadManager'])
     jobIDs.append(jobID)
-    cmd="berk_chain %s submit_flag_jobs.sh submit_2GC_jobs.sh" % (workloadManager)
+    cmd="berk_chain %s submit_flag_jobs.sh submit_2GC_jobs.sh" % (startup.config['workloadManager'])
     jobID=jobs.submitJob(cmd, "CHAIN_FLAG+2GC_JOBS", dependentJobIDs = jobIDs, workloadManager = startup.config['workloadManager'])
     print("All jobs submitted")
     sys.exit()

@@ -1,4 +1,4 @@
-**Berk** provides a pipeline for fetching and processing archival
+**Berk** is a package for fetching and processing
 `MeerKAT <https://skaafrica.atlassian.net/wiki/spaces/ESDKB/overview?homepageId=41025669>`_
 data on a compute cluster using `Oxkat <https://github.com/IanHeywood/oxkat>`_
 for calibration and imaging, and `PyBDSF <https://www.astron.nl/citt/pybdsf/>`_
@@ -6,69 +6,19 @@ for generating object catalogs.
 
 * **License:** `GPL v3 <LICENSE>`_
 * **Authors:** Matt Hilton
-* **Installation:** ``python setup.py install --user``
+* **Installation:** ``pip install berk``
 * **Support:** Please use the `GitHub issues page <https://github.com/mattyowl/berk/issues>`_,
   and/or contact `Matt Hilton <mailto:matt.hilton@mykolab.com>`_.
 
-**Berk** is being developed and deployed on `Hippo <https://astro.ukzn.ac.za/~hippo/>`_,
-the High Performance Computing facility at the University of KwaZulu-Natal, with
-the aim of using it to perform a serendipitous survey with MeerKAT, and in
+**Berk** should run on any compute cluster that runs either Slurm or PBS as a
+workload manager. It is is being developed and deployed on `Hippo <https://astro.ukzn.ac.za/~hippo/>`_,
+the High Performance Computing facility at the University of KwaZulu-Natal,
+and at the `Centre for High Performance Computing <https://www.chpc.ac.za/>`_,
+with the aim of using it to perform a serendipitous survey with MeerKAT, and in
 turn to generate useful high-level processed MeerKAT data (initially,
 continuum images and catalogs) for use by the community.
 
-This project is at an early stage. At the moment, data can be processed in one step
-to the 2GC (self-calibration stage), producing continuum images, and catalogs.
-Additional steps will be added to perform automated quality checks, organise the
-output, and ingest it into a database.
-
-
-Usage
------
-
-First set the ``BERK_ROOT`` environment variable to point to where you
-want all the processing, and analysis to happen. Set the ``BERK_MSCACHE``
-environment variable to point to a directory where retrieved measurement sets
-will be stored.
-
-The pipeline runs through a single command with the format::
-
-    berk task captureBlockId
-
-Here, ``captureBlockId`` is used to identify the dataset in the MeerKAT archive,
-and ``task`` is one of:
-
-``fetch``:
-    Fetch data from the archive, and store it where ``berk`` can
-    find it. Here, ``captureBlockId`` should actually be a link to a ``.rdb``
-    file on the archive, of the form
-    https://archive-gw-1.kat.ac.za/captureBlockId/captureBlockId_sdp_l0.full.rdb?token=longTokenString
-
-``process``:
-    Calibrate and image the MeerKAT data using ``Oxkat``. At present, this
-    runs to the 2GC (self-calibration) stage, producing continuum images.
-
-``analyse``:
-    Produce catalogs from the images and run various tests.
-
-
-Notes
------
-
-* You can use ``process`` immediately, if the measurement set is already
-  unpacked (or symlinked) in the ``staging`` directory. The measurement
-  set needs to have a name in the format ``captureBlockId_*.ms`` for this
-  to work.
-
-
-Requirements
-------------
-
-Everything that `Oxkat <https://github.com/IanHeywood/oxkat>`_ needs plus:
-
-* Slurm
-* katbeam
-* python-casacore
-* numpyencoder
-* katdal
-* Jonah Wagenveld's `Image-processing <https://github.com/JonahDW/Image-processing>`_ scripts, that use `PyBDSF <https://pybdsf.readthedocs.io/en/latest/>`_.
-
+**Berk** is under active development, and not all documentation may be up to date.
+Not all needed features are implemented yet. However, at the moment, data
+can be fetched from the archive, processed to images and catalogs, and collected
+from multiple compute clusters using only a few shell commands.

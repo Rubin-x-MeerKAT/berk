@@ -30,8 +30,9 @@ def makeParser():
                         'fetch' (retrieve data from archive, store under $BERK_MSCACHE location),\
                         'process' (link measurement set under 'staging' directory, run calibration and imaging with Oxkat up to 2GC),\
                         'analyse' (apply primary beam correction and make object catalogs with PyBDSF),\
-                        'collect' (collect data products for all processed observations - i.e., images and catalogs),\
-                        'store' - (store a more extensive set of processed data products for an observations for possible further processing in future).")
+                        'collect' (collect data products for all processed observations - i.e., primary beam corrected images and catalogs),\
+                        'store' - (store a more extensive set of processed data products for an observations for possible further processing in future).",
+                        choices = ['list', 'fetch', 'process', 'analyse', 'collect', 'store'])
     parser.add_argument("-o", "--observation", dest="captureBlockId", default = None, help="MeerKAT observation to fetch and process.\
                         For the 'fetch' task, this must be a link to an .rdb file on the archive, of the form\
                         https://archive-gw-1.kat.ac.za/captureBlockId/captureBlockId_sdp_l0.full.rdb?token=longTokenString.\
@@ -45,12 +46,6 @@ if __name__ == '__main__':
     parser=makeParser()
     args=parser.parse_args()
     captureBlockId=args.captureBlockId
-
-    # Tidy this up - make a dictionary of tasks with descriptions and use that also in help for the parser
-    validTasks=['list', 'fetch', 'process', 'analyse', 'collect', 'store']
-    if args.task not in validTasks:
-        print("'%s' is not a valid task - exiting..." % (args.task))
-        sys.exit()
 
     topDir=os.getcwd()
 

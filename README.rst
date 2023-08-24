@@ -1,3 +1,5 @@
+.. image:: https://readthedocs.org/projects/berk/badge/?version=latest
+
 **Berk** is a package for fetching and processing
 `MeerKAT <https://skaafrica.atlassian.net/wiki/spaces/ESDKB/overview?homepageId=41025669>`_
 data on a compute cluster using `Oxkat <https://github.com/IanHeywood/oxkat>`_

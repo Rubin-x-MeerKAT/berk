@@ -6,6 +6,7 @@ data on a compute cluster using `Oxkat <https://github.com/IanHeywood/oxkat>`_
 for calibration and imaging, and `PyBDSF <https://www.astron.nl/citt/pybdsf/>`_
 for generating object catalogs.
 
+* **Documentation:** https://berk.readthedocs.io
 * **License:** `GPL v3 <LICENSE>`_
 * **Authors:** Matt Hilton
 * **Installation:** ``pip install berk``

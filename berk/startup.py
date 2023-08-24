@@ -6,6 +6,12 @@ Startup routines and config for Berk
 
 import os, sys
 
+on_rtd=os.environ.get('READTHEDOCS', None)
+if on_rtd is not None:
+    os.environ['BERK_ROOT']='.'
+    os.environ['BERK_MSCACHE']='MSCache'
+    os.environ['BERK_PLATFORM']='chpc'
+
 # Settings are hard-coded for now, but could be put into a YAML config file later ---------------------------
 config={}
 
@@ -67,20 +73,21 @@ if config['oxkatVersion'] == "git":
     print("Remember to remove %s before running berk if you need to fetch an updated version from the git repository" % (config['oxkatDir']))
 
 # Set-up ----------------------------------------------------------------------------------------------------
-dirsToMake=[config['processingDir'], config['productsDir'], config['cacheDir']]
-for d in dirsToMake:
-    os.makedirs(d, exist_ok = True)
+if on_rtd is None:
+    dirsToMake=[config['processingDir'], config['productsDir'], config['cacheDir']]
+    for d in dirsToMake:
+        os.makedirs(d, exist_ok = True)
 
-if os.path.exists(config['oxkatDir']) == False:
-    topDir=os.getcwd()
-    os.chdir(config['cacheDir'])
-    if config['oxkatVersion'] != 'git':
-        os.system("wget %s" % (config['oxkatURL']))
-        os.system("tar -zxvf v%s.tar.gz" % (config['oxkatVersion']))
-    else:
-        os.system("git clone %s oxkat-%s" % (config['oxkatURL'], config['oxkatVersion']))
-    os.chdir(topDir)
+    if os.path.exists(config['oxkatDir']) == False:
+        topDir=os.getcwd()
+        os.chdir(config['cacheDir'])
+        if config['oxkatVersion'] != 'git':
+            os.system("wget %s" % (config['oxkatURL']))
+            os.system("tar -zxvf v%s.tar.gz" % (config['oxkatVersion']))
+        else:
+            os.system("git clone %s oxkat-%s" % (config['oxkatURL'], config['oxkatVersion']))
+        os.chdir(topDir)
 
-if os.path.exists(config['catalogScriptsDir']) == False:
-    os.system("git clone https://github.com/mattyowl/Image-processing %s" % (config["catalogScriptsDir"]))
+    if os.path.exists(config['catalogScriptsDir']) == False:
+        os.system("git clone https://github.com/mattyowl/Image-processing %s" % (config["catalogScriptsDir"]))
 

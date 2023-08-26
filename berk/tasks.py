@@ -9,7 +9,9 @@ import sys
 import subprocess
 import glob
 import time
-from . import startup, archive, jobs
+import datetime
+import astropy.table as atpy
+from . import startup, archive, jobs, catalogs, images,  __version__
 
 #------------------------------------------------------------------------------------------------------------
 def fetch(captureBlockId):
@@ -40,6 +42,80 @@ def store(captureBlockId):
 
     print("Task 'store' is not implemented yet.")
     sys.exit()
+
+#------------------------------------------------------------------------------------------------------------
+def _getBandKey(freqGHz):
+    """Return band name ('L' or 'UHF') based on freqGHz.
+
+    """
+    if freqGHz > 1.2 and freqGHz < 1.3:
+        bandKey='L'
+    else:
+        print("implement UHF cut")
+        import IPython
+        IPython.embed()
+        sys.exit()
+
+    return bandKey
+
+#------------------------------------------------------------------------------------------------------------
+def builddb():
+    """Build database...
+
+    """
+
+    # Build global catalog in each band (L-band, UHF)
+    globalTabsDict={'L': None, 'UHF': None}
+    tabFilesList=glob.glob(startup.config['productsDir']+os.path.sep+'catalogs'+os.path.sep+'*_bdsfcat.fits')
+    for t in tabFilesList:
+        if t.find("srl_bdsfcat") == -1:
+            tab=atpy.Table().read(t)
+            freqGHz=tab.meta['FREQ0']/1e9
+            bandKey=_getBandKey(freqGHz)
+            if globalTabsDict[bandKey] is None:
+                globalTabsDict[bandKey]=tab
+            else:
+                globalTabsDict[bandKey]=atpy.vstack([globalTabsDict[bandKey], tab])
+
+    # To implement: remove duplicates [we may want to make time series?]
+
+    # Sorting, additional meta data, output
+    for bandKey in globalTabsDict.keys():
+        if globalTabsDict[bandKey] is not None:
+            outFileName=startup.config['productsDir']+os.path.sep+"survey_catalog_%s.fits" % (bandKey)
+            globalTabsDict[bandKey].sort('DEC')
+            globalTabsDict[bandKey].sort('RA')
+            globalTabsDict[bandKey].meta['BAND']=bandKey
+            globalTabsDict[bandKey].meta['BERKVER']=__version__
+            globalTabsDict[bandKey].meta['DATEMADE']=datetime.date.today().isoformat()
+            globalTabsDict[bandKey].write(outFileName, overwrite = True)
+            catalogs.catalog2DS9(globalTabsDict[bandKey], outFileName.replace(".fits", ".reg"),
+                                 idKeyToUse = 'Source_name', RAKeyToUse = 'RA', decKeyToUse = 'DEC')
+            print("Wrote %s" % (outFileName))
+
+    # Make image table - centre coords, radius [approx.], RMS, band, image path - UHF and L together.
+    # Report command (when we make it) could load and dump some of that info
+    outFileName=startup.config['productsDir']+os.path.sep+"images.fits"
+    imgFilesList=glob.glob(startup.config['productsDir']+os.path.sep+"images"+os.path.sep+"pbcorr_*.fits")
+    statsDictList=[]
+    for imgFile in imgFilesList:
+        statDict=images.getImagesStats(imgFile)
+        statDict['path']=statDict['path'].replace(startup.config['productsDir']+os.path.sep, '')
+        statDict['band']=_getBandKey(statDict['freqGHz'])
+        statsDictList.append(statDict)
+    imgTab=atpy.Table()
+    for key in statDict.keys():
+        arr=[]
+        for s in statsDictList:
+            arr.append(s[key])
+        imgTab[key]=arr
+    imgTab.meta['BERKVER']=__version__
+    imgTab.meta['DATEMADE']=datetime.date.today().isoformat()
+    imgTab.write(outFileName, overwrite = True)
+    print("Wrote %s" % (outFileName))
+
+    # Generate survey mask in some format - we'll use that to get total survey area
+
 
 #------------------------------------------------------------------------------------------------------------
 def collect():

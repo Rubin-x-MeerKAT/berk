@@ -50,11 +50,10 @@ def _getBandKey(freqGHz):
     """
     if freqGHz > 1.2 and freqGHz < 1.3:
         bandKey='L'
+    elif freqGHz > 0.7 and freqGHz < 0.9:
+        bandKey='UHF'
     else:
-        print("implement UHF cut")
-        import IPython
-        IPython.embed()
-        sys.exit()
+        raise Exception("Not sure what band this is - need to add a band key for it")
 
     return bandKey
 

@@ -59,13 +59,7 @@ if __name__ == '__main__':
         tasks.fetch(captureBlockId)
 
     elif args.task == 'list':
-        msList=glob.glob(os.environ['BERK_MSCACHE']+os.path.sep+"*_sdp_l0.ms")
-        print("Downloaded observations available for processing [captureBlockId]:")
-        # print("captureBlockId\tprocess\tanalyse\n")
-        # print("
-        for ms in msList:
-            captureBlockId=os.path.split(ms)[-1].split("_")[0]
-            print("   %s" % (captureBlockId))
+        tasks.listObservations()
 
     elif args.task == 'store':
         tasks.store(captureBlockId)

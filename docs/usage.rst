@@ -18,10 +18,13 @@ Initial set-up
 * ``BERK_PLATFORM``: Needed for setting the compute cluster environment (workload manager to use etc.).
   Currently, this should be set to either ``'chpc'`` or ``'hippo'``.
 
-* ``BERK_NODES``: Used only by the ``collect`` task, this should be a path (or URL) to a file
+* ``BERK_NODES_FILE``: Used only by the ``collect`` task, this should be a path (or URL) to a file
   that specifies ``BERK_ROOT`` directories on remote computers that you wish to ``collect`` from
   (see below).
 
+* ``BERK_INFO_FILE``: Used by the ``list`` task, this should be a URL that points to a file containing
+  information on the processed fields (e.g., ``products/images.fits``, as produced by the ``builddb``
+  task).
 
 .. _Workflow:
 

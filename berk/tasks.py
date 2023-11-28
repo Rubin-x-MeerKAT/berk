@@ -58,6 +58,29 @@ def _getBandKey(freqGHz):
     return bandKey
 
 #------------------------------------------------------------------------------------------------------------
+def listObservations():
+    """List observations available on this machine, and check their processing status with the central list.
+
+    """
+
+    if 'BERK_INFO_FILE' in os.environ.keys():
+        tab=atpy.Table().read(os.environ['BERK_INFO_FILE'])
+    else:
+        print("Set BERK_INFO_FILE environment variable to check processing status of observations against central list.")
+        tab=None
+
+    msList=glob.glob(os.environ['BERK_MSCACHE']+os.path.sep+"*_sdp_l0.ms")
+    msList.sort()
+    print("Downloaded observations available locally [by captureBlockId]:")
+    for ms in msList:
+        captureBlockId=os.path.split(ms)[-1].split("_")[0]
+        status="cached"
+        if tab is not None:
+            if captureBlockId in tab['captureBlockId']:
+                status="processed_and_analysed"
+        print("   %s    %s" % (captureBlockId, status))
+
+#------------------------------------------------------------------------------------------------------------
 def builddb():
     """Build database...
 
@@ -99,6 +122,8 @@ def builddb():
     statsDictList=[]
     for imgFile in imgFilesList:
         statDict=images.getImagesStats(imgFile)
+        captureBlockId=os.path.split(statDict['path'])[-1].split('img_')[-1].split('_sdp')[0]
+        statDict['captureBlockId']=captureBlockId
         statDict['path']=statDict['path'].replace(startup.config['productsDir']+os.path.sep, '')
         statDict['band']=_getBandKey(statDict['freqGHz'])
         statsDictList.append(statDict)

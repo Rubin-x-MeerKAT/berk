@@ -291,7 +291,7 @@ def analyse(captureBlockId):
         cmd=cmd+"\npython3 catalog_matching.py %s NVSS --astro --flux" % (catPath)
 
         jobID=jobs.submitJob(cmd, 'source-finding-%s' % (imgFileName), dependentJobIDs = None, nodes = 1, tasks = 20, mem = 64000,
-                                time = "24:00:00", cmdIsBatchScript = False, workloadManager = startup.config['workloadManager'])
+                                time = "02:00:00", cmdIsBatchScript = False, workloadManager = startup.config['workloadManager'])
         print("Submitted source finding and analysis job %d" % (jobID))
     sys.exit()
 

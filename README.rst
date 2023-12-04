@@ -25,3 +25,5 @@ continuum images and catalogs) for use by the community.
 Not all needed features are implemented yet. However, at the moment, data
 can be fetched from the archive, processed to images and catalogs, and collected
 from multiple compute clusters using only a few shell commands.
+
+**Berk** is named after the faithful servant of `The Thing Upstairs <https://en.wikipedia.org/wiki/The_Trap_Door>`_.

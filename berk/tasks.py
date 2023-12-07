@@ -75,6 +75,9 @@ def listObservations():
     for ms in msList:
         captureBlockId=os.path.split(ms)[-1].split("_")[0]
         status="cached"
+        globStr=os.environ['BERK_ROOT']+os.path.sep+'processing'+os.path.sep+captureBlockId+os.path.sep+'IMAGES'+os.path.sep+'img_%s_*_pcalmask-MFS-image.fits' % (captureBlockId)
+        if len(glob.glob(globStr)) > 0:
+            status="processed"
         if tab is not None:
             if captureBlockId in tab['captureBlockId']:
                 status="processed_and_analysed"

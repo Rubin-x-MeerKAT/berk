@@ -9,7 +9,6 @@ import subprocess, os, sys
 SLURM_TEMPLATE="""#!/bin/sh
 #SBATCH --nodes=$NODES
 #SBATCH --ntasks=$TASKS
-#SBATCH --cpus-per-task=$CPUSPERTASK
 #SBATCH --mem=$MEM
 #SBATCH --time=$TIME
 #SBATCH --output=$JOBNAME.log

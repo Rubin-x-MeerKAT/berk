@@ -293,7 +293,7 @@ def analyse(captureBlockId):
         catPath=imgDir+os.path.sep+"pbcorr_trim_"+label+"_pybdsf"+os.path.sep+"pbcorr_trim_"+label+"_bdsfcat.fits"
         cmd=cmd+"\npython3 catalog_matching.py %s NVSS --astro --flux" % (catPath)
 
-        jobID=jobs.submitJob(cmd, 'source-finding-%s' % (imgFileName), dependentJobIDs = None, nodes = 1, tasks = 20, mem = 64000,
+        jobID=jobs.submitJob(cmd, 'source-finding-%s' % (imgFileName), dependentJobIDs = None, nodes = 1, tasks = 20, mem = 63000,
                                 time = "02:00:00", cmdIsBatchScript = False, workloadManager = startup.config['workloadManager'])
         print("Submitted source finding and analysis job %d" % (jobID))
     sys.exit()

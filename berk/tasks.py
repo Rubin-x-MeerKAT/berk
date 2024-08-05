@@ -97,6 +97,7 @@ def builddb():
             tab=atpy.Table().read(t)
             freqGHz=tab.meta['FREQ0']/1e9
             bandKey=_getBandKey(freqGHz)
+            # tab.meta=None # It'd be good to clear this... but the catalog matching stuff wants many things from here
             if globalTabsDict[bandKey] is None:
                 globalTabsDict[bandKey]=tab
             else:
@@ -118,6 +119,13 @@ def builddb():
                                  idKeyToUse = 'Source_name', RAKeyToUse = 'RA', decKeyToUse = 'DEC')
             print("Wrote %s" % (outFileName))
 
+    # Quality flags table
+    qualFileName=startup.config['productsDir']+os.path.sep+"qualityFlags.csv"
+    if os.path.exists(qualFileName) == True:
+        qualTab=atpy.Table().read(qualFileName)
+    else:
+        qualTab=None
+
     # Make image table - centre coords, radius [approx.], RMS, band, image path - UHF and L together.
     # Report command (when we make it) could load and dump some of that info
     outFileName=startup.config['productsDir']+os.path.sep+"images.fits"
@@ -136,10 +144,20 @@ def builddb():
         for s in statsDictList:
             arr.append(s[key])
         imgTab[key]=arr
+    # Update quality flag column - we only use quality column from qualTab
+    imgTab['quality']=99
+    if qualTab is not None:
+        for irow in imgTab:
+            mask=irow['path'] == qualTab['path']
+            if 'quality' in qualTab.keys():
+                irow['quality']=qualTab[mask]['quality'][0]
+    # Output
     imgTab.meta['BERKVER']=__version__
     imgTab.meta['DATEMADE']=datetime.date.today().isoformat()
     imgTab.write(outFileName, overwrite = True)
     print("Wrote %s" % (outFileName))
+    imgTab.write(qualFileName, overwrite = True)
+
 
     # Generate survey mask in some format - we'll use that to get total survey area
 
@@ -298,5 +316,35 @@ def analyse(captureBlockId):
         print("Submitted source finding and analysis job %d" % (jobID))
     sys.exit()
 
+#------------------------------------------------------------------------------------------------------------
+def report():
+    """Report...
 
+    """
+
+    # We'll tidy this all up later...
+
+    # Get catalogs if we don't have them already...
+    firstPath=startup.config['cacheDir']+os.path.sep+"first_14dec17.fits"
+    if os.path.exists(firstPath) == False:
+        print("Fetching and caching FIRST catalog [this is only done once]")
+        topDir=os.getcwd()
+        os.chdir(os.path.abspath(startup.config['cacheDir']))
+        os.system("wget http://sundog.stsci.edu/first/catalogs/first_14dec17.fits.gz")
+        os.system("gunzip first_14dec17.fits.gz")
+        os.chdir(topDir)
+    firstTab=atpy.Table().read(firstPath)
+
+    # Compare L-band flux densities with FIRST [which only goes to dec -10 degrees]
+    tab=atpy.Table().read(os.path.abspath(startup.config['productsDir'])+os.path.sep+"survey_catalog_L.fits")
+    x_tab, x_firstTab, rDeg=catalogs.crossMatch(tab, firstTab, radiusArcmin = 6.0/60)
+
+    # /home/matty/Documents/Rubin_x_MeerKAT/products/survey_catalog_L.fits
+
+
+    # http://sundog.stsci.edu/first/catalogs/first_14dec17.fits.gz
+
+    import IPython
+    IPython.embed()
+    sys.exit()
 

@@ -51,6 +51,7 @@ def getImagesStats(imgFileName, radiusArcmin = 12):
                'centre_RADeg': RADeg,
                'centre_decDeg': decDeg,
                'RMS_uJy/beam': sigma*1e6,
+               'dynamicRange': d.max()/sigma,
                'freqGHz': wcs.header['CRVAL3']/1e9}
 
     return statsDict

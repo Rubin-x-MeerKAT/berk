@@ -2,10 +2,10 @@ import os
 import glob
 from setuptools import setup
 from setuptools import Extension
-import versioneer
+# import versioneer
 
 setup(name='berk',
-      version=versioneer.get_version(),
+      version=0.2,
       author='Matt Hilton',
       author_email='matt.hilton@wits.ac.za',
       packages=['berk'],

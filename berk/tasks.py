@@ -138,6 +138,11 @@ def builddb():
         statDict['path']=statDict['path'].replace(startup.config['productsDir']+os.path.sep, '')
         statDict['band']=_getBandKey(statDict['freqGHz'])
         statsDictList.append(statDict)
+        
+        # plotting images and saving in products/images directory
+        imageOutDir = startup.config['productsDir']+os.path.sep+"images"
+        images.plotImages(imgFile, imageOutDir)
+        
     imgTab=atpy.Table()
     for key in statDict.keys():
         arr=[]

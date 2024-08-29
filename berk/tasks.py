@@ -12,7 +12,6 @@ import time
 import datetime
 import astropy.table as atpy
 from . import startup, archive, jobs, catalogs, images,  __version__
-from numpy import isnan
 
 #------------------------------------------------------------------------------------------------------------
 def fetch(captureBlockId):
@@ -130,9 +129,7 @@ def builddb():
     # Make image table - centre coords, radius [approx.], RMS, band, image path - UHF and L together.
     # Report command (when we make it) could load and dump some of that info
     outFileName=startup.config['productsDir']+os.path.sep+"images.fits"
-    imgFilesList=glob.glob(startup.config['productsDir']+os.path.sep+"images"+os.path.sep+"pbcorr_*.fits")
-    
-  
+    imgFilesList=glob.glob(startup.config['productsDir']+os.path.sep+"images"+os.path.sep+"pbcorr_*.fits")  
     statsDictList=[]
     for imgFile in imgFilesList:
         statDict=images.getImagesStats(imgFile)

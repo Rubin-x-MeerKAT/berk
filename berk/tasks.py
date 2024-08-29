@@ -12,6 +12,7 @@ import time
 import datetime
 import astropy.table as atpy
 from . import startup, archive, jobs, catalogs, images,  __version__
+from numpy import isnan
 
 #------------------------------------------------------------------------------------------------------------
 def fetch(captureBlockId):
@@ -130,6 +131,8 @@ def builddb():
     # Report command (when we make it) could load and dump some of that info
     outFileName=startup.config['productsDir']+os.path.sep+"images.fits"
     imgFilesList=glob.glob(startup.config['productsDir']+os.path.sep+"images"+os.path.sep+"pbcorr_*.fits")
+    
+  
     statsDictList=[]
     for imgFile in imgFilesList:
         statDict=images.getImagesStats(imgFile)
@@ -155,7 +158,12 @@ def builddb():
         for irow in imgTab:
             mask=irow['path'] == qualTab['path']
             if 'quality' in qualTab.keys():
-                irow['quality']=qualTab[mask]['quality'][0]
+               #pulling already existing quality and assigning 99 to newly added images 
+            	if mask.any():
+            	    irow['quality']=qualTab[mask]['quality'][0]
+            	else:
+            	    irow['quality'] = 99
+            	    
     # Output
     imgTab.meta['BERKVER']=__version__
     imgTab.meta['DATEMADE']=datetime.date.today().isoformat()

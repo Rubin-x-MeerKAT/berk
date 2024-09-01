@@ -1,0 +1,9 @@
+astropy>=3.2
+numpy>=1.10
+matplotlib>=3.0
+astLib>=0.11.9
+scipy>=1.7
+katbeam
+shapely
+regions
+bdsf

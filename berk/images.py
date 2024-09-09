@@ -61,10 +61,11 @@ def getImagesStats(imgFileName, radiusArcmin = 12):
     return statsDict
     
 def plotImages(imgFilePath, outDirName, colorMap = 'viridis', vmin=-2.e-5, vmax=2.e-4, ax_label_deg=False, show_grid=True):
-    """Read the given MeerKAT image and plots it 
+    """Read the given MeerKAT image and plots it in png format.
 
     Args:
-        imgFilePath (:obj:`str`): Path to the FITS images.
+        imgFilePath (:obj:`str`): Path to the FITS image.
+        outDirName (:obj:'str'): Path to the output directory where png files are to be saved.
         colorMap (:obj:'str', optional): The colormap to use for the image. Default is 'viridis'.
         vmin (:obj:'float', optional): Minimum data value to anchor the colormap. Default is -2.e-5.
         vmax (:obj:'float', optional): Maximum data value to anchor the colormap. Default is 2.e-4.
@@ -76,6 +77,10 @@ def plotImages(imgFilePath, outDirName, colorMap = 'viridis', vmin=-2.e-5, vmax=
     """
     
     imgFileName = imgFilePath.split(os.path.sep)[-1].replace(".fits", "")
+    imgOutName = outDirName+os.path.sep+imgFileName+".png"
+    
+    if os.path.exists(imgOutName) == True:
+        return
     
     captID = imgFileName.split('_')[3]
     target = imgFileName.split('_')[7][:-3]
@@ -111,7 +116,7 @@ def plotImages(imgFilePath, outDirName, colorMap = 'viridis', vmin=-2.e-5, vmax=
     if(ax_label_deg == True):
         lon = ax.coords[0]
         lat = ax.coords[1]
-        
+	
         lon.set_major_formatter('d.dd')
         lat.set_major_formatter('d.dd')
 
@@ -119,8 +124,8 @@ def plotImages(imgFilePath, outDirName, colorMap = 'viridis', vmin=-2.e-5, vmax=
         plt.grid(color='white', linestyle='--', linewidth=0.5)
 
     pngFileName = imgFileName.split('_')[3]
-        
-    plt.savefig("%s/%s.png" %(outDirName, imgFileName) , dpi=300, bbox_inches = 'tight')
+	
+    plt.savefig(imgOutName , dpi=300, bbox_inches = 'tight')
     plt.close()
 
     

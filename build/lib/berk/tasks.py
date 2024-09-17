@@ -24,9 +24,11 @@ def fetch(captureBlockId):
     captureBlockId=captureBlockIdLink.split("https://archive-gw-1.kat.ac.za/")[-1].split("/")[0]
     msPath=os.environ['BERK_MSCACHE']+os.path.sep+"%s_sdp_l0.ms" % (captureBlockId)
     fetchLogPath=os.environ['BERK_MSCACHE']+os.path.sep+"%s_fetch.log" % (captureBlockId)
+    #print('ID:', captureBlockId, 'path:', msPath)
     if archive.checkFetchComplete(captureBlockId) == False:
         cmd="mvftoms.py %s --flags cam,data_lost,ingest_rfi -o %s" % (captureBlockIdLink, msPath)
         cmd_subprocess=shlex.split(cmd)
+        #print(cmd_subprocess)
         with subprocess.Popen(cmd_subprocess, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True) as process:   
             with open(fetchLogPath, 'w') as logFile:
                 for line in process.stdout:
@@ -56,6 +58,7 @@ def fetch(captureBlockId):
                             logFile.write(line)
                             print(line, end='')
                     process.wait()
+        #subprocess.run(cmd_subprocess, universal_newlines=True, stdout=logFile, stderr=logFile)         
         #os.system(cmd)
         # print("Run this command in GNU screen:")
         # print(cmd)

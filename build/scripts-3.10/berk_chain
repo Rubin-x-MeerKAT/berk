@@ -1,0 +1,64 @@
+#!python
+
+"""
+
+Script to chain two Oxkat job scripts together and submit the jobs within
+
+"""
+
+import os
+import sys
+import time
+from berk import jobs
+import IPython
+
+if len(sys.argv) < 3:
+    print("Run: berk_chain workloadManager script1.sh script2.sh")
+
+workloadManager=sys.argv[1]
+assert(workloadManager in ['slurm', 'pbs'])
+# dependentJobID=sys.argv[2]
+script1FileName=sys.argv[2]
+script2FileName=sys.argv[3]
+
+with open(script1FileName) as inFile:
+    lines1=inFile.readlines()
+with open(script2FileName) as inFile:
+    lines2=inFile.readlines()
+
+lines=lines1+lines2
+
+jobCmds=[]
+dependent=[]
+for line in lines:
+    if line.find("sbatch") != -1 and workloadManager == 'slurm':
+        sbatchCmd=line[line.find("sbatch") :].split(" |")[0]
+        if sbatchCmd.find("-d afterok:") != -1:
+            sbatchCmd=sbatchCmd.split("}")[-1].strip()
+            dependent.append(True)
+        else:
+            sbatchCmd=sbatchCmd.split("sbatch")[-1].strip()
+            dependent.append(False)
+        jobCmds.append(sbatchCmd)
+    elif line.find("qsub") != -1 and workloadManager == 'pbs':
+        qsubCmd=line[line.find("qsub") :].split(" |")[0]
+        if qsubCmd.find("-W depend=afterok") != -1:
+            qsubCmd=qsubCmd.split("}")[-1].strip()
+            dependent.append(True)
+        else:
+            qsubCmd=qsubCmd.split("qsub")[-1].strip()
+            dependent.append(False)
+        jobCmds.append(qsubCmd)
+
+# There's no dependency on running jobs if this script was actually run from a job
+# So... we just submit each job in turn and have it depend on the previous one completing successfully
+jobIDs=[]
+for cmd, dep in zip(jobCmds, dependent):
+    if cmd == jobCmds[0]:
+        dependentJobIDs=None
+    else:
+        dependentJobIDs=[jobIDs[-1]]
+    jobName=os.path.split(cmd)[-1]
+    jobID=jobs.submitJob(cmd, jobName, dependentJobIDs = dependentJobIDs, workloadManager = workloadManager, cmdIsBatchScript = True)
+    jobIDs.append(jobID)
+

@@ -59,20 +59,24 @@ def getImagesStats(imgFileName, radiusArcmin = 12):
                'freqGHz': wcs.header['CRVAL3']/1e9}
 
     return statsDict
-    
-def plotImages(imgFilePath, outDirName, colorMap = 'viridis', vmin=-2.e-5, vmax=2.e-4, ax_label_deg=False, show_grid=True):
-    """Read the given MeerKAT image and plots it 
+
+#------------------------------------------------------------------------------------------------------------
+def plotImages(imgFilePath, outDirName, colorMap = 'viridis', vmin=-2.e-5, vmax=2.e-4, ax_label_deg=False,
+               show_grid=True):
+    """Read the given MeerKAT image and write an output plot of it.
 
     Args:
         imgFilePath (:obj:`str`): Path to the FITS images.
         colorMap (:obj:'str', optional): The colormap to use for the image. Default is 'viridis'.
         vmin (:obj:'float', optional): Minimum data value to anchor the colormap. Default is -2.e-5.
         vmax (:obj:'float', optional): Maximum data value to anchor the colormap. Default is 2.e-4.
-        ax_label_deg (:obj: 'bool', optional): Whether to label the axis coordinates in the units of degrees. Default is False.
+        ax_label_deg (:obj: 'bool', optional): Whether to label the axis coordinates in the units of degrees.
+            Default is False.
         show_grid (:obj: 'bool', optional): Whether to show grids. Default is True.
     
     Returns:
         None
+
     """
     
     imgFileName = imgFilePath.split(os.path.sep)[-1].replace(".fits", "")
@@ -123,7 +127,4 @@ def plotImages(imgFilePath, outDirName, colorMap = 'viridis', vmin=-2.e-5, vmax=
     plt.savefig("%s/%s.png" %(outDirName, imgFileName) , dpi=300, bbox_inches = 'tight')
     plt.close()
 
-    
-    return None
-    
 

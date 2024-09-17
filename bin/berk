@@ -72,7 +72,7 @@ if __name__ == '__main__':
     elif args.task == 'process':
         tasks.process(captureBlockId)
 
-    elif args.task == 'analyse':
+    elif args.task == 'analyse' or args.task == 'analyze':
         tasks.analyse(captureBlockId)
 
     elif args.task == 'builddb':

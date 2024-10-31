@@ -15,6 +15,14 @@ import matplotlib.pyplot as plt
 from astropy.visualization import simple_norm
 from astropy.wcs import WCS
 
+from matplotlib import font_manager as fm
+this_platform = os.environ['THIS_PLATFORM']
+if(this_platform == 'hp455'): #krishna's laptop
+    fpath = "/home/krishna/Dropbox/fonts/cmunss.ttf"
+    prop = fm.FontProperties(fname=fpath,size=12,math_fontfamily='stixsans')
+else:
+    prop = fm.FontProperties(size=12,math_fontfamily='stixsans')
+
 
 #------------------------------------------------------------------------------------------------------------
 def getImagesStats(imgFileName, radiusArcmin = 12):
@@ -50,10 +58,16 @@ def getImagesStats(imgFileName, radiusArcmin = 12):
     # print("    clipped stdev image RMS = %.3f uJy/beam" % (sigma*1e6))
     # sbi=apyStats.biweight_scale(d, c = 9.0, modify_sample_size = True)
     # print("    biweight scale image RMS = %.3f uJy/beam" % (sbi*1e6))
+    
+    del_RA = RAMax-RAMin
+    del_Dec = decMax-decMin
+    sky_area_sq_deg = np.pi * del_RA * del_Dec  # area in square degrees
+
     statsDict={'path': imgFileName,
                'object': wcs.header['OBJECT'],
                'centre_RADeg': RADeg,
                'centre_decDeg': decDeg,
+               'sky_area_sqdeg': sky_area_sq_deg,
                'RMS_uJy/beam': sigma*1e6,
                'dynamicRange': d.max()/sigma,
                'freqGHz': wcs.header['CRVAL3']/1e9}
@@ -111,11 +125,11 @@ def plotImages(imgFilePath, outDirName, colorMap = 'viridis', vmin = -2.e-5, vma
     norm = simple_norm(image_data, 'log')
     im = ax.imshow(image_data, cmap='viridis', vmin=vmin, vmax=vmax, origin='lower')
     cbar = plt.colorbar(im, ax=ax)
-    cbar.set_label(label=r'$\mu$Jy/beam')
+    cbar.set_label(label=r'$\mu$Jy/beam', fontproperties=prop)
     
-    plt.title("Capture Block: %s  Target: %s" %(captID, target))
-    plt.xlabel("RA (J2000)")
-    plt.ylabel("Dec (J2000)")
+    plt.title("Capture Block: %s  Target: %s" %(captID, target), fontproperties=prop)
+    plt.xlabel("RA (J2000)", fontproperties=prop)
+    plt.ylabel("Dec (J2000)", fontproperties=prop)
     
     if(ax_label_deg == True):
         lon = ax.coords[0]

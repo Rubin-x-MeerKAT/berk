@@ -11,8 +11,11 @@ import glob
 import time
 import datetime
 import astropy.table as atpy
-from . import startup, archive, jobs, catalogs, images,  __version__
+from . import startup, archive, jobs, catalogs, images, crossmatch,  __version__
 import shlex
+import numpy as np
+from astropy import units as u
+from astropy.coordinates import SkyCoord, Longitude
 
 #------------------------------------------------------------------------------------------------------------
 def fetch(captureBlockId):
@@ -88,7 +91,16 @@ def _getBandKey(freqGHz):
         raise Exception("Not sure what band this is - need to add a band key for it")
 
     return bandKey
+    
+#------------------------------------------------------------------------------------------------------------
+def fixRA(table, racol='RA', wrap_angle=180):
+    """Returns table with corrected RA wrap.
 
+    """
+    fixTable = table.copy()
+    fixTable[racol] = Longitude(table[racol], unit=u.deg, wrap_angle=wrap_angle * u.deg).value
+    return fixTable
+    
 #------------------------------------------------------------------------------------------------------------
 def listObservations():
     """List observations available on this machine, and check their processing status with the central list.
@@ -103,6 +115,7 @@ def listObservations():
 
     msList=glob.glob(os.environ['BERK_MSCACHE']+os.path.sep+"*_sdp_l0.ms")
     msList.sort()
+    print(msList)
     print("Downloaded observations available locally [by captureBlockId]:")
     for ms in msList:
         captureBlockId=os.path.split(ms)[-1].split("_")[0]
@@ -113,6 +126,13 @@ def listObservations():
         if tab is not None:
             if captureBlockId in tab['captureBlockId']:
                 status="processed_and_analysed"
+                
+        globXmatchLink = 'https://dl.dropbox.com/scl/fi/nmo4zi5acwh4shrevj2bj/xmatchCat_DECaLS_r_4p0asec.fits?rlkey=ijf3hg46l3m3rir5jbtrlwrj7&dl=0'
+        globXmatchTab=atpy.Table().read(globXmatchLink)
+        if globXmatchTab is not None:
+            if captureBlockId in globXmatchTab['captureBlockId']:
+                status="processed_analysed_xmatched-DECaLS"
+                
         print("   %s    %s" % (captureBlockId, status))
 
 #------------------------------------------------------------------------------------------------------------
@@ -120,16 +140,24 @@ def builddb():
     """Build database...
 
     """
-
+    
     # Build global catalog in each band (L-band, UHF)
     globalTabsDict={'L': None, 'UHF': None}
+    
+    # Fixing RA
+    catFilesList=glob.glob(startup.config['productsDir']+os.path.sep+'catalogs'+os.path.sep+'*_bdsfcat.fits')
+ 
+    	
     tabFilesList=glob.glob(startup.config['productsDir']+os.path.sep+'catalogs'+os.path.sep+'*_bdsfcat.fits')
     for t in tabFilesList:
         if t.find("srl_bdsfcat") == -1:
             tab=atpy.Table().read(t)
+            if any(tab['RA'] < 0.0):
+            	#print("\nFixing RA for %s" %t)
+            	tab = fixRA(tab, racol='RA', wrap_angle=360)
             freqGHz=tab.meta['FREQ0']/1e9
             bandKey=_getBandKey(freqGHz)
-            # tab.meta=None # It'd be good to clear this... but the catalog matching stuff wants many things from here
+            #tab.meta=None # It'd be good to clear this... but the catalog matching stuff wants many things from here
             if globalTabsDict[bandKey] is None:
                 globalTabsDict[bandKey]=tab
             else:
@@ -149,15 +177,15 @@ def builddb():
             globalTabsDict[bandKey].write(outFileName, overwrite = True)
             catalogs.catalog2DS9(globalTabsDict[bandKey], outFileName.replace(".fits", ".reg"),
                                  idKeyToUse = 'Source_name', RAKeyToUse = 'RA', decKeyToUse = 'DEC')
-            print("Wrote %s" % (outFileName))
-
+            print("\nWrote %s" % (outFileName))
+    
     # Quality flags table
     qualFileName=startup.config['productsDir']+os.path.sep+"qualityFlags.csv"
     if os.path.exists(qualFileName) == True:
         qualTab=atpy.Table().read(qualFileName)
     else:
         qualTab=None
-
+    
     # Make image table - centre coords, radius [approx.], RMS, band, image path - UHF and L together.
     # Report command (when we make it) could load and dump some of that info
     outFileName=startup.config['productsDir']+os.path.sep+"images.fits"
@@ -172,8 +200,8 @@ def builddb():
         statsDictList.append(statDict)
         
         # plotting images and saving in products/images directory
-        imageOutDir = startup.config['productsDir']+os.path.sep+"images"
-        images.plotImages(imgFile, imageOutDir)
+        #imageOutDir = startup.config['productsDir']+os.path.sep+"images"
+        #images.plotImages(imgFile, imageOutDir, ax_label_deg = True)
         
     imgTab=atpy.Table()
     for key in statDict.keys():
@@ -197,13 +225,63 @@ def builddb():
     imgTab.meta['BERKVER']=__version__
     imgTab.meta['DATEMADE']=datetime.date.today().isoformat()
     imgTab.write(outFileName, overwrite = True)
-    print("Wrote %s" % (outFileName))
+    print("\nWrote %s" % (outFileName))
     imgTab.write(qualFileName, overwrite = True)
 
+    # Generate survey mask in some format - we'll use that to get total survey area    
+      
+    # cross-matching
+    
 
-    # Generate survey mask in some format - we'll use that to get total survey area
+    opt_survey = 'DECaLS'
+    optband_to_match = 'r'
+    search_radius_arcsec = 4.0
+    Rel_threshold = 0.8
+    
+    xmatchDirPath = startup.config['productsDir']+os.path.sep+'xmatches'
+    os.makedirs(xmatchDirPath, exist_ok = True)
 
-
+    globalXmatchTabName=startup.config['productsDir']+os.path.sep+"xmatchCat_DECaLS_%s_%sasec.fits" %(optband_to_match, str(search_radius_arcsec).replace('.', 'p'))
+    globalXmatchTab=None
+    radCatFilesList=glob.glob(startup.config['productsDir']+os.path.sep+'catalogs'+os.path.sep+'*srl_bdsfcat.fits')
+    
+    for radcat in radCatFilesList:
+    	catalogName = radcat.split(os.path.sep)[-1]
+    	captureBlockId = catalogName.split('_')[3]
+    	targetName = (catalogName.split('_1024ch_')[1]).split('_srl_')[0]
+    	
+    	#making a subscript for this particular match
+    	outSubscript = '%s_%s_%sband_%sasec_Rel%s' %(catalogName, opt_survey, optband_to_match, str(search_radius_arcsec).replace(".","p"), str(Rel_threshold).replace(".","p"))
+    	
+    	radcattab = atpy.Table().read(radcat)
+    	freqGHz=radcattab.meta['FREQ0']/1e9
+    	radbandname=_getBandKey(freqGHz)
+    	
+    	xmatchTabName = startup.config['productsDir']+os.path.sep+'xmatches'+os.path.sep+"xmatchTable_%s" %outSubscript
+    	
+    	if os.path.exists(xmatchTabName):
+    	    xmatchTab = atpy.Table().read(xmatchTabName)
+    	else:
+    	    xmatchTab = crossmatch.xmatch_berk(radcat, radbandname, xmatchTabOutName=xmatchTabName, opt_survey=opt_survey, opt_mag_col = optband_to_match, search_radius_asec = search_radius_arcsec, Rel_threshold = Rel_threshold, makePlots=True, radRACol='RA', radDecCol='DEC', eRadRACol='E_RA', eRadDecCol='E_DEC', outSubscript=outSubscript)
+    	    
+    	if(xmatchTab):
+    	    if(globalXmatchTab is None):
+    	        globalXmatchTab = xmatchTab
+    	    else:
+    	        globalXmatchTab = atpy.vstack([globalXmatchTab, xmatchTab])
+    	        
+    globalXmatchTab.write(globalXmatchTabName, overwrite = True)
+    print("\nWrote %s" % (globalXmatchTabName))
+    
+    # plotting images and catalogues - saving in products/images directory
+    imgFilesList=glob.glob(startup.config['productsDir']+os.path.sep+"images"+os.path.sep+"pbcorr_*.fits")
+    for imgFile in imgFilesList:
+        imageOutDir = startup.config['productsDir']+os.path.sep+"images"
+        images.plotImages(imgFile, imageOutDir, ax_label_deg = True)
+        
+        
+    
+    
 #------------------------------------------------------------------------------------------------------------
 def collect():
     """Collect...
@@ -248,6 +326,7 @@ def collect():
 
     print("Finished!")
     sys.exit()
+    
 
 #------------------------------------------------------------------------------------------------------------
 def process(captureBlockId):

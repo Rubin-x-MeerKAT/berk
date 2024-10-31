@@ -1,0 +1,66 @@
+#!/usr/bin/env python
+
+"""
+Crossmatch radio sources with optical survey data.
+"""
+
+import os
+import sys
+import argparse
+import subprocess
+import glob
+import time
+import berk
+from berk import crossmatch
+from astropy.io import fits
+
+#------------------------------------------------------------------------------------------------------------
+def makeParser():
+    parser=argparse.ArgumentParser("xmatch")
+    
+    parser.add_argument("catalog", help="""A .fits table to crossmatch""")
+    parser.add_argument("-s", "--survey", help="""The optical survey to be crossmatched with""", default='DECaLS', type=str)
+    parser.add_argument("-b", "--band", help="""The optical band to be used for LR calculation""", default='r', type=str)
+    parser.add_argument("-r", "--radius", help="""The search radius in arcsec""", default=4.0, type=float)
+    parser.add_argument("-t", "--threshold", help="""Reliability threshold""", default=0.8, type=float)
+    parser.add_argument("-o", "--output", help="""Output directory""", default=os.getcwd(), type=str)
+    parser.add_argument("-p", "--makeplots", help="""Whether to make plots.""", action='store_true')
+    parser.add_argument("--radRACol", help="""RA Column of radio catalog""", default='RA', type=str)
+    parser.add_argument("--radDecCol", help="""Dec Column of radio catalog""", default='DEC', type=str)
+    parser.add_argument("--errRadRACol", help="""Error RA Column of radio catalog""", default='E_RA', type=str)
+    parser.add_argument("--errRadDecCol", help="""Error Dec Column of radio catalog""", default='E_DEC', type=str)
+
+    return parser
+
+#------------------------------------------------------------------------------------------------------------
+if __name__ == '__main__':
+
+    parser=makeParser()
+    args=parser.parse_args()
+    
+    
+    radio_cat = args.catalog
+    opt_survey = args.survey
+    opt_mag_col = args.band
+    search_radius_asec = args.radius
+    Rel_threshold = args.threshold
+    makePlots=args.makeplots
+    outPath = args.output
+    radRACol = args.radRACol
+    radDecCol = args.radDecCol
+    eRadRACol = args.errRadRACol
+    eRadDecCol = args.errRadDecCol
+    
+    
+    outSubscript = '%s_%s_%sband_%sasec_Rel%s' %(radio_cat.replace(".fits",""), opt_survey, opt_mag_col, str(search_radius_asec).replace(".","p"), str(Rel_threshold).replace(".","p"))
+    
+    inFile = os.path.abspath(radio_cat)
+    outFile = outPath+os.path.sep+'crossmatch_%s.fits' %outSubscript
+    
+    crossMatchTable = crossmatch.xmatchOpt(inFile, opt_survey=opt_survey, opt_mag_col=opt_mag_col, search_radius_asec=search_radius_asec, Rel_threshold=Rel_threshold, outPath=outPath, makePlots=makePlots, radRACol=radRACol, radDecCol=radDecCol, eRadRACol=eRadRACol, eRadDecCol=eRadDecCol, outSubscript=outSubscript)
+    
+    crossMatchTable.write(outFile, format='fits', overwrite=True)
+
+
+
+

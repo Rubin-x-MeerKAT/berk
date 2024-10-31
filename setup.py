@@ -9,5 +9,5 @@ setup(name='berk',
       author='Matt Hilton',
       author_email='matt.hilton@wits.ac.za',
       packages=['berk'],
-      scripts=['bin/berk', 'bin/berk_chain', 'bin/mkat_primary_beam_correct'],
+      scripts=['bin/berk', 'bin/berk_chain', 'bin/mkat_primary_beam_correct', 'bin/xmatch'],
 )

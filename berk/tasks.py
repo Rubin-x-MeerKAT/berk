@@ -113,6 +113,9 @@ def listObservations():
         print("Set BERK_INFO_FILE environment variable to check processing status of observations against central list.")
         tab=None
 
+    globXmatchLink = 'https://dl.dropbox.com/scl/fi/nmo4zi5acwh4shrevj2bj/xmatchCat_DECaLS_r_4p0asec.fits?rlkey=ijf3hg46l3m3rir5jbtrlwrj7&dl=0'
+    globXmatchTab=atpy.Table().read(globXmatchLink)
+
     msList=glob.glob(os.environ['BERK_MSCACHE']+os.path.sep+"*_sdp_l0.ms")
     msList.sort()
     print(msList)
@@ -126,9 +129,6 @@ def listObservations():
         if tab is not None:
             if captureBlockId in tab['captureBlockId']:
                 status="processed_and_analysed"
-                
-        globXmatchLink = 'https://dl.dropbox.com/scl/fi/nmo4zi5acwh4shrevj2bj/xmatchCat_DECaLS_r_4p0asec.fits?rlkey=ijf3hg46l3m3rir5jbtrlwrj7&dl=0'
-        globXmatchTab=atpy.Table().read(globXmatchLink)
         if globXmatchTab is not None:
             if captureBlockId in globXmatchTab['captureBlockId']:
                 status="processed_analysed_xmatched-DECaLS"

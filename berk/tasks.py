@@ -118,7 +118,7 @@ def listObservations():
 
     msList=glob.glob(os.environ['BERK_MSCACHE']+os.path.sep+"*_sdp_l0.ms")
     msList.sort()
-    print(msList)
+    
     print("Downloaded observations available locally [by captureBlockId]:")
     for ms in msList:
         captureBlockId=os.path.split(ms)[-1].split("_")[0]

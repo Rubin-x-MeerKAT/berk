@@ -43,7 +43,7 @@ def get_n_m(opt_mag, nbins, area_asec):
 def get_matches(radio_cat_table, optical_cat_table, search_radius_asec, radRACol, radDecCol, optRACol, optDecCol):
 
 	radio_coords = SkyCoord(ra=radio_cat_table[radRACol].value * u.deg, dec=radio_cat_table[radDecCol].value * u.deg)
-	optical_coords = SkyCoord(ra=optical_cat_table[optRACol].value * u.deg, dec=optical_cat_table['decDeg'].value * u.deg)
+	optical_coords = SkyCoord(ra=optical_cat_table[optRACol].value * u.deg, dec=optical_cat_table[optDecCol].value * u.deg)
 
 	radio_cartesian = np.vstack(radio_coords.cartesian.xyz).T  
 	optical_cartesian = np.vstack(optical_coords.cartesian.xyz).T
@@ -168,16 +168,26 @@ def get_centre_radius(radio_cat, radRACol, radDecCol):
 	ra_list=list(radio_cat[radRACol])
 	dec_list=list(radio_cat[radDecCol])
 	coords = SkyCoord(ra=ra_list*u.degree, dec=dec_list*u.degree, frame='icrs')
-	center_ra = np.mean(ra_list)
-	center_dec = np.mean(dec_list)
-	center_coord = SkyCoord(ra=center_ra*u.degree, dec=center_dec*u.degree, frame='icrs')
-	separations = coords.separation(center_coord)
-	radius_deg = separations.max().degree
-	return center_ra, center_dec, radius_deg
+	
+	min_ra, max_ra = np.min(ra_list), np.max(ra_list)
+	min_dec, max_dec = np.min(dec_list), np.max(dec_list)
+	
+	rad_ra = (max_ra - min_ra) / 2
+	rad_dec = (max_dec - min_dec) / 2
+
+	center_ra = (min_ra + max_ra) / 2
+	center_dec = (min_dec + max_dec) / 2
+
+	radius_deg_max = max(rad_ra, rad_dec)
+	
+	return center_ra, center_dec, rad_ra, rad_dec, radius_deg_max
 	
 def retrieve_DECaLS(center_ra, center_dec, radius_deg, DR='DR10'):
-	DECaLSDR10Ret = retrievers.getRetriever("DECaLSDR10", maxMagError = 0.2)
-	DECaLS_cat = Table(retrievers.DL_DECaLSDR10Retriever(center_ra, center_dec, halfBoxSizeDeg = radius_deg, DR = None))
+	print("\nRetrieving DECaLS %s sources with RAcen=%f, Deccen=%f, and radius=%f deg" %(DR, center_ra, center_dec, radius_deg)) 
+	if(DR == 'DR10'):
+		DECaLS_cat = Table(retrievers.DL_DECaLSDR10Retriever(center_ra, center_dec, halfBoxSizeDeg = radius_deg, DR = None))
+	elif(DR == 'DR8'):
+		DECaLS_cat = Table(retrievers.DL_DECaLSDR8Retriever(center_ra, center_dec, halfBoxSizeDeg = radius_deg, DR = None))
 	return DECaLS_cat
 	
 def compute_LR_Rel(radio_sources, optical_sources, search_radius_asec, opt_mag_col, mag_bins, Q0, qm_nm_values, radRACol, radDecCol, optRACol, optDecCol, eRadRACol, eRadDecCol, optPosErrCol):
@@ -195,6 +205,7 @@ def compute_LR_Rel(radio_sources, optical_sources, search_radius_asec, opt_mag_c
 		LR_radio_i = []
 		if n_cand > 0:
 			for optical_idx in optical_indices:
+				
             
 				radio_coord = SkyCoord(ra=radio_sources[radRACol][radio_idx] * u.deg, dec=radio_sources[radDecCol][radio_idx] * u.deg)
 				optical_coord = SkyCoord(ra=optical_sources[optRACol][optical_idx] * u.deg, dec=optical_sources[optDecCol][optical_idx] * u.deg)
@@ -251,13 +262,14 @@ def compute_LR_Rel(radio_sources, optical_sources, search_radius_asec, opt_mag_c
 	
 	return xmatch_table
 	
-def xmatchOpt(catalog, opt_survey, opt_mag_col, search_radius_asec, Rel_threshold, outPath, makePlots, radRACol, radDecCol, eRadRACol, eRadDecCol, outSubscript):
+def xmatchOpt(catalog, opt_survey, opt_survey_dr, opt_mag_col, search_radius_asec, outPath, makePlots, radRACol, radDecCol, eRadRACol, eRadDecCol, outSubscript):
 
 	catalogName = catalog.split(os.path.sep)[-1].replace(".fits","")
 
 	search_radius_asec = search_radius_asec * u.arcsec
 	n_mag_bins = 15
 	beam_size = 7.0
+	opt_pos_err = (0.2*u.arcsec).to(u.deg).value
 	
 	radio_sources = Table.read(catalog, format='fits', hdu=1)
 	
@@ -270,17 +282,16 @@ def xmatchOpt(catalog, opt_survey, opt_mag_col, search_radius_asec, Rel_threshol
             	print("\nCrossmatching - Fixing RA for %s" %catalogName)
             	radio_sources = tasks.fixRA(radio_sources, racol=radRACol, wrap_angle=360)
             	
-	center_ra, center_dec, radius_deg = get_centre_radius(radio_sources, radRACol, radDecCol)
+	center_ra, center_dec, rad_ra, rad_dec, radius_deg = get_centre_radius(radio_sources, radRACol, radDecCol)
 	N_radio = len(radio_sources)
-	sky_area_sqdeg = np.pi*radius_deg**2 * u.deg**2
+	sky_area_sqdeg = np.pi*rad_ra*rad_dec*u.deg**2
 	sky_area_sqasec = sky_area_sqdeg.to(u.arcsec**2)
-		
+	
 	# Collecting optical sources
 	if(opt_survey == 'DECaLS'):
 		optRACol, optDecCol = 'RADeg', 'decDeg'
 		optPosErrCol = 'pos_err'
-		print("\nRetrieving %s sources for %s..." %(opt_survey, catalogName))
-		optical_sources = retrieve_DECaLS(center_ra, center_dec, radius_deg) 
+		optical_sources = retrieve_DECaLS(center_ra, center_dec, radius_deg, DR=opt_survey_dr) 
 		if(len(optical_sources) == 0):
 			raise RuntimeError("\n%s: No optical sources found in %s database...!" %(catalogName, opt_survey))
 		print("\n%d %s sources found in this region..." %(len(optical_sources), opt_survey))
@@ -288,7 +299,8 @@ def xmatchOpt(catalog, opt_survey, opt_mag_col, search_radius_asec, Rel_threshol
 		raise RuntimeError("\n%s: Optical survey not mentioned....!" %catalogName)
 		
 	if optPosErrCol not in optical_sources.colnames:
-		optical_sources[optPosErrCol] = 0.2
+	
+		optical_sources[optPosErrCol] = opt_pos_err
 
 	rand_radio_sources=make_random_cat(center_ra, center_dec, radius_deg, N_radio, radRACol, radDecCol)
 
@@ -303,9 +315,15 @@ def xmatchOpt(catalog, opt_survey, opt_mag_col, search_radius_asec, Rel_threshol
 	print("\nComputing LR and Reliabilities...")
 	xmatch_table = compute_LR_Rel(radio_sources, optical_sources, search_radius_asec, opt_mag_col, mag_bins, Q0, qm_nm_values, radRACol, radDecCol, optRACol, optDecCol, eRadRACol, eRadDecCol, optPosErrCol)
 	
-	xmatch_Rel_threshold = xmatch_table[xmatch_table['Rels'] > Rel_threshold]
+	# computing cross-match separation
 	
-	if(len(xmatch_Rel_threshold) == 0):
+	coords_rad = SkyCoord(ra=xmatch_table[radRACol+'_rad'].value*u.deg, dec=xmatch_table[radDecCol+'_rad'].value*u.deg)
+	coords_opt = SkyCoord(ra=xmatch_table[optRACol+'_opt'].value*u.deg, dec=xmatch_table[optDecCol+'_opt'].value*u.deg)
+	separation_rad_opt = coords_rad.separation(coords_opt).deg
+	
+	xmatch_table['rad_opt_sep_deg'] = separation_rad_opt
+	
+	if(len(xmatch_table) == 0):
 		raise RuntimeError("\n%s: No cross-matched objects...!" %catalogName)
 	
 	if(makePlots):
@@ -315,7 +333,7 @@ def xmatchOpt(catalog, opt_survey, opt_mag_col, search_radius_asec, Rel_threshol
 			plt.figure(figsize=(6, 6))	
 			plt.scatter(optical_sources[optRACol], optical_sources[optDecCol], s=1, c='#8AD5F1', label='%s (N=%d)'%(opt_survey, len(optical_sources)))
 			plt.scatter(radio_sources[radRACol], radio_sources[radDecCol], s=2, c='#87340D', label='MeerKAT (N=%d)' %len(radio_sources))
-			plt.scatter(xmatch_Rel_threshold[radRACol+'_rad'], xmatch_Rel_threshold[radDecCol+'_rad'], marker='o', facecolor='None', linewidth=0.5, s=15, edgecolor='#06471D', label='MeerKATx%s (Rel > %0.1f; N=%d)' %(opt_survey, Rel_threshold, len(xmatch_Rel_threshold)))
+			plt.scatter(xmatch_table[radRACol+'_rad'], xmatch_table[radDecCol+'_rad'], marker='o', facecolor='None', linewidth=0.5, s=15, edgecolor='#06471D', label='MeerKATx%s (N=%d)' %(opt_survey, len(xmatch_table)))
 			plt.title(catalogName)
 			plt.title("%s\nSearch radius = %0.1f asec, %s band, Q0=%0.2f" %(catalogName, search_radius_asec.value, opt_mag_col, Q0), fontproperties=prop)
 			plt.xlabel("RA (deg; J2000)", fontproperties=prop)
@@ -327,11 +345,10 @@ def xmatchOpt(catalog, opt_survey, opt_mag_col, search_radius_asec, Rel_threshol
 			plt.savefig(plotOutName , dpi=300, bbox_inches = 'tight')
 			plt.close()
 		
-		'''
 		# Plotting LR and Rel
 		
 		LRRelplotOutName = "%s/LRRelMagPlot_%s.png" %(outPath, outSubscript)
-		if not os.path.exists(LRRelplotOutName)::
+		if not os.path.exists(LRRelplotOutName):
 			fig,ax=plt.subplots(nrows=2,ncols=1,sharex=True, sharey=False)	
 			fig.set_size_inches(5,5)
 			ax[0].scatter(xmatch_table[opt_mag_col+'_opt'], xmatch_table['LRs'], s=1, c='#87340D')
@@ -344,11 +361,10 @@ def xmatchOpt(catalog, opt_survey, opt_mag_col, search_radius_asec, Rel_threshol
 			plt.subplots_adjust(hspace=0.0,wspace=0.0)
 			plt.savefig(LRRelplotOutName , dpi=300, bbox_inches = 'tight')
 			plt.close()
-		'''
 		
-	return xmatch_Rel_threshold
+	return xmatch_table
 
-def xmatch_berk(radio_cat, radio_band, xmatchTabOutName, opt_survey='DECaLS', opt_mag_col = 'r', search_radius_asec = 4.0, Rel_threshold = 0.8, makePlots=False, radRACol='RA', radDecCol='DEC', eRadRACol='E_RA', eRadDecCol='E_DEC', outSubscript=''):
+def xmatch_berk(radio_cat, radio_band, xmatchTabOutName, opt_survey='DECaLS', opt_survey_dr='DR10', opt_mag_col = 'r', search_radius_asec = 4.0, makePlots=False, radRACol='RA', radDecCol='DEC', eRadRACol='E_RA', eRadDecCol='E_DEC', outSubscript=''):
 
 	xmatchDirPath = startup.config['productsDir']+os.path.sep+'xmatches'
 	
@@ -375,7 +391,7 @@ def xmatch_berk(radio_cat, radio_band, xmatchTabOutName, opt_survey='DECaLS', op
 	if(opt_survey == 'DECaLS'):
 	
 		try:
-			xmatch_tab = xmatchOpt(radio_cat, opt_survey, opt_mag_col, search_radius_asec, Rel_threshold, xmatchDirPath, makePlots, radRACol, radDecCol, eRadRACol, eRadDecCol, outSubscript)
+			xmatch_tab = xmatchOpt(catalog=radio_cat, opt_survey=opt_survey, opt_survey_dr=opt_survey_dr, opt_mag_col=opt_mag_col, search_radius_asec=search_radius_asec, outPath=xmatchDirPath, makePlots=makePlots, radRACol=radRACol, radDecCol=radDecCol, eRadRACol=eRadRACol, eRadDecCol=eRadDecCol, outSubscript=outSubscript)
 			
 			if 'captureBlockId' not in xmatch_tab.columns:
 				xmatch_tab.add_column(captureBlockId, name='captureBlockId', index=0) 

@@ -113,7 +113,7 @@ def listObservations():
         print("Set BERK_INFO_FILE environment variable to check processing status of observations against central list.")
         tab=None
 
-    globXmatchLink = 'https://dl.dropbox.com/scl/fi/nmo4zi5acwh4shrevj2bj/xmatchCat_DECaLS_r_4p0asec.fits?rlkey=ijf3hg46l3m3rir5jbtrlwrj7&dl=0'
+    globXmatchLink = 'https://dl.dropbox.com/scl/fi/39gma12peyymhadc2fss2/xmatchCat_DECaLS_r_4p0asec.fits?rlkey=v4bazyqfy294ukt9eqmfaeed7&st=7e7nfcde&dl=0'
     globXmatchTab=atpy.Table().read(globXmatchLink)
 
     msList=glob.glob(os.environ['BERK_MSCACHE']+os.path.sep+"*_sdp_l0.ms")
@@ -145,9 +145,6 @@ def builddb():
     globalTabsDict={'L': None, 'UHF': None}
     
     # Fixing RA
-    catFilesList=glob.glob(startup.config['productsDir']+os.path.sep+'catalogs'+os.path.sep+'*_bdsfcat.fits')
- 
-    	
     tabFilesList=glob.glob(startup.config['productsDir']+os.path.sep+'catalogs'+os.path.sep+'*_bdsfcat.fits')
     for t in tabFilesList:
         if t.find("srl_bdsfcat") == -1:
@@ -200,8 +197,8 @@ def builddb():
         statsDictList.append(statDict)
         
         # plotting images and saving in products/images directory
-        #imageOutDir = startup.config['productsDir']+os.path.sep+"images"
-        #images.plotImages(imgFile, imageOutDir, ax_label_deg = True)
+        imageOutDir = startup.config['productsDir']+os.path.sep+"images"
+        images.plotImages(imgFile, imageOutDir, ax_label_deg = True, statsDict=statDict)
         
     imgTab=atpy.Table()
     for key in statDict.keys():
@@ -229,19 +226,18 @@ def builddb():
     imgTab.write(qualFileName, overwrite = True)
 
     # Generate survey mask in some format - we'll use that to get total survey area    
-      
-    # cross-matching
     
+    # cross-matching
 
     opt_survey = 'DECaLS'
+    opt_survey_dr = 'DR10'
     optband_to_match = 'r'
     search_radius_arcsec = 4.0
-    Rel_threshold = 0.8
     
     xmatchDirPath = startup.config['productsDir']+os.path.sep+'xmatches'
     os.makedirs(xmatchDirPath, exist_ok = True)
 
-    globalXmatchTabName=startup.config['productsDir']+os.path.sep+"xmatchCat_DECaLS_%s_%sasec.fits" %(optband_to_match, str(search_radius_arcsec).replace('.', 'p'))
+    globalXmatchTabName=startup.config['productsDir']+os.path.sep+"xmatchCat_%s%s_%s_%sasec.fits" %(opt_survey, opt_survey_dr, optband_to_match, str(search_radius_arcsec).replace('.', 'p'))
     globalXmatchTab=None
     radCatFilesList=glob.glob(startup.config['productsDir']+os.path.sep+'catalogs'+os.path.sep+'*srl_bdsfcat.fits')
     
@@ -250,36 +246,30 @@ def builddb():
     	captureBlockId = catalogName.split('_')[3]
     	targetName = (catalogName.split('_1024ch_')[1]).split('_srl_')[0]
     	
-    	#making a subscript for this particular match
-    	outSubscript = '%s_%s_%sband_%sasec_Rel%s' %(catalogName, opt_survey, optband_to_match, str(search_radius_arcsec).replace(".","p"), str(Rel_threshold).replace(".","p"))
+    	# making a subscript for this particular match
+    	outSubscript = '%s_%s%s_%sband_%sasec' %(catalogName.replace('.fits',''), opt_survey, opt_survey_dr, optband_to_match, str(search_radius_arcsec).replace(".","p"))
     	
     	radcattab = atpy.Table().read(radcat)
     	freqGHz=radcattab.meta['FREQ0']/1e9
     	radbandname=_getBandKey(freqGHz)
     	
-    	xmatchTabName = startup.config['productsDir']+os.path.sep+'xmatches'+os.path.sep+"xmatchTable_%s" %outSubscript
-    	
+    	xmatchTabName = startup.config['productsDir']+os.path.sep+'xmatches'+os.path.sep+"xmatchTable_%s" %outSubscript+".fits"
+
     	if os.path.exists(xmatchTabName):
     	    xmatchTab = atpy.Table().read(xmatchTabName)
     	else:
-    	    xmatchTab = crossmatch.xmatch_berk(radcat, radbandname, xmatchTabOutName=xmatchTabName, opt_survey=opt_survey, opt_mag_col = optband_to_match, search_radius_asec = search_radius_arcsec, Rel_threshold = Rel_threshold, makePlots=True, radRACol='RA', radDecCol='DEC', eRadRACol='E_RA', eRadDecCol='E_DEC', outSubscript=outSubscript)
+    	    xmatchTab = crossmatch.xmatch_berk(radio_cat=radcat, radio_band=radbandname, xmatchTabOutName=xmatchTabName, opt_survey=opt_survey, opt_survey_dr=opt_survey_dr, opt_mag_col = optband_to_match, search_radius_asec = search_radius_arcsec, makePlots=False, radRACol='RA', radDecCol='DEC', eRadRACol='E_RA', eRadDecCol='E_DEC', outSubscript=outSubscript)
+    	    
     	    
     	if(xmatchTab):
     	    if(globalXmatchTab is None):
     	        globalXmatchTab = xmatchTab
     	    else:
+    	        
     	        globalXmatchTab = atpy.vstack([globalXmatchTab, xmatchTab])
     	        
     globalXmatchTab.write(globalXmatchTabName, overwrite = True)
     print("\nWrote %s" % (globalXmatchTabName))
-    
-    # plotting images and catalogues - saving in products/images directory
-    imgFilesList=glob.glob(startup.config['productsDir']+os.path.sep+"images"+os.path.sep+"pbcorr_*.fits")
-    for imgFile in imgFilesList:
-        imageOutDir = startup.config['productsDir']+os.path.sep+"images"
-        images.plotImages(imgFile, imageOutDir, ax_label_deg = True)
-        
-        
     
     
 #------------------------------------------------------------------------------------------------------------

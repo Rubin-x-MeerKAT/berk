@@ -228,9 +228,9 @@ def builddb():
 
     # Generate survey mask in some format - we'll use that to get total survey area    
     
-    # cross-matching
+    # cross-matching # to be worked on
     
-    '''
+    """
 
     opt_survey = 'DECaLS'
     opt_survey_dr = 'DR10'
@@ -274,7 +274,7 @@ def builddb():
     globalXmatchTab.write(globalXmatchTabName, overwrite = True)
     print("\nWrote %s" % (globalXmatchTabName))
     
-    '''
+    """
 #------------------------------------------------------------------------------------------------------------
 def collect():
     """Collect...

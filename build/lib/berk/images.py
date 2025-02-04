@@ -10,11 +10,19 @@ import numpy as np
 import astropy.io.fits as pyfits
 import astropy.stats as apyStats
 from astLib import *
-from . import catalogs
+from . import catalogs, plotSettings
 import matplotlib.pyplot as plt
 from astropy.visualization import simple_norm
 from astropy.wcs import WCS
+import scipy
+import math
 
+def fov(freq_Hz, Diameter_m):
+    Lambda = scipy.constants.c/freq_Hz
+    fwhm = 1.22*(Lambda/Diameter_m) # in radians
+    fwhm = math.degrees(fwhm)
+    fov = scipy.constants.pi*(fwhm*0.5)**2
+    return fov
 
 #------------------------------------------------------------------------------------------------------------
 def getImagesStats(imgFileName, radiusArcmin = 12):
@@ -37,8 +45,11 @@ def getImagesStats(imgFileName, radiusArcmin = 12):
             d=d[0, 0]
         assert(d.ndim == 2)
         wcs=astWCS.WCS(img[0].header, mode = 'pyfits')
+        
+    RA_rad, Dec_rad = wcs.getHalfSizeDeg() # before clipping
     RADeg, decDeg=wcs.getCentreWCSCoords()
     RAMin, RAMax, decMin, decMax=astCoords.calcRADecSearchBox(RADeg, decDeg, radiusArcmin/60)
+    
     clip=astImages.clipUsingRADecCoords(d, wcs, RAMin, RAMax, decMin, decMax)
     d=clip['data']
     wcs=clip['wcs']
@@ -50,43 +61,55 @@ def getImagesStats(imgFileName, radiusArcmin = 12):
     # print("    clipped stdev image RMS = %.3f uJy/beam" % (sigma*1e6))
     # sbi=apyStats.biweight_scale(d, c = 9.0, modify_sample_size = True)
     # print("    biweight scale image RMS = %.3f uJy/beam" % (sbi*1e6))
+    
+    #RA_rad, Dec_rad = wcs.getHalfSizeDeg() # after clipping
+    sky_area_sq_deg = np.pi*RA_rad*Dec_rad
+    sky_area_sq_deg_fov = fov(wcs.header['CRVAL3'], 13.5)
+    
     statsDict={'path': imgFileName,
                'object': wcs.header['OBJECT'],
                'centre_RADeg': RADeg,
                'centre_decDeg': decDeg,
+               'sky_area_sqdeg': sky_area_sq_deg,
                'RMS_uJy/beam': sigma*1e6,
                'dynamicRange': d.max()/sigma,
                'freqGHz': wcs.header['CRVAL3']/1e9}
 
     return statsDict
-    
-def plotImages(imgFilePath, outDirName, colorMap = 'viridis', vmin=-2.e-5, vmax=2.e-4, ax_label_deg=False, show_grid=True):
-    """Read the given MeerKAT image and plots it 
+
+#------------------------------------------------------------------------------------------------------------
+def plotImages(imgFilePath, outDirName, colorMap = 'viridis', vmin = -2.e-5, vmax = 2.e-4,
+               ax_label_deg = False, show_grid=True, statsDict = None):
+    """Read the given MeerKAT image and write an output plot of it in PNG format.
 
     Args:
-        imgFilePath (:obj:`str`): Path to the FITS images.
+        imgFilePath (:obj:`str`): Path to the FITS image.
+        outDirName (:obj:'str'): Path to the output directory where png files are to be saved.
         colorMap (:obj:'str', optional): The colormap to use for the image. Default is 'viridis'.
         vmin (:obj:'float', optional): Minimum data value to anchor the colormap. Default is -2.e-5.
         vmax (:obj:'float', optional): Maximum data value to anchor the colormap. Default is 2.e-4.
-        ax_label_deg (:obj: 'bool', optional): Whether to label the axis coordinates in the units of degrees. Default is False.
+        ax_label_deg (:obj: 'bool', optional): Whether to label the axis coordinates in the units of degrees.
+            Default is False.
         show_grid (:obj: 'bool', optional): Whether to show grids. Default is True.
     
     Returns:
         None
+
     """
     
     imgFileName = imgFilePath.split(os.path.sep)[-1].replace(".fits", "")
+    imgOutName = outDirName+os.path.sep+imgFileName+".png"
     
-    captID = imgFileName.split('_')[3]
-    target = imgFileName.split('_')[7][:-3]
- 
+    if os.path.exists(imgOutName) == True:
+        return
+    
     with pyfits.open(imgFilePath) as img:
         image_data=img[0].data
         image_header=img[0].header
         if image_data.ndim == 4:
             image_data=image_data[0, 0]
         assert(image_data.ndim == 2)
-
+        
     image_data = image_data * 1e6 # converting from Jy/beam to microJy/beam
     
     # finding vmin and vmax
@@ -104,26 +127,35 @@ def plotImages(imgFilePath, outDirName, colorMap = 'viridis', vmin=-2.e-5, vmax=
     cbar = plt.colorbar(im, ax=ax)
     cbar.set_label(label=r'$\mu$Jy/beam')
     
-    plt.title("Capture Block: %s  Target: %s" %(captID, target))
+    plt.title(imgFileName, fontsize=9)#"Capture Block: %s  Target: %s" %(captID, target))
     plt.xlabel("RA (J2000)")
     plt.ylabel("Dec (J2000)")
     
     if(ax_label_deg == True):
         lon = ax.coords[0]
         lat = ax.coords[1]
-        
+	
         lon.set_major_formatter('d.dd')
         lat.set_major_formatter('d.dd')
-
+        
+    if(statsDict):
+        text = (
+        f"Freq: {statsDict['freqGHz']:.2f} GHz\n"
+        f"Area: {statsDict['sky_area_sqdeg']:.2f} sq. deg.\n"
+        f"RMS: {statsDict['RMS_uJy/beam']:.2f} $\mu$Jy/beam\n"
+        f"Dyn. Ran.: {statsDict['dynamicRange']:.2f}"
+        )
+        
+        plt.gca().text(0.02, 0.98, text, fontsize=8, transform=plt.gca().transAxes, ha='left', va='top',  bbox=dict(facecolor='white', alpha=0.7, edgecolor='none', boxstyle='round,pad=0.5'))
+        
     if(show_grid):
         plt.grid(color='white', linestyle='--', linewidth=0.5)
 
     pngFileName = imgFileName.split('_')[3]
-        
-    plt.savefig("%s/%s.png" %(outDirName, imgFileName) , dpi=300, bbox_inches = 'tight')
+	
+    plt.savefig(imgOutName , dpi=300, bbox_inches = 'tight')
     plt.close()
+    
+    
 
-    
-    return None
-    
 

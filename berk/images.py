@@ -10,19 +10,19 @@ import numpy as np
 import astropy.io.fits as pyfits
 import astropy.stats as apyStats
 from astLib import *
-from . import catalogs
+from . import catalogs, plotSettings
 import matplotlib.pyplot as plt
 from astropy.visualization import simple_norm
 from astropy.wcs import WCS
+import scipy
+import math
 
-from matplotlib import font_manager as fm
-this_platform = os.environ['THIS_PLATFORM']
-if(this_platform == 'hp455'): #krishna's laptop
-    fpath = "/home/krishna/Dropbox/fonts/cmunss.ttf"
-    prop = fm.FontProperties(fname=fpath,size=12,math_fontfamily='stixsans')
-else:
-    prop = fm.FontProperties(size=12,math_fontfamily='stixsans')
-
+def fov(freq_Hz, Diameter_m):
+    Lambda = scipy.constants.c/freq_Hz
+    fwhm = 1.22*(Lambda/Diameter_m) # in radians
+    fwhm = math.degrees(fwhm)
+    fov = scipy.constants.pi*(fwhm*0.5)**2
+    return fov
 
 #------------------------------------------------------------------------------------------------------------
 def getImagesStats(imgFileName, radiusArcmin = 12):
@@ -45,8 +45,11 @@ def getImagesStats(imgFileName, radiusArcmin = 12):
             d=d[0, 0]
         assert(d.ndim == 2)
         wcs=astWCS.WCS(img[0].header, mode = 'pyfits')
+        
+    RA_rad, Dec_rad = wcs.getHalfSizeDeg() # before clipping
     RADeg, decDeg=wcs.getCentreWCSCoords()
     RAMin, RAMax, decMin, decMax=astCoords.calcRADecSearchBox(RADeg, decDeg, radiusArcmin/60)
+    
     clip=astImages.clipUsingRADecCoords(d, wcs, RAMin, RAMax, decMin, decMax)
     d=clip['data']
     wcs=clip['wcs']
@@ -59,10 +62,10 @@ def getImagesStats(imgFileName, radiusArcmin = 12):
     # sbi=apyStats.biweight_scale(d, c = 9.0, modify_sample_size = True)
     # print("    biweight scale image RMS = %.3f uJy/beam" % (sbi*1e6))
     
-    del_RA = RAMax-RAMin
-    del_Dec = decMax-decMin
-    sky_area_sq_deg = np.pi * del_RA * del_Dec  # area in square degrees
-
+    #RA_rad, Dec_rad = wcs.getHalfSizeDeg() # after clipping
+    sky_area_sq_deg = np.pi*RA_rad*Dec_rad
+    sky_area_sq_deg_fov = fov(wcs.header['CRVAL3'], 13.5)
+    
     statsDict={'path': imgFileName,
                'object': wcs.header['OBJECT'],
                'centre_RADeg': RADeg,
@@ -76,7 +79,7 @@ def getImagesStats(imgFileName, radiusArcmin = 12):
 
 #------------------------------------------------------------------------------------------------------------
 def plotImages(imgFilePath, outDirName, colorMap = 'viridis', vmin = -2.e-5, vmax = 2.e-4,
-               ax_label_deg = False, show_grid=True):
+               ax_label_deg = False, show_grid=True, statsDict = None):
     """Read the given MeerKAT image and write an output plot of it in PNG format.
 
     Args:
@@ -100,16 +103,13 @@ def plotImages(imgFilePath, outDirName, colorMap = 'viridis', vmin = -2.e-5, vma
     if os.path.exists(imgOutName) == True:
         return
     
-    captID = imgFileName.split('_')[3]
-    target = imgFileName.split('_')[7][:-3]
- 
     with pyfits.open(imgFilePath) as img:
         image_data=img[0].data
         image_header=img[0].header
         if image_data.ndim == 4:
             image_data=image_data[0, 0]
         assert(image_data.ndim == 2)
-
+        
     image_data = image_data * 1e6 # converting from Jy/beam to microJy/beam
     
     # finding vmin and vmax
@@ -125,11 +125,11 @@ def plotImages(imgFilePath, outDirName, colorMap = 'viridis', vmin = -2.e-5, vma
     norm = simple_norm(image_data, 'log')
     im = ax.imshow(image_data, cmap='viridis', vmin=vmin, vmax=vmax, origin='lower')
     cbar = plt.colorbar(im, ax=ax)
-    cbar.set_label(label=r'$\mu$Jy/beam', fontproperties=prop)
+    cbar.set_label(label=r'$\mu$Jy/beam')
     
-    plt.title("Capture Block: %s  Target: %s" %(captID, target), fontproperties=prop)
-    plt.xlabel("RA (J2000)", fontproperties=prop)
-    plt.ylabel("Dec (J2000)", fontproperties=prop)
+    plt.title(imgFileName, fontsize=9)#"Capture Block: %s  Target: %s" %(captID, target))
+    plt.xlabel("RA (J2000)")
+    plt.ylabel("Dec (J2000)")
     
     if(ax_label_deg == True):
         lon = ax.coords[0]
@@ -137,7 +137,17 @@ def plotImages(imgFilePath, outDirName, colorMap = 'viridis', vmin = -2.e-5, vma
 	
         lon.set_major_formatter('d.dd')
         lat.set_major_formatter('d.dd')
-
+        
+    if(statsDict):
+        text = (
+        f"Freq: {statsDict['freqGHz']:.2f} GHz\n"
+        f"Area: {statsDict['sky_area_sqdeg']:.2f} sq. deg.\n"
+        f"RMS: {statsDict['RMS_uJy/beam']:.2f} $\mu$Jy/beam\n"
+        f"Dyn. Ran.: {statsDict['dynamicRange']:.2f}"
+        )
+        
+        plt.gca().text(0.02, 0.98, text, fontsize=8, transform=plt.gca().transAxes, ha='left', va='top',  bbox=dict(facecolor='white', alpha=0.7, edgecolor='none', boxstyle='round,pad=0.5'))
+        
     if(show_grid):
         plt.grid(color='white', linestyle='--', linewidth=0.5)
 
@@ -145,5 +155,7 @@ def plotImages(imgFilePath, outDirName, colorMap = 'viridis', vmin = -2.e-5, vma
 	
     plt.savefig(imgOutName , dpi=300, bbox_inches = 'tight')
     plt.close()
+    
+    
 
 

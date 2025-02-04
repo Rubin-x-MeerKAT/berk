@@ -11,8 +11,11 @@ import glob
 import time
 import datetime
 import astropy.table as atpy
-from . import startup, archive, jobs, catalogs, images,  __version__
+from . import startup, archive, jobs, catalogs, images, crossmatch,  __version__
 import shlex
+import numpy as np
+from astropy import units as u
+from astropy.coordinates import SkyCoord, Longitude
 
 #------------------------------------------------------------------------------------------------------------
 def fetch(captureBlockId):
@@ -24,11 +27,9 @@ def fetch(captureBlockId):
     captureBlockId=captureBlockIdLink.split("https://archive-gw-1.kat.ac.za/")[-1].split("/")[0]
     msPath=os.environ['BERK_MSCACHE']+os.path.sep+"%s_sdp_l0.ms" % (captureBlockId)
     fetchLogPath=os.environ['BERK_MSCACHE']+os.path.sep+"%s_fetch.log" % (captureBlockId)
-    #print('ID:', captureBlockId, 'path:', msPath)
     if archive.checkFetchComplete(captureBlockId) == False:
         cmd="mvftoms.py %s --flags cam,data_lost,ingest_rfi -o %s" % (captureBlockIdLink, msPath)
         cmd_subprocess=shlex.split(cmd)
-        #print(cmd_subprocess)
         with subprocess.Popen(cmd_subprocess, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True) as process:   
             with open(fetchLogPath, 'w') as logFile:
                 for line in process.stdout:
@@ -58,7 +59,6 @@ def fetch(captureBlockId):
                             logFile.write(line)
                             print(line, end='')
                     process.wait()
-        #subprocess.run(cmd_subprocess, universal_newlines=True, stdout=logFile, stderr=logFile)         
         #os.system(cmd)
         # print("Run this command in GNU screen:")
         # print(cmd)
@@ -88,10 +88,20 @@ def _getBandKey(freqGHz):
     elif freqGHz > 0.7 and freqGHz < 0.9:
         bandKey='UHF'
     else:
-        raise Exception("Not sure what band this is - need to add a band key for it")
+        bandKey='Others'
+        #raise Exception("%f - Not sure what band this is - need to add a band key for it" %freqGHz)
 
     return bandKey
+    
+#------------------------------------------------------------------------------------------------------------
+def fixRA(table, racol='RA', wrap_angle=180):
+    """Returns table with corrected RA wrap.
 
+    """
+    fixTable = table.copy()
+    fixTable[racol] = Longitude(table[racol], unit=u.deg, wrap_angle=wrap_angle * u.deg).value
+    return fixTable
+    
 #------------------------------------------------------------------------------------------------------------
 def listObservations():
     """List observations available on this machine, and check their processing status with the central list.
@@ -104,8 +114,12 @@ def listObservations():
         print("Set BERK_INFO_FILE environment variable to check processing status of observations against central list.")
         tab=None
 
+    globXmatchLink = 'https://dl.dropbox.com/scl/fi/39gma12peyymhadc2fss2/xmatchCat_DECaLS_r_4p0asec.fits?rlkey=v4bazyqfy294ukt9eqmfaeed7&st=7e7nfcde&dl=0'
+    globXmatchTab=atpy.Table().read(globXmatchLink)
+
     msList=glob.glob(os.environ['BERK_MSCACHE']+os.path.sep+"*_sdp_l0.ms")
     msList.sort()
+    print(msList)
     print("Downloaded observations available locally [by captureBlockId]:")
     for ms in msList:
         captureBlockId=os.path.split(ms)[-1].split("_")[0]
@@ -116,6 +130,10 @@ def listObservations():
         if tab is not None:
             if captureBlockId in tab['captureBlockId']:
                 status="processed_and_analysed"
+        if globXmatchTab is not None:
+            if captureBlockId in globXmatchTab['captureBlockId']:
+                status="processed_analysed_xmatched-DECaLS"
+                
         print("   %s    %s" % (captureBlockId, status))
 
 #------------------------------------------------------------------------------------------------------------
@@ -123,16 +141,21 @@ def builddb():
     """Build database...
 
     """
-
+    
     # Build global catalog in each band (L-band, UHF)
-    globalTabsDict={'L': None, 'UHF': None}
+    globalTabsDict={'L': None, 'UHF': None, 'Others': None}
+    
+    # Fixing RA
     tabFilesList=glob.glob(startup.config['productsDir']+os.path.sep+'catalogs'+os.path.sep+'*_bdsfcat.fits')
     for t in tabFilesList:
         if t.find("srl_bdsfcat") == -1:
             tab=atpy.Table().read(t)
+            if any(tab['RA'] < 0.0):
+            	#print("\nFixing RA for %s" %t)
+            	tab = fixRA(tab, racol='RA', wrap_angle=360)
             freqGHz=tab.meta['FREQ0']/1e9
             bandKey=_getBandKey(freqGHz)
-            # tab.meta=None # It'd be good to clear this... but the catalog matching stuff wants many things from here
+            #tab.meta=None # It'd be good to clear this... but the catalog matching stuff wants many things from here
             if globalTabsDict[bandKey] is None:
                 globalTabsDict[bandKey]=tab
             else:
@@ -152,15 +175,15 @@ def builddb():
             globalTabsDict[bandKey].write(outFileName, overwrite = True)
             catalogs.catalog2DS9(globalTabsDict[bandKey], outFileName.replace(".fits", ".reg"),
                                  idKeyToUse = 'Source_name', RAKeyToUse = 'RA', decKeyToUse = 'DEC')
-            print("Wrote %s" % (outFileName))
-
+            print("\nWrote %s" % (outFileName))
+    
     # Quality flags table
     qualFileName=startup.config['productsDir']+os.path.sep+"qualityFlags.csv"
     if os.path.exists(qualFileName) == True:
         qualTab=atpy.Table().read(qualFileName)
     else:
         qualTab=None
-
+    
     # Make image table - centre coords, radius [approx.], RMS, band, image path - UHF and L together.
     # Report command (when we make it) could load and dump some of that info
     outFileName=startup.config['productsDir']+os.path.sep+"images.fits"
@@ -176,7 +199,7 @@ def builddb():
         
         # plotting images and saving in products/images directory
         imageOutDir = startup.config['productsDir']+os.path.sep+"images"
-        images.plotImages(imgFile, imageOutDir)
+        images.plotImages(imgFile, imageOutDir, ax_label_deg = True, statsDict=statDict)
         
     imgTab=atpy.Table()
     for key in statDict.keys():
@@ -200,13 +223,58 @@ def builddb():
     imgTab.meta['BERKVER']=__version__
     imgTab.meta['DATEMADE']=datetime.date.today().isoformat()
     imgTab.write(outFileName, overwrite = True)
-    print("Wrote %s" % (outFileName))
+    print("\nWrote %s" % (outFileName))
     imgTab.write(qualFileName, overwrite = True)
 
+    # Generate survey mask in some format - we'll use that to get total survey area    
+    
+    # cross-matching
+    
+    '''
 
-    # Generate survey mask in some format - we'll use that to get total survey area
+    opt_survey = 'DECaLS'
+    opt_survey_dr = 'DR10'
+    optband_to_match = 'r'
+    search_radius_arcsec = 4.0
+    
+    xmatchDirPath = startup.config['productsDir']+os.path.sep+'xmatches'
+    os.makedirs(xmatchDirPath, exist_ok = True)
 
+    globalXmatchTabName=startup.config['productsDir']+os.path.sep+"xmatchCat_%s%s_%s_%sasec.fits" %(opt_survey, opt_survey_dr, optband_to_match, str(search_radius_arcsec).replace('.', 'p'))
+    globalXmatchTab=None
+    radCatFilesList=glob.glob(startup.config['productsDir']+os.path.sep+'catalogs'+os.path.sep+'*srl_bdsfcat.fits')
+    
+    for radcat in radCatFilesList:
+    	catalogName = radcat.split(os.path.sep)[-1]
+    	captureBlockId = catalogName.split('_')[3]
+    	targetName = (catalogName.split('_1024ch_')[1]).split('_srl_')[0]
+    	
+    	# making a subscript for this particular match
+    	outSubscript = '%s_%s%s_%sband_%sasec' %(catalogName.replace('.fits',''), opt_survey, opt_survey_dr, optband_to_match, str(search_radius_arcsec).replace(".","p"))
+    	
+    	radcattab = atpy.Table().read(radcat)
+    	freqGHz=radcattab.meta['FREQ0']/1e9
+    	radbandname=_getBandKey(freqGHz)
+    	
+    	xmatchTabName = startup.config['productsDir']+os.path.sep+'xmatches'+os.path.sep+"xmatchTable_%s" %outSubscript+".fits"
 
+    	if os.path.exists(xmatchTabName):
+    	    xmatchTab = atpy.Table().read(xmatchTabName)
+    	else:
+    	    xmatchTab = crossmatch.xmatch_berk(radio_cat=radcat, radio_band=radbandname, xmatchTabOutName=xmatchTabName, opt_survey=opt_survey, opt_survey_dr=opt_survey_dr, opt_mag_col = optband_to_match, search_radius_asec = search_radius_arcsec, makePlots=False, radRACol='RA', radDecCol='DEC', eRadRACol='E_RA', eRadDecCol='E_DEC', outSubscript=outSubscript)
+    	    
+    	    
+    	if(xmatchTab):
+    	    if(globalXmatchTab is None):
+    	        globalXmatchTab = xmatchTab
+    	    else:
+    	        
+    	        globalXmatchTab = atpy.vstack([globalXmatchTab, xmatchTab])
+    	        
+    globalXmatchTab.write(globalXmatchTabName, overwrite = True)
+    print("\nWrote %s" % (globalXmatchTabName))
+    
+    '''
 #------------------------------------------------------------------------------------------------------------
 def collect():
     """Collect...
@@ -248,9 +316,19 @@ def collect():
         catPath="processing/*/IMAGES/pbcorr_trim_*_pybdsf/*_bdsfcat.fits"
         cmd="rsync -avP %s%s %s" % (s, os.path.sep+catPath, toPath)
         os.system(cmd)
+        
+    # Get rms
+    print("Collecting rms images...")
+    toPath=startup.config['productsDir']+os.path.sep+"rms"
+    os.makedirs(toPath, exist_ok = True)
+    for s in stubs:
+        rmsPath="processing/*/IMAGES/pbcorr_trim_*_pybdsf/*_rms.fits"
+        cmd="rsync -avP %s%s %s" % (s, os.path.sep+rmsPath, toPath)
+        os.system(cmd)
 
     print("Finished!")
     sys.exit()
+    
 
 #------------------------------------------------------------------------------------------------------------
 def process(captureBlockId):

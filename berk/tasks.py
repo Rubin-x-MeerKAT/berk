@@ -88,7 +88,8 @@ def _getBandKey(freqGHz):
     elif freqGHz > 0.7 and freqGHz < 0.9:
         bandKey='UHF'
     else:
-        raise Exception("Not sure what band this is - need to add a band key for it")
+        bandKey='Others'
+        #raise Exception("%f - Not sure what band this is - need to add a band key for it" %freqGHz)
 
     return bandKey
     
@@ -142,7 +143,7 @@ def builddb():
     """
     
     # Build global catalog in each band (L-band, UHF)
-    globalTabsDict={'L': None, 'UHF': None}
+    globalTabsDict={'L': None, 'UHF': None, 'Others': None}
     
     # Fixing RA
     tabFilesList=glob.glob(startup.config['productsDir']+os.path.sep+'catalogs'+os.path.sep+'*_bdsfcat.fits')
@@ -228,6 +229,8 @@ def builddb():
     # Generate survey mask in some format - we'll use that to get total survey area    
     
     # cross-matching
+    
+    '''
 
     opt_survey = 'DECaLS'
     opt_survey_dr = 'DR10'
@@ -271,7 +274,7 @@ def builddb():
     globalXmatchTab.write(globalXmatchTabName, overwrite = True)
     print("\nWrote %s" % (globalXmatchTabName))
     
-    
+    '''
 #------------------------------------------------------------------------------------------------------------
 def collect():
     """Collect...
@@ -312,6 +315,15 @@ def collect():
     for s in stubs:
         catPath="processing/*/IMAGES/pbcorr_trim_*_pybdsf/*_bdsfcat.fits"
         cmd="rsync -avP %s%s %s" % (s, os.path.sep+catPath, toPath)
+        os.system(cmd)
+        
+    # Get rms
+    print("Collecting rms images...")
+    toPath=startup.config['productsDir']+os.path.sep+"rms"
+    os.makedirs(toPath, exist_ok = True)
+    for s in stubs:
+        rmsPath="processing/*/IMAGES/pbcorr_trim_*_pybdsf/*_rms.fits"
+        cmd="rsync -avP %s%s %s" % (s, os.path.sep+rmsPath, toPath)
         os.system(cmd)
 
     print("Finished!")

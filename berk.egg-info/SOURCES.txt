@@ -9,8 +9,10 @@ berk/__init__.py
 berk/_version.py
 berk/archive.py
 berk/catalogs.py
+berk/crossmatch.py
 berk/images.py
 berk/jobs.py
+berk/plotSettings.py
 berk/startup.py
 berk/tasks.py
 berk.egg-info/PKG-INFO
@@ -21,6 +23,7 @@ berk.egg-info/top_level.txt
 bin/berk
 bin/berk_chain
 bin/mkat_primary_beam_correct
+bin/xmatch
 docs/Makefile
 docs/commands.rst
 docs/conf.py

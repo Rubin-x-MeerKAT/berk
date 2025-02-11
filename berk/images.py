@@ -17,7 +17,11 @@ from astropy.wcs import WCS
 import scipy
 import math
 
+#------------------------------------------------------------------------------------------------------------
 def fov(freq_Hz, Diameter_m):
+    """Insert docstring info
+
+    """
     Lambda = scipy.constants.c/freq_Hz
     fwhm = 1.22*(Lambda/Diameter_m) # in radians
     fwhm = math.degrees(fwhm)

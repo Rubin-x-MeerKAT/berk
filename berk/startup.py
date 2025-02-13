@@ -12,7 +12,7 @@ if on_rtd is not None:
     os.environ['BERK_MSCACHE']='MSCache'
     os.environ['BERK_PLATFORM']='chpc'
 
-# Settings are hard-coded for now, but could be put into a YAML config file later ---------------------------
+# Some settings are hard-coded for now, but could be put into a YAML config file later
 config={}
 
 if "BERK_ROOT" not in os.environ.keys():

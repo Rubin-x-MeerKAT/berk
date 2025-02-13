@@ -405,7 +405,7 @@ def xmatch_opt(catalog, opt_survey, opt_survey_dr, opt_mag_col, search_radius_as
     sky_area_sqasec = sky_area_sqdeg.to(u.arcsec**2)
 
     # Collecting optical sources
-    if opt_survey == 'decals':
+    if opt_survey == 'DECaLS':
         opt_ra_col, opt_dec_col = 'RADeg', 'decDeg'
         opt_pos_err_col = 'pos_err'
         optical_sources = retrieve_decals(center_ra, center_dec, radius_deg, DR=opt_survey_dr)

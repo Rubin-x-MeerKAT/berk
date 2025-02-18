@@ -8,59 +8,56 @@ Script to chain two Oxkat job scripts together and submit the jobs within
 
 import os
 import sys
-import time
 from berk import jobs
-import IPython
 
 if len(sys.argv) < 3:
-    print("Run: berk_chain workloadManager script1.sh script2.sh")
+    print("Run: berk_chain workload_manager script1.sh script2.sh")
 
-workloadManager=sys.argv[1]
-assert(workloadManager in ['slurm', 'pbs'])
+workload_manager=sys.argv[1]
+assert(workload_manager in ['slurm', 'pbs'])
 # dependentJobID=sys.argv[2]
-script1FileName=sys.argv[2]
-script2FileName=sys.argv[3]
+script_1_filename=sys.argv[2]
+script_2_filename=sys.argv[3]
 
-with open(script1FileName) as inFile:
-    lines1=inFile.readlines()
-with open(script2FileName) as inFile:
-    lines2=inFile.readlines()
+with open(script_1_filename, encoding = 'utf8') as in_file:
+    lines1=in_file.readlines()
+with open(script_2_filename, encoding = 'utf8') as in_file:
+    lines2=in_file.readlines()
 
 lines=lines1+lines2
 
-jobCmds=[]
+job_cmds=[]
 dependent=[]
 for line in lines:
-    if line.find("sbatch") != -1 and workloadManager == 'slurm':
-        sbatchCmd=line[line.find("sbatch") :].split(" |")[0]
-        if sbatchCmd.find("-d afterok:") != -1:
-            sbatchCmd=sbatchCmd.split("}")[-1].strip()
+    if line.find("sbatch") != -1 and workload_manager == 'slurm':
+        sbatch_cmd=line[line.find("sbatch") :].split(" |")[0]
+        if sbatch_cmd.find("-d afterok:") != -1:
+            sbatch_cmd=sbatch_cmd.split("}")[-1].strip()
             dependent.append(True)
         else:
-            sbatchCmd=sbatchCmd.split("sbatch")[-1].strip()
+            sbatch_cmd=sbatch_cmd.split("sbatch")[-1].strip()
             dependent.append(False)
-        jobCmds.append(sbatchCmd)
-    elif line.find("qsub") != -1 and workloadManager == 'pbs':
-        qsubCmd=line[line.find("qsub") :].split(" |")[0]
-        if qsubCmd.find("-W depend=afterok") != -1:
-            qsubCmd=qsubCmd.split("}")[-1].strip()
+        job_cmds.append(sbatch_cmd)
+    elif line.find("qsub") != -1 and workload_manager == 'pbs':
+        qsub_cmd=line[line.find("qsub") :].split(" |")[0]
+        if qsub_cmd.find("-W depend=afterok") != -1:
+            qsub_cmd=qsub_cmd.split("}")[-1].strip()
             dependent.append(True)
         else:
-            qsubCmd=qsubCmd.split("qsub")[-1].strip()
+            qsub_cmd=qsub_cmd.split("qsub")[-1].strip()
             dependent.append(False)
-        jobCmds.append(qsubCmd)
+        job_cmds.append(qsub_cmd)
 
 # There's no dependency on running jobs if this script was actually run from a job
-# So... we just submit each job in turn and have it depend on the previous one completing successfully
-jobIDs=[]
-for cmd, dep in zip(jobCmds, dependent):
-    if cmd == jobCmds[0]:
-        dependentJobIDs=None
+# We just submit each job in turn and have it depend on the previous one completing successfully
+job_ids=[]
+for cmd, dep in zip(job_cmds, dependent):
+    if cmd == job_cmds[0]:
+        dependent_job_ids=None
     else:
-        dependentJobIDs=[jobIDs[-1]]
-    jobName=os.path.split(cmd)[-1]
-    jobID=jobs.submit_job(cmd, jobName, dependent_job_ids = dependentJobIDs,
-                          workload_manager = workloadManager,
-                          cmd_is_batch_script = True)
-    jobIDs.append(jobID)
-
+        dependent_job_ids=[job_ids[-1]]
+    job_name=os.path.split(cmd)[-1]
+    job_id=jobs.submit_job(cmd, job_name, dependent_job_ids = dependent_job_ids,
+                           workload_manager = workload_manager,
+                           cmd_is_batch_script = True)
+    job_ids.append(job_id)

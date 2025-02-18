@@ -21,53 +21,51 @@ from astropy.coordinates import SkyCoord, Longitude
 def fetch(captureBlockId):
     """Fetch...
 
+    Probably need to run ``berk fetch -o rdb_link`` in GNU screen for this task.
+
     """
 
     captureBlockIdLink=captureBlockId
     captureBlockId=captureBlockIdLink.split("https://archive-gw-1.kat.ac.za/")[-1].split("/")[0]
     msPath=os.environ['BERK_MSCACHE']+os.path.sep+"%s_sdp_l0.ms" % (captureBlockId)
     fetchLogPath=os.environ['BERK_MSCACHE']+os.path.sep+"%s_fetch.log" % (captureBlockId)
-    # MJH: I don't _think_ the checkFetchComplete routine is going to work here any more, right?
-    if archive.checkFetchComplete(captureBlockId) == False:
-        cmd="mvftoms.py %s --flags cam,data_lost,ingest_rfi -o %s" % (captureBlockIdLink, msPath)
-        cmd_subprocess=shlex.split(cmd)
-        with subprocess.Popen(cmd_subprocess, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True) as process:   
-            with open(fetchLogPath, 'w') as logFile:
-                for line in process.stdout:
-                    logFile.write(line)        
-                    print(line, end='')
 
-                for line in process.stderr:
-                    logFile.write(line)
-                    print(line, end='')
-            process.wait()
+    if os.path.exists(msPath) is True:
+        print("Already fetching %s - if it failed, remove %s and try again" % (captureBlockId, msPath))
+        sys.exit()
 
-		# automatic setting of KATSDPTELSTATE_ALLOW_PICKLE=1
-        katsString="you can allow the pickles to be loaded by setting KATSDPTELSTATE_ALLOW_PICKLE=1 in the environment"
-        with open(fetchLogPath, 'r') as file:
-            fetchLogMsg = file.read()
-            if katsString in fetchLogMsg:
-                if os.path.exists(msPath) == True:
-                    os.rmdir(msPath)
-                os.environ["KATSDPTELSTATE_ALLOW_PICKLE"] = "1"
-                with subprocess.Popen(cmd_subprocess, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True) as process:
-                    with open(fetchLogPath, 'w') as logFile:
-                        for line in process.stdout:
-                            logFile.write(line)
-                            print(line, end='')
+    cmd="mvftoms.py %s --flags cam,data_lost,ingest_rfi -o %s" % (captureBlockIdLink, msPath)
+    cmd_subprocess=shlex.split(cmd)
+    with subprocess.Popen(cmd_subprocess, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True) as process:
+        with open(fetchLogPath, 'w') as logFile:
+            for line in process.stdout:
+                logFile.write(line)
+                print(line, end='')
 
-                        for line in process.stderr:
-                            logFile.write(line)
-                            print(line, end='')
-                    process.wait()
-        #os.system(cmd)
-        # print("Run this command in GNU screen:")
-        # print(cmd)
-        # print("[yes, this is clunky - but automatically running in screen isn't working at the moment]")
-        # os.system("screen -dmS fetch-%s bash -c '%s'" % (captureBlockId, cmd))
-        # print("Fetching %s" % (msPath))
-    else:
-        print("Already fetching %s" % (msPath))
+            for line in process.stderr:
+                logFile.write(line)
+                print(line, end='')
+        process.wait()
+
+    # Automatic setting of KATSDPTELSTATE_ALLOW_PICKLE=1
+    katsString="you can allow the pickles to be loaded by setting KATSDPTELSTATE_ALLOW_PICKLE=1 in the environment"
+    with open(fetchLogPath, 'r') as file:
+        fetchLogMsg = file.read()
+        if katsString in fetchLogMsg:
+            if os.path.exists(msPath) == True:
+                os.rmdir(msPath)
+            os.environ["KATSDPTELSTATE_ALLOW_PICKLE"] = "1"
+            with subprocess.Popen(cmd_subprocess, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True) as process:
+                with open(fetchLogPath, 'w') as logFile:
+                    for line in process.stdout:
+                        logFile.write(line)
+                        print(line, end='')
+
+                    for line in process.stderr:
+                        logFile.write(line)
+                        print(line, end='')
+                process.wait()
+
     sys.exit()
 
 #------------------------------------------------------------------------------------------------------------

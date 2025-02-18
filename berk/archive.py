@@ -8,23 +8,6 @@ import os, sys, glob, subprocess
 from .startup import config
 from . import jobs
 
-
-#------------------------------------------------------------------------------------------------------------
-def checkFetchComplete(captureBlockId):
-    """Check if the measurement set corresponding to the given captureBlockId has been fetched.
-
-    Note:
-        This relies on GNU Screen.
-
-    """
-
-    process=subprocess.run(['screen', '-ls'], universal_newlines = True,
-                           stdout = subprocess.PIPE, stderr = subprocess.STDOUT)
-    if process.stdout.find("fetch-%s" % (captureBlockId)) == -1:
-        return False
-    else:
-        return True
-
 #------------------------------------------------------------------------------------------------------------
 def stageMS(captureBlockId):
     """Sets up a measurement set for processing:

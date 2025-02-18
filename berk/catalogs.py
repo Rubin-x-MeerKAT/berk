@@ -4,17 +4,11 @@ This module contains tools for handling catalogs, which are usually :obj:`astrop
 
 """
 
-from astLib import *
+from astLib import astWCS, astCoords
 import numpy as np
-import operator
-import os
-import sys
-import time
 import astropy.table as atpy
 from astropy.coordinates import SkyCoord
 from astropy.coordinates import match_coordinates_sky
-import astropy.io.fits as pyfits
-from scipy import ndimage
 from . import __version__
 
 # For adding meta data to output
@@ -432,7 +426,7 @@ def getCatalogWithinImage(tab, shape, wcs, mask = None):
     selected=[]
     for i in range(len(tab)):
         x, y=xyCoords[i][0], xyCoords[i][1]
-        if np.isnan(x) == True or np.isnan(y) == True:
+        if np.isnan(x) is True or np.isnan(y) is True:
             selected.append(False)
             continue
         if x >= 0 and x < shape[1]-1 and y >= 0 and y < shape[0]-1:

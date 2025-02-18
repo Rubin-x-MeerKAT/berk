@@ -384,18 +384,23 @@ def process(captureBlockId):
         else:
             dependentJobIDs=jobIDs
         jobName=os.path.split(cmd)[-1]
-        jobID=jobs.submitJob(cmd, jobName, dependentJobIDs = dependentJobIDs, workloadManager = startup.config['workloadManager'], cmdIsBatchScript = True)
+        jobID=jobs.submit_job(cmd, jobName, dependent_job_ids = dependentJobIDs,
+                              workload_manager = startup.config['workloadManager'],
+                              cmd_is_batch_script = True)
         jobIDs.append(jobID)
 
     # Run the FLAG and 2GC setup scripts as a job, then chain them together
     cmd="python3 setups/FLAG.py %s" % (os.environ['BERK_PLATFORM'])
-    jobID=jobs.submitJob(cmd, "SETUP_FLAG_JOBS", dependentJobIDs = jobIDs, workloadManager = startup.config['workloadManager'])
+    jobID=jobs.submit_job(cmd, "SETUP_FLAG_JOBS", dependent_job_ids = jobIDs,
+                          workload_manager = startup.config['workloadManager'])
     jobIDs.append(jobID)
     cmd="python3 setups/2GC.py %s" % (os.environ['BERK_PLATFORM'])
-    jobID=jobs.submitJob(cmd, "SETUP_2GC_JOBS", dependentJobIDs = jobIDs, workloadManager = startup.config['workloadManager'])
+    jobID=jobs.submit_job(cmd, "SETUP_2GC_JOBS", dependent_job_ids = jobIDs,
+                          workload_manager = startup.config['workloadManager'])
     jobIDs.append(jobID)
     cmd="berk_chain %s submit_flag_jobs.sh submit_2GC_jobs.sh" % (startup.config['workloadManager'])
-    jobID=jobs.submitJob(cmd, "CHAIN_FLAG+2GC_JOBS", dependentJobIDs = jobIDs, workloadManager = startup.config['workloadManager'])
+    jobID=jobs.submit_job(cmd, "CHAIN_FLAG+2GC_JOBS", dependent_job_ids = jobIDs,
+                          workload_manager = startup.config['workloadManager'])
     print("All jobs submitted")
     sys.exit()
 
@@ -434,8 +439,10 @@ def analyse(captureBlockId):
         catPath=imgDir+os.path.sep+"pbcorr_trim_"+label+"_pybdsf"+os.path.sep+"pbcorr_trim_"+label+"_bdsfcat.fits"
         cmd=cmd+"\npython3 catalog_matching.py %s NVSS --astro --flux" % (catPath)
 
-        jobID=jobs.submitJob(cmd, 'source-finding-%s' % (imgFileName), dependentJobIDs = None, nodes = 1, tasks = 20, mem = 64000,
-                                time = "02:00:00", cmdIsBatchScript = False, workloadManager = startup.config['workloadManager'])
+        jobID=jobs.submit_job(cmd, 'source-finding-%s' % (imgFileName), dependent_job_ids = None,
+                              nodes = 1, tasks = 20, mem = 64000, time = "02:00:00",
+                              cmd_is_batch_script = False,
+                              workload_manager = startup.config['workloadManager'])
         print("Submitted source finding and analysis job %d" % (jobID))
     sys.exit()
 

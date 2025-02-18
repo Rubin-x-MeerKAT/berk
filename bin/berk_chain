@@ -59,6 +59,8 @@ for cmd, dep in zip(jobCmds, dependent):
     else:
         dependentJobIDs=[jobIDs[-1]]
     jobName=os.path.split(cmd)[-1]
-    jobID=jobs.submitJob(cmd, jobName, dependentJobIDs = dependentJobIDs, workloadManager = workloadManager, cmdIsBatchScript = True)
+    jobID=jobs.submit_job(cmd, jobName, dependent_job_ids = dependentJobIDs,
+                          workload_manager = workloadManager,
+                          cmd_is_batch_script = True)
     jobIDs.append(jobID)
 

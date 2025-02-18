@@ -57,7 +57,6 @@ def stageMS(captureBlockId):
         pathToTGZ=fetchFromArchive(captureBlockId)
         topDir=os.getcwd()
         os.chdir(config['stagingDir'])
-        #jobID=jobs.submitJob("tar -zxvf %s" % (pathToTGZ), "unpack")
         for p in os.walk("scratch"):
             if p[1][0] == os.path.split(MSPath)[-1]:
                 break

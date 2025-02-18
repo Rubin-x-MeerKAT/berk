@@ -8,22 +8,6 @@ import os, sys, glob, subprocess
 from .startup import config
 from . import jobs
 
-#------------------------------------------------------------------------------------------------------------
-def fetchFromArchive(captureBlockIdLink):
-    """Fetch the dataset from the archive and write into the scratch area.
-
-    Args:
-        captureBlockIdLink (str): Link copied from https://archive.sarao.ac.za of the form
-            https://archive-gw-1.kat.ac.za/captureBlockId/captureBlockId_sdp_l0.full.rdb?token=longTokenString.
-
-    """
-
-    # NOTE: We don't need routine any more
-    captureBlockId=captureBlockIdLink.split("https://archive-gw-1.kat.ac.za/")[-1].split("/")[0]
-    msPath=os.environ['BERK_MSCACHE']+os.path.sep+"%s_sdp_l0.ms" % (captureBlockId)
-    cmd="mvftoms.py %s --flags cam,data_lost,ingest_rfi -o %s" % (captureBlockIdLink, msPath)
-    os.system("screen -S fetch-%s -d -m %s" % (cmd))
-    print("Fetching %s" % (msPath))
 
 #------------------------------------------------------------------------------------------------------------
 def checkFetchComplete(captureBlockId):

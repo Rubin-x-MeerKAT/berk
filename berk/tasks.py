@@ -27,6 +27,7 @@ def fetch(captureBlockId):
     captureBlockId=captureBlockIdLink.split("https://archive-gw-1.kat.ac.za/")[-1].split("/")[0]
     msPath=os.environ['BERK_MSCACHE']+os.path.sep+"%s_sdp_l0.ms" % (captureBlockId)
     fetchLogPath=os.environ['BERK_MSCACHE']+os.path.sep+"%s_fetch.log" % (captureBlockId)
+    # MJH: I don't _think_ the checkFetchComplete routine is going to work here any more, right?
     if archive.checkFetchComplete(captureBlockId) == False:
         cmd="mvftoms.py %s --flags cam,data_lost,ingest_rfi -o %s" % (captureBlockIdLink, msPath)
         cmd_subprocess=shlex.split(cmd)

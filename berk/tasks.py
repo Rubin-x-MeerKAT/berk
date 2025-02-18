@@ -113,8 +113,10 @@ def listObservations():
         print("Set BERK_INFO_FILE environment variable to check processing status of observations against central list.")
         tab=None
 
-    globXmatchLink = 'https://dl.dropbox.com/scl/fi/39gma12peyymhadc2fss2/xmatchCat_DECaLS_r_4p0asec.fits?rlkey=v4bazyqfy294ukt9eqmfaeed7&st=7e7nfcde&dl=0'
-    globXmatchTab=atpy.Table().read(globXmatchLink)
+    # MJH: Don't hard code in things like this, it is broken for me
+    globXmatchTab=None
+    # globXmatchLink = 'https://dl.dropbox.com/scl/fi/39gma12peyymhadc2fss2/xmatchCat_DECaLS_r_4p0asec.fits?rlkey=v4bazyqfy294ukt9eqmfaeed7&st=7e7nfcde&dl=0'
+    # globXmatchTab=atpy.Table().read(globXmatchLink)
 
     msList=glob.glob(os.environ['BERK_MSCACHE']+os.path.sep+"*_sdp_l0.ms")
     msList.sort()

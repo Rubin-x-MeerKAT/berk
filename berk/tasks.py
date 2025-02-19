@@ -360,7 +360,8 @@ def setup(captureBlockId):
         raise Exception("Failed to generate submit_info_job.sh")
     cmd="berk_chain %s submit_info_job.sh" % (startup.config['workloadManager'])
     jobID=jobs.submit_job(cmd, "SUBMIT_SETUP", dependent_job_ids = jobIDs,
-                          workload_manager = startup.config['workloadManager'])
+                          workload_manager = startup.config['workloadManager'],
+                          time = "00:05:00")
     print("Setup jobs submitted")
     sys.exit()
 
@@ -384,7 +385,8 @@ def process1(captureBlockId):
         raise Exception("Failed to generate submit_1GC_jobs.sh")
     cmd="berk_chain %s submit_1GC_jobs.sh" % (startup.config['workloadManager'])
     jobID=jobs.submit_job(cmd, "SUBMIT_1GC", dependent_job_ids = None,
-                          workload_manager = startup.config['workloadManager'])
+                          workload_manager = startup.config['workloadManager'],
+                          time = "00:05:00")
     print("1GC jobs submitted")
     sys.exit()
 

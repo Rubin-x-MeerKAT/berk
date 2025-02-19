@@ -71,8 +71,14 @@ if __name__ == '__main__':
     elif args.task == 'collect':
         tasks.collect()
 
-    elif args.task == 'process':
-        tasks.process(captureBlockId)
+    elif args.task == 'setup':
+        tasks.setup(captureBlockId)
+
+    elif args.task == 'process1':
+        tasks.process1(captureBlockId)
+
+    elif args.task == 'process2':
+        tasks.process2(captureBlockId)
 
     elif args.task == 'analyse' or args.task == 'analyze':
         tasks.analyse(captureBlockId)

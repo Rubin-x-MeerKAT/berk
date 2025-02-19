@@ -15,6 +15,15 @@ from . import __version__
 import datetime
 
 #------------------------------------------------------------------------------------------------------------
+def fixRA(table, racol='RA', wrap_angle=180):
+    """Returns table with corrected RA wrap.
+
+    """
+    fixTable = table.copy()
+    fixTable[racol] = Longitude(table[racol], unit=u.deg, wrap_angle=wrap_angle * u.deg).value
+    return fixTable
+
+#------------------------------------------------------------------------------------------------------------
 def catalog2DS9(catalog, outFileName, constraintsList = [], addInfo = [], idKeyToUse = 'name',\
                 RAKeyToUse = 'RADeg', decKeyToUse = 'decDeg', color = "cyan", showNames = True,\
                 writeBerkInfo = True, coordSys = 'fk5', regionShape = 'point', width = 1):

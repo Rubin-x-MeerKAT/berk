@@ -396,7 +396,7 @@ def xmatch_opt(catalog, opt_survey, opt_survey_dr, opt_mag_col, search_radius_as
 
     if any(radio_sources[rad_ra_col] < 0.0):
         print("\nCrossmatching - Fixing RA for %s" %catalog_name)
-        radio_sources = tasks.fixRA(radio_sources, racol=rad_ra_col, wrap_angle=360)
+        radio_sources = catalogs.fixRA(radio_sources, racol=rad_ra_col, wrap_angle=360)
 
     center_ra, center_dec, rad_ra, rad_dec, radius_deg = get_centre_radius(radio_sources,
                                                                            rad_ra_col, rad_dec_col)

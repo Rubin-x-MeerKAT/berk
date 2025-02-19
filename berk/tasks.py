@@ -93,15 +93,6 @@ def _getBandKey(freqGHz):
     return bandKey
 
 #------------------------------------------------------------------------------------------------------------
-def fixRA(table, racol='RA', wrap_angle=180):
-    """Returns table with corrected RA wrap.
-
-    """
-    fixTable = table.copy()
-    fixTable[racol] = Longitude(table[racol], unit=u.deg, wrap_angle=wrap_angle * u.deg).value
-    return fixTable
-
-#------------------------------------------------------------------------------------------------------------
 def listObservations():
     """List observations available on this machine, and check their processing status with the central list.
 
@@ -153,7 +144,7 @@ def builddb():
             tab=atpy.Table().read(t)
             if any(tab['RA'] < 0.0):
             	#print("\nFixing RA for %s" %t)
-            	tab = fixRA(tab, racol='RA', wrap_angle=360)
+            	tab = catalogs.fixRA(tab, racol='RA', wrap_angle=360)
             freqGHz=tab.meta['FREQ0']/1e9
             bandKey=_getBandKey(freqGHz)
             #tab.meta=None # It'd be good to clear this... but the catalog matching stuff wants many things from here

@@ -29,12 +29,14 @@ def makeParser():
     parser.add_argument("task", help="Task to run - one of:\
                         'list' (list downloaded observations available for processing by captureBlockId),\
                         'fetch' (retrieve data from archive, store under $BERK_MSCACHE location),\
-                        'process' (link measurement set under 'processing' directory, run calibration and imaging with Oxkat up to 2GC),\
+                        'setup'  (link measurement set under 'processing' directory and set up for 'process1'),\
+                        'process1' (run 1GC calibration with Oxkat),\
+                        'process2' (run imaging with Oxkat up to 2GC),\
                         'analyse' (apply primary beam correction and make object catalogs with PyBDSF),\
                         'collect' (collect data products for all processed observations - i.e., primary beam corrected images and catalogs),\
                         'store' (store a more extensive set of processed data products for an observations for possible further processing in future),\
                         'builddb'(build survey-wide database and related products).",
-                        choices = ['list', 'fetch', 'process', 'analyse', 'analyze', 'collect', 'store', 'builddb', 'report'])
+                        choices = ['list', 'fetch', 'setup', 'process1', 'process2', 'analyse', 'analyze', 'collect', 'store', 'builddb', 'report'])
     parser.add_argument("-o", "--observation", dest="captureBlockId", default = None, help="MeerKAT observation to fetch and process.\
                         For the 'fetch' task, this must be a link to an .rdb file on the archive, of the form\
                         https://archive-gw-1.kat.ac.za/captureBlockId/captureBlockId_sdp_l0.full.rdb?token=longTokenString.\

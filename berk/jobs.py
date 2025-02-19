@@ -156,3 +156,44 @@ def submit_job(cmd, job_name, dependent_job_ids = None, nodes = 1, tasks = 1, me
         raise Exception("workload_manager should be either 'slurm' or 'pbs'")
 
     return job_id
+
+
+def extract_jobs_from_script(script_filename, workload_manager):
+    """Extract commands from a job script.
+
+    Args:
+        script_filename (str): Path to the script file to extract jobs from.
+        workload_manager (str): Either 'slurm' or 'pbs'.
+
+    Returns:
+        List of job commands
+
+    """
+
+    assert(workload_manager in ['slurm', 'pbs'])
+    with open(script_filename, encoding = 'utf8') as in_file:
+        lines=lines+in_file.readlines()
+
+    job_cmds=[]
+    dependent=[] # This isn't that useful - can assume each job in a script is dependent
+    for line in lines:
+        if line.find("sbatch") != -1 and workload_manager == 'slurm':
+            sbatch_cmd=line[line.find("sbatch") :].split(" |")[0]
+            if sbatch_cmd.find("-d afterok:") != -1:
+                sbatch_cmd=sbatch_cmd.split("}")[-1].strip()
+                dependent.append(True)
+            else:
+                sbatch_cmd=sbatch_cmd.split("sbatch")[-1].strip()
+                dependent.append(False)
+            job_cmds.append(sbatch_cmd)
+        elif line.find("qsub") != -1 and workload_manager == 'pbs':
+            qsub_cmd=line[line.find("qsub") :].split(" |")[0]
+            if qsub_cmd.find("-W depend=afterok") != -1:
+                qsub_cmd=qsub_cmd.split("}")[-1].strip()
+                dependent.append(True)
+            else:
+                qsub_cmd=qsub_cmd.split("qsub")[-1].strip()
+                dependent.append(False)
+            job_cmds.append(qsub_cmd)
+
+    return job_cmds

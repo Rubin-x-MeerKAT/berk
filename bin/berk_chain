@@ -10,7 +10,7 @@ import os
 import sys
 from berk import jobs
 
-if len(sys.argv) < 3:
+if len(sys.argv) < 2:
     print("Run: berk_chain workload_manager script*.sh")
 
 workload_manager=sys.argv[1]

@@ -332,8 +332,8 @@ def collect():
     
 
 #------------------------------------------------------------------------------------------------------------
-def process(captureBlockId):
-    """Process...
+def setup(captureBlockId):
+    """Set up the data for further processing with process1 and process2 tasks
 
     """
 
@@ -351,42 +351,107 @@ def process(captureBlockId):
     for oxdir in oxdirs:
         os.system("ln -s %s" % (startup.config['oxkatDir']+os.path.sep+oxdir))
 
-    ####
-    # BEGIN NEW
-    # Generate the oxkat job scripts then spin through + submit them ourselves
-    # Initial setup
+    # Did we already do this?
+    if os.path.exists('project_info.json') is True:
+        print("Found project_info.json - you have already setup this observation for processing\
+            - re-run with process1 task to continue")
+        sys.exit()
+
+    # Run oxkat scripts
+    # Setup
     cmd="python3 setups/0_GET_INFO.py %s" % (os.environ['BERK_PLATFORM'])
     os.system(cmd)
-    if os.path.exists("submit_info_job.sh") is True:
-        blah
-    else:
+    if os.path.exists("submit_info_job.sh") is False:
         raise Exception("Failed to generate submit_info_job.sh")
-    jobIDs=[]
-    jobID=jobs.submit_job("submit_info_job.sh", "SUBMIT_INFO", dependent_job_ids = None,
-                          workload_manager = startup.config['workloadManager'],
-                          cmd_is_batch_script = True)
-    jobIDs.append(jobID)
-    # 1GC, FLAG, 2GC can be chained
-    cmd="python3 setups/1GC.py %s" % (os.environ['BERK_PLATFORM'])
-    jobID=jobs.submit_job(cmd, "1GC", dependent_job_ids = jobIDs,
+    cmd="berk_chain %s submit_info_job.sh" % (startup.config['workloadManager'])
+    jobID=jobs.submit_job(cmd, "SUBMIT_SETUP", dependent_job_ids = jobIDs,
                           workload_manager = startup.config['workloadManager'])
-    jobIDs.append(jobID)
-    cmd="python3 setups/FLAG.py %s" % (os.environ['BERK_PLATFORM'])
-    jobID=jobs.submit_job(cmd, "SETUP_FLAG_JOBS", dependent_job_ids = jobIDs,
-                          workload_manager = startup.config['workloadManager'])
-    jobIDs.append(jobID)
-    cmd="python3 setups/2GC.py %s" % (os.environ['BERK_PLATFORM'])
-    jobID=jobs.submit_job(cmd, "SETUP_2GC_JOBS", dependent_job_ids = jobIDs,
-                          workload_manager = startup.config['workloadManager'])
-    jobIDs.append(jobID)
-    # Chain
-    cmd="berk_chain %s submit_1GC_jobs.sh submit_flag_jobs.sh submit_2GC_jobs.sh"\
-        % (startup.config['workloadManager'])
-    jobID=jobs.submit_job(cmd, "CHAINED_JOBS", dependent_job_ids = jobIDs,
-                          workload_manager = startup.config['workloadManager'])
-    print("All jobs submitted")
+    print("Setup jobs submitted")
     sys.exit()
-    #### END NEW
+
+#------------------------------------------------------------------------------------------------------------
+def process1(captureBlockId):
+    """1GC processing
+
+    """
+
+    MSPath=os.environ['BERK_MSCACHE']+os.path.sep+captureBlockId+"_sdp_l0.ms"
+    MSProcessDir=startup.config['processingDir']+os.path.sep+captureBlockId
+    os.chdir(MSProcessDir)
+
+    if os.path.exists('project_info.json') is False:
+        raise Exception("Did not find project_info.json - the 'setup' task either failed\
+            or did not complete yet")
+
+    # 1GC
+    cmd="python3 setups/1GC.py %s" % (os.environ['BERK_PLATFORM'])
+    os.system(cmd)
+    if os.path.exists("submit_1GC_jobs.sh") is False:
+        raise Exception("Failed to generate submit_1GC_jobs.sh")
+
+
+    cmd="berk_chain %s submit_1GC_jobs.sh" % (startup.config['workloadManager'])
+    jobID=jobs.submit_job(cmd, "SUBMIT_1GC", dependent_job_ids = jobIDs,
+                          workload_manager = startup.config['workloadManager'])
+    print("1GC jobs submitted")
+    sys.exit()
+
+#------------------------------------------------------------------------------------------------------------
+def process2(captureBlockId):
+    """Imaging and 2GC processing
+
+    """
+
+    MSPath=os.environ['BERK_MSCACHE']+os.path.sep+captureBlockId+"_sdp_l0.ms"
+    MSProcessDir=startup.config['processingDir']+os.path.sep+captureBlockId
+    os.chdir(MSProcessDir)
+
+    # Add gatekeeper
+    print("not implemented yet")
+    sys.exit()
+
+    # # Forget staging dir, just do a symbolic link to the MSCache dir
+    # MSPath=os.environ['BERK_MSCACHE']+os.path.sep+captureBlockId+"_sdp_l0.ms"
+    #
+    # # Setup in processing dir
+    # MSProcessDir=startup.config['processingDir']+os.path.sep+captureBlockId
+    # if os.path.exists(MSProcessDir) == True:
+    #     raise Exception("Processing directory %s exists and is not empty - remove it and re-run, if you're sure you don't need its contents." % (MSProcessDir))
+    # os.makedirs(MSProcessDir)
+    # os.chdir(MSProcessDir)
+    # os.system("ln -s %s" % (os.path.abspath(MSPath)))
+    # oxdirs=['setups', 'tools', 'oxkat', 'data']
+    # for oxdir in oxdirs:
+    #     os.system("ln -s %s" % (startup.config['oxkatDir']+os.path.sep+oxdir))
+    #
+    # # We need the last jobID here, but we won't be able to get it
+    #
+    #     if process.returncode != 0:
+    #     raise Exception("Non-zero return code when submitting job %s" % (job_name))
+    # if workload_manager == 'slurm':
+    #     assert process.stdout[:19] == "Submitted batch job"
+    #     job_id=int(process.stdout.split("Submitted batch job")[-1])
+    # elif workload_manager == 'pbs':
+    #     job_id=int(process.stdout.split(".")[0])
+    #
+    # # FLAG and 2GC can be chained
+    #
+    # cmd="python3 setups/FLAG.py %s" % (os.environ['BERK_PLATFORM'])
+    # jobID=jobs.submit_job(cmd, "SETUP_FLAG_JOBS", dependent_job_ids = jobIDs,
+    #                       workload_manager = startup.config['workloadManager'])
+    # jobIDs.append(jobID)
+    # cmd="python3 setups/2GC.py %s" % (os.environ['BERK_PLATFORM'])
+    # jobID=jobs.submit_job(cmd, "SETUP_2GC_JOBS", dependent_job_ids = jobIDs,
+    #                       workload_manager = startup.config['workloadManager'])
+    # jobIDs.append(jobID)
+    # # Chain
+    # cmd="berk_chain %s submit_1GC_jobs.sh submit_flag_jobs.sh submit_2GC_jobs.sh"\
+    #     % (startup.config['workloadManager'])
+    # jobID=jobs.submit_job(cmd, "CHAINED_JOBS", dependent_job_ids = jobIDs,
+    #                       workload_manager = startup.config['workloadManager'])
+    # print("All jobs submitted")
+    # sys.exit()
+    # #### END NEW
 
     # ####
     # # BEGIN OLD

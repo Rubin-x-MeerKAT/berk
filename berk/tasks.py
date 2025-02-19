@@ -91,7 +91,7 @@ def _getBandKey(freqGHz):
         #raise Exception("%f - Not sure what band this is - need to add a band key for it" %freqGHz)
 
     return bandKey
-    
+
 #------------------------------------------------------------------------------------------------------------
 def fixRA(table, racol='RA', wrap_angle=180):
     """Returns table with corrected RA wrap.
@@ -100,7 +100,7 @@ def fixRA(table, racol='RA', wrap_angle=180):
     fixTable = table.copy()
     fixTable[racol] = Longitude(table[racol], unit=u.deg, wrap_angle=wrap_angle * u.deg).value
     return fixTable
-    
+
 #------------------------------------------------------------------------------------------------------------
 def listObservations():
     """List observations available on this machine, and check their processing status with the central list.
@@ -120,7 +120,7 @@ def listObservations():
 
     msList=glob.glob(os.environ['BERK_MSCACHE']+os.path.sep+"*_sdp_l0.ms")
     msList.sort()
-    
+
     print("Downloaded observations available locally [by captureBlockId]:")
     for ms in msList:
         captureBlockId=os.path.split(ms)[-1].split("_")[0]
@@ -134,7 +134,7 @@ def listObservations():
         if globXmatchTab is not None:
             if captureBlockId in globXmatchTab['captureBlockId']:
                 status="processed_analysed_xmatched-DECaLS"
-                
+
         print("   %s    %s" % (captureBlockId, status))
 
 #------------------------------------------------------------------------------------------------------------
@@ -142,10 +142,10 @@ def builddb():
     """Build database...
 
     """
-    
+
     # Build global catalog in each band (L-band, UHF)
     globalTabsDict={'L': None, 'UHF': None, 'Others': None}
-    
+
     # Fixing RA
     tabFilesList=glob.glob(startup.config['productsDir']+os.path.sep+'catalogs'+os.path.sep+'*_bdsfcat.fits')
     for t in tabFilesList:
@@ -177,18 +177,18 @@ def builddb():
             catalogs.catalog2DS9(globalTabsDict[bandKey], outFileName.replace(".fits", ".reg"),
                                  idKeyToUse = 'Source_name', RAKeyToUse = 'RA', decKeyToUse = 'DEC')
             print("\nWrote %s" % (outFileName))
-    
+
     # Quality flags table
     qualFileName=startup.config['productsDir']+os.path.sep+"qualityFlags.csv"
     if os.path.exists(qualFileName) == True:
         qualTab=atpy.Table().read(qualFileName)
     else:
         qualTab=None
-    
+
     # Make image table - centre coords, radius [approx.], RMS, band, image path - UHF and L together.
     # Report command (when we make it) could load and dump some of that info
     outFileName=startup.config['productsDir']+os.path.sep+"images.fits"
-    imgFilesList=glob.glob(startup.config['productsDir']+os.path.sep+"images"+os.path.sep+"pbcorr_*.fits")  
+    imgFilesList=glob.glob(startup.config['productsDir']+os.path.sep+"images"+os.path.sep+"pbcorr_*.fits")
     statsDictList=[]
     for imgFile in imgFilesList:
         statDict=images.getImagesStats(imgFile)
@@ -197,11 +197,11 @@ def builddb():
         statDict['path']=statDict['path'].replace(startup.config['productsDir']+os.path.sep, '')
         statDict['band']=_getBandKey(statDict['freqGHz'])
         statsDictList.append(statDict)
-        
+
         # plotting images and saving in products/images directory
         imageOutDir = startup.config['productsDir']+os.path.sep+"images"
         images.plotImages(imgFile, imageOutDir, ax_label_deg = True, statsDict=statDict)
-        
+
     imgTab=atpy.Table()
     for key in statDict.keys():
         arr=[]
@@ -214,12 +214,12 @@ def builddb():
         for irow in imgTab:
             mask=irow['path'] == qualTab['path']
             if 'quality' in qualTab.keys():
-               #pulling already existing quality and assigning 99 to newly added images 
+               #pulling already existing quality and assigning 99 to newly added images
             	if mask.any():
             	    irow['quality']=qualTab[mask]['quality'][0]
             	else:
             	    irow['quality'] = 99
-            	    
+
     # Output
     imgTab.meta['BERKVER']=__version__
     imgTab.meta['DATEMADE']=datetime.date.today().isoformat()
@@ -227,54 +227,54 @@ def builddb():
     print("\nWrote %s" % (outFileName))
     imgTab.write(qualFileName, overwrite = True)
 
-    # Generate survey mask in some format - we'll use that to get total survey area    
-    
+    # Generate survey mask in some format - we'll use that to get total survey area
+
     # cross-matching # to be worked on
-    
+
     """
 
     opt_survey = 'DECaLS'
     opt_survey_dr = 'DR10'
     optband_to_match = 'r'
     search_radius_arcsec = 4.0
-    
+
     xmatchDirPath = startup.config['productsDir']+os.path.sep+'xmatches'
     os.makedirs(xmatchDirPath, exist_ok = True)
 
     globalXmatchTabName=startup.config['productsDir']+os.path.sep+"xmatchCat_%s%s_%s_%sasec.fits" %(opt_survey, opt_survey_dr, optband_to_match, str(search_radius_arcsec).replace('.', 'p'))
     globalXmatchTab=None
     radCatFilesList=glob.glob(startup.config['productsDir']+os.path.sep+'catalogs'+os.path.sep+'*srl_bdsfcat.fits')
-    
+
     for radcat in radCatFilesList:
     	catalogName = radcat.split(os.path.sep)[-1]
     	captureBlockId = catalogName.split('_')[3]
     	targetName = (catalogName.split('_1024ch_')[1]).split('_srl_')[0]
-    	
+
     	# making a subscript for this particular match
     	outSubscript = '%s_%s%s_%sband_%sasec' %(catalogName.replace('.fits',''), opt_survey, opt_survey_dr, optband_to_match, str(search_radius_arcsec).replace(".","p"))
-    	
+
     	radcattab = atpy.Table().read(radcat)
     	freqGHz=radcattab.meta['FREQ0']/1e9
     	radbandname=_getBandKey(freqGHz)
-    	
+
     	xmatchTabName = startup.config['productsDir']+os.path.sep+'xmatches'+os.path.sep+"xmatchTable_%s" %outSubscript+".fits"
 
     	if os.path.exists(xmatchTabName):
     	    xmatchTab = atpy.Table().read(xmatchTabName)
     	else:
     	    xmatchTab = crossmatch.xmatch_berk(radio_cat=radcat, radio_band=radbandname, xmatchTabOutName=xmatchTabName, opt_survey=opt_survey, opt_survey_dr=opt_survey_dr, opt_mag_col = optband_to_match, search_radius_asec = search_radius_arcsec, makePlots=False, radRACol='RA', radDecCol='DEC', eRadRACol='E_RA', eRadDecCol='E_DEC', outSubscript=outSubscript)
-    	    
-    	    
+
+
     	if(xmatchTab):
     	    if(globalXmatchTab is None):
     	        globalXmatchTab = xmatchTab
     	    else:
-    	        
+
     	        globalXmatchTab = atpy.vstack([globalXmatchTab, xmatchTab])
-    	        
+
     globalXmatchTab.write(globalXmatchTabName, overwrite = True)
     print("\nWrote %s" % (globalXmatchTabName))
-    
+
     """
 #------------------------------------------------------------------------------------------------------------
 def collect():
@@ -317,7 +317,7 @@ def collect():
         catPath="processing/*/IMAGES/pbcorr_trim_*_pybdsf/*_bdsfcat.fits"
         cmd="rsync -avP %s%s %s" % (s, os.path.sep+catPath, toPath)
         os.system(cmd)
-        
+
     # Get rms
     print("Collecting rms images...")
     toPath=startup.config['productsDir']+os.path.sep+"rms"
@@ -329,7 +329,7 @@ def collect():
 
     print("Finished!")
     sys.exit()
-    
+
 
 #------------------------------------------------------------------------------------------------------------
 def setup(captureBlockId):
@@ -375,18 +375,15 @@ def process1(captureBlockId):
     os.chdir(MSProcessDir)
 
     if os.path.exists('project_info.json') is False:
-        raise Exception("Did not find project_info.json - the 'setup' task either failed\
-            or did not complete yet")
+        raise Exception("You need to run the 'setup' task on this observation first")
 
     # 1GC
     cmd="python3 setups/1GC.py %s" % (os.environ['BERK_PLATFORM'])
     os.system(cmd)
     if os.path.exists("submit_1GC_jobs.sh") is False:
         raise Exception("Failed to generate submit_1GC_jobs.sh")
-
-
     cmd="berk_chain %s submit_1GC_jobs.sh" % (startup.config['workloadManager'])
-    jobID=jobs.submit_job(cmd, "SUBMIT_1GC", dependent_job_ids = jobIDs,
+    jobID=jobs.submit_job(cmd, "SUBMIT_1GC", dependent_job_ids = None,
                           workload_manager = startup.config['workloadManager'])
     print("1GC jobs submitted")
     sys.exit()

@@ -342,12 +342,8 @@ def setup(captureBlockId):
 
     # Setup in processing dir
     MSProcessDir=startup.config['processingDir']+os.path.sep+captureBlockId
-    # if os.path.exists(MSProcessDir) == True:
-        # raise Exception("Processing directory %s exists and is not empty - remove it and re-run, if you're sure you don't need its contents." % (MSProcessDir))
-    # Did we already do this?
     if os.path.exists(MSProcessDir+os.path.sep+'project_info.json') is True:
-        print("Found project_info.json - you have already setup this observation for processing\
-            - re-run with process1 task to continue")
+        print("Observation already setup - re-run with process1 task to continue")
         sys.exit()
     os.makedirs(MSProcessDir)
     os.chdir(MSProcessDir)

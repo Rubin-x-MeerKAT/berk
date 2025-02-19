@@ -2,7 +2,7 @@
 
 """
 
-Script to chain two Oxkat job scripts together and submit the jobs within
+Script to chain multiple Oxkat job scripts together and submit the jobs within
 
 """
 
@@ -11,20 +11,16 @@ import sys
 from berk import jobs
 
 if len(sys.argv) < 3:
-    print("Run: berk_chain workload_manager script1.sh script2.sh")
+    print("Run: berk_chain workload_manager script*.sh")
 
 workload_manager=sys.argv[1]
 assert(workload_manager in ['slurm', 'pbs'])
-# dependentJobID=sys.argv[2]
-script_1_filename=sys.argv[2]
-script_2_filename=sys.argv[3]
+script_filenames=sys.argv[2:]
 
-with open(script_1_filename, encoding = 'utf8') as in_file:
-    lines1=in_file.readlines()
-with open(script_2_filename, encoding = 'utf8') as in_file:
-    lines2=in_file.readlines()
-
-lines=lines1+lines2
+lines=[]
+for filename in script_filenames:
+    with open(filename, encoding = 'utf8') as in_file:
+        lines=lines+in_file.readlines()
 
 job_cmds=[]
 dependent=[]

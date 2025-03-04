@@ -11,7 +11,7 @@ import glob
 import time
 import datetime
 import astropy.table as atpy
-from . import startup, jobs, catalogs, images, crossmatch,  __version__
+from . import startup, jobs, catalogs, images,  __version__
 import shlex
 import numpy as np
 from astropy import units as u
@@ -221,7 +221,7 @@ def builddb():
     # Generate survey mask in some format - we'll use that to get total survey area
 
     # cross-matching # to be worked on
-
+    # from . import crossmatch
     """
 
     opt_survey = 'DECaLS'

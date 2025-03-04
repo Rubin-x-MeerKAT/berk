@@ -2,6 +2,6 @@
 
 sphinx-argparse
 sphinx-rtd-theme
-readthedocs_ext
+readthedocs-sphinx-ext
 
 -e .

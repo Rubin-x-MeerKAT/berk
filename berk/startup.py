@@ -31,13 +31,13 @@ else:
 
 # We can't just make this about the workload manager as it affects what we feed into oxkat
 if 'BERK_PLATFORM' not in os.environ.keys():
-    raise Exception("Set BERK_PLATFORM environment variable to either 'hippo' or 'chpc'")
+    raise Exception("Set BERK_PLATFORM environment variable to either 'hippo', 'ilifu', or 'chpc'")
 if os.environ['BERK_PLATFORM'] == 'chpc':
     config['workloadManager']='pbs'
-elif os.environ['BERK_PLATFORM'] == 'hippo':
+elif os.environ['BERK_PLATFORM'] == 'hippo' or os.environ['BERK_PLATFORM'] == 'ilifu':
     config['workloadManager']='slurm'
 else:
-    raise Exception("Environment variable BERK_PLATFORM is not set to 'hippo' or 'chpc'")
+    raise Exception("Environment variable BERK_PLATFORM is not set to 'hippo', 'ilifu', 'chpc'")
 
 # Processing and data products will be written in sub-dirs here
 config['rootDir']=os.environ["BERK_ROOT"]

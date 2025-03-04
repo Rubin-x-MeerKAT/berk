@@ -21,7 +21,7 @@ import subprocess
 import glob
 import time
 import berk
-from berk import startup, archive, jobs, tasks
+from berk import startup, jobs, tasks
 
 #------------------------------------------------------------------------------------------------------------
 def makeParser():

@@ -11,7 +11,7 @@ import glob
 import time
 import datetime
 import astropy.table as atpy
-from . import startup, archive, jobs, catalogs, images, crossmatch,  __version__
+from . import startup, jobs, catalogs, images, crossmatch,  __version__
 import shlex
 import numpy as np
 from astropy import units as u

@@ -350,7 +350,7 @@ def setup(captureBlockId):
     if os.path.exists("submit_info_job.sh") is False:
         raise Exception("Failed to generate submit_info_job.sh")
     cmd="berk_chain %s submit_info_job.sh" % (startup.config['workloadManager'])
-    jobID=jobs.submit_job(cmd, "SUBMIT_SETUP", dependent_job_ids = jobIDs,
+    jobID=jobs.submit_job(cmd, "SUBMIT_SETUP", dependent_job_ids = None,
                           workload_manager = startup.config['workloadManager'],
                           time = "00:05:00")
     print("Setup jobs submitted")

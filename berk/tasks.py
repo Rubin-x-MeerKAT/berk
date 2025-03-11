@@ -116,9 +116,18 @@ def listObservations():
     for ms in msList:
         captureBlockId=os.path.split(ms)[-1].split("_")[0]
         status="cached"
+        # Test for setup done
+        globStr=os.environ['BERK_ROOT']+os.path.sep+'processing'+os.path.sep+captureBlockId+os.path.sep+'project_info.json'
+        if len(glob.glob(globStr)) > 0:
+            status="setup"
+        # Test for 1GC done
+        globStr=os.environ['BERK_ROOT']+os.path.sep+'processing'+os.path.sep+captureBlockId+os.path.sep+'%s_sdp_*_1024ch_*.ms' % (captureBlockId)
+        if len(glob.glob(globStr)) > 0:
+            status="process1"
+        # Test for 2GC done
         globStr=os.environ['BERK_ROOT']+os.path.sep+'processing'+os.path.sep+captureBlockId+os.path.sep+'IMAGES'+os.path.sep+'img_%s_*_pcalmask-MFS-image.fits' % (captureBlockId)
         if len(glob.glob(globStr)) > 0:
-            status="processed"
+            status="process2"
         if tab is not None:
             if captureBlockId in tab['captureBlockId']:
                 status="processed_and_analysed"

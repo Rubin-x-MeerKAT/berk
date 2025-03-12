@@ -128,6 +128,7 @@ def listObservations():
         globStr=os.environ['BERK_ROOT']+os.path.sep+'processing'+os.path.sep+captureBlockId+os.path.sep+'IMAGES'+os.path.sep+'img_%s_*_pcalmask-MFS-image.fits' % (captureBlockId)
         if len(glob.glob(globStr)) > 0:
             status="process2"
+        # Below only shows up _after_ we run 'analyse', then 'collect' and 'builddb' which updates the BERK_INFO_FILE table
         if tab is not None:
             if captureBlockId in tab['captureBlockId']:
                 status="processed_and_analysed"

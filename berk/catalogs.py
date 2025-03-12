@@ -7,8 +7,9 @@ This module contains tools for handling catalogs, which are usually :obj:`astrop
 from astLib import astWCS, astCoords
 import numpy as np
 import astropy.table as atpy
-from astropy.coordinates import SkyCoord
+from astropy.coordinates import SkyCoord, Longitude
 from astropy.coordinates import match_coordinates_sky
+from astropy import units as u
 from . import __version__
 
 # For adding meta data to output

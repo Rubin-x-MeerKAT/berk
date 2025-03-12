@@ -428,7 +428,7 @@ def analyse(captureBlockId):
         raise Exception("Processing directory %s does not exist - you need to process the data before the analyse task will run." % (MSProcessDir))
     os.chdir(MSProcessDir)
     os.system("ln -s %s" % (startup.config["catalogScriptsDir"]+os.path.sep+"sourcefinding.py"))
-    os.system("ln -s %s" % (startup.config["catalogScriptsDir"]+os.path.sep+"catalog_matching.py"))
+    #os.system("ln -s %s" % (startup.config["catalogScriptsDir"]+os.path.sep+"catalog_matching.py"))
     os.system("ln -s %s" % (startup.config["catalogScriptsDir"]+os.path.sep+"parsets"))
 
     # Source finding is fairly lightweight so we put everything in one job script
@@ -447,9 +447,9 @@ def analyse(captureBlockId):
         cmd=cmd+"\npython3 sourcefinding.py c %s -o fits --survey MSS" % (pbcorrImgPath)
 
         # The bit below isn't going to work on compute nodes - so we may as well move this
-        label=imgFileName.split(".ms_")[0].split(".")[0]
-        catPath=imgDir+os.path.sep+"pbcorr_trim_"+label+"_pybdsf"+os.path.sep+"pbcorr_trim_"+label+"_bdsfcat.fits"
-        cmd=cmd+"\npython3 catalog_matching.py %s NVSS --astro --flux" % (catPath)
+        #label=imgFileName.split(".ms_")[0].split(".")[0]
+        #catPath=imgDir+os.path.sep+"pbcorr_trim_"+label+"_pybdsf"+os.path.sep+"pbcorr_trim_"+label+"_bdsfcat.fits"
+        #cmd=cmd+"\npython3 catalog_matching.py %s NVSS --astro --flux" % (catPath)
 
         jobID=jobs.submit_job(cmd, 'source-finding-%s' % (imgFileName), dependent_job_ids = None,
                               nodes = 1, tasks = 20, mem = 64000, time = "02:00:00",

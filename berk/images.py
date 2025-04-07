@@ -49,8 +49,12 @@ def getImagesStats(imgFileName, radiusArcmin = 12):
             d=d[0, 0]
         assert(d.ndim == 2)
         wcs=astWCS.WCS(img[0].header, mode = 'pyfits')
-        
-    RA_rad, Dec_rad = wcs.getHalfSizeDeg() # before clipping
+
+    # calculating area
+    radiusRA = abs(wcs.header['NAXIS1']*wcs.header['CDELT1']*0.5)
+    radiusDec = abs(wcs.header['NAXIS2']*wcs.header['CDELT2']*0.5)
+    skyAreaSqDeg = np.pi*radiusRA*radiusDec
+    
     RADeg, decDeg=wcs.getCentreWCSCoords()
     RAMin, RAMax, decMin, decMax=astCoords.calcRADecSearchBox(RADeg, decDeg, radiusArcmin/60)
     
@@ -66,15 +70,11 @@ def getImagesStats(imgFileName, radiusArcmin = 12):
     # sbi=apyStats.biweight_scale(d, c = 9.0, modify_sample_size = True)
     # print("    biweight scale image RMS = %.3f uJy/beam" % (sbi*1e6))
     
-    #RA_rad, Dec_rad = wcs.getHalfSizeDeg() # after clipping
-    sky_area_sq_deg = np.pi*RA_rad*Dec_rad
-    sky_area_sq_deg_fov = fov(wcs.header['CRVAL3'], 13.5)
-    
     statsDict={'path': imgFileName,
                'object': wcs.header['OBJECT'],
                'centre_RADeg': RADeg,
                'centre_decDeg': decDeg,
-               'sky_area_sqdeg': sky_area_sq_deg,
+               'skyArea_sqDeg': skyAreaSqDeg,
                'RMS_uJy/beam': sigma*1e6,
                'dynamicRange': d.max()/sigma,
                'freqGHz': wcs.header['CRVAL3']/1e9}
@@ -145,7 +145,7 @@ def plotImages(imgFilePath, outDirName, colorMap = 'viridis', vmin = -2.e-5, vma
     if(statsDict):
         text = (
         f"Freq: {statsDict['freqGHz']:.2f} GHz\n"
-        f"Area: {statsDict['sky_area_sqdeg']:.2f} sq. deg.\n"
+        f"Area: {statsDict['skyArea_sqDeg']:.2f} sq. deg.\n"
         f"RMS: {statsDict['RMS_uJy/beam']:.2f} $\mu$Jy/beam\n"
         f"Dyn. Ran.: {statsDict['dynamicRange']:.2f}"
         )

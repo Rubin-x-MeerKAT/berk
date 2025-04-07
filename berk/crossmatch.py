@@ -252,28 +252,26 @@ def add_postfix_to_columns(table, postfix):
     new_names = {colname: colname + postfix for colname in table.colnames}
     table.rename_columns(list(new_names.keys()), list(new_names.values()))
     return table
-
-
+    
 def get_centre_radius(radio_cat, rad_ra_col, rad_dec_col):
     """Insert docstring info
 
     """
-    ra_list=list(radio_cat[rad_ra_col])
-    dec_list=list(radio_cat[rad_dec_col])
-    coords = SkyCoord(ra=ra_list*u.degree, dec=dec_list*u.degree, frame='icrs')
+    ra_list = list(radio_cat[rad_ra_col])
+    dec_list = list(radio_cat[rad_dec_col])
+    coords = SkyCoord(ra=ra_list * u.deg, dec=dec_list * u.deg, frame='icrs')
 
-    min_ra, max_ra = np.min(ra_list), np.max(ra_list)
-    min_dec, max_dec = np.min(dec_list), np.max(dec_list)
+    # Centre from bounding box
+    center_ra = (np.min(ra_list) + np.max(ra_list)) / 2
+    center_dec = (np.min(dec_list) + np.max(dec_list)) / 2
+    center_coord = SkyCoord(ra=center_ra * u.deg, dec=center_dec * u.deg, frame='icrs')
 
-    rad_ra = (max_ra - min_ra) / 2
-    rad_dec = (max_dec - min_dec) / 2
+    # True maximum angular distance to any source
+    separations = center_coord.separation(coords)
+    radius_deg_max = np.max(separations).deg
 
-    center_ra = (min_ra + max_ra) / 2
-    center_dec = (min_dec + max_dec) / 2
-
-    radius_deg_max = max(rad_ra, rad_dec)
-
-    return center_ra, center_dec, rad_ra, rad_dec, radius_deg_max
+    return center_ra, center_dec, radius_deg_max
+    
 
 
 def retrieve_decals(center_ra, center_dec, radius_deg, DR='DR10'):

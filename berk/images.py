@@ -21,8 +21,8 @@ def getImagesStats(imgFileName, radiusArcmin = 12):
 
     Args:
         imgFileName (:obj:`str`): Path to the FITS images.
-        radiusArcmin (:obj:`float`, optional): Radius in arcmin within which stats will
-            be calculated.
+        radiusArcmin (:obj:`float`, optional): Radius in arcmin within which 
+            RMS and dynamic range will be calculated.
 
     Returns:
         Dictionary of image statistics.

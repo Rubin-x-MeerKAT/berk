@@ -61,8 +61,13 @@ config['cacheDir']=config['rootDir']+os.path.sep+"cache"
 # config['oxkatDir']=config['cacheDir']+os.path.sep+"oxkat-%s" % (config['oxkatVersion'])
 # config['oxkatURL']="https://github.com/IanHeywood/oxkat/archive/refs/tags/v%s.tar.gz" % (config['oxkatVersion'])
 # CURRENT: From Matt's git fork
-config['oxkatVersion']="git"
-config['oxkatDir']=config['cacheDir']+os.path.sep+"oxkat-%s" % (config['oxkatVersion'])
+config['oxkatVersion']=os.environ['BERK_OXKAT_VERSION'] #"git"
+
+if config['oxkatVersion'] == "krishna":
+    config['cacheDir']=os.environ["BERK_CACHE"]
+    config['oxkatDir']=config['cacheDir']+os.path.sep+"oxkat-%s" % (config['oxkatVersion'])
+else:
+    config['oxkatDir']=config['cacheDir']+os.path.sep+"oxkat-%s" % (config['oxkatVersion'])
 config['oxkatURL']="https://github.com/mattyowl/oxkat.git"
 
 # Image-processing (source finding scripts from Jonah)

@@ -33,10 +33,12 @@ def makeParser():
                         'process1' (run 1GC calibration with Oxkat),\
                         'process2' (run imaging with Oxkat up to 2GC),\
                         'analyse' (apply primary beam correction and make object catalogs with PyBDSF),\
+                        'xmatch' (cross-match with DECaLS DR10),\
                         'collect' (collect data products for all processed observations - i.e., primary beam corrected images and catalogs),\
                         'store' (store a more extensive set of processed data products for an observations for possible further processing in future),\
-                        'builddb'(build survey-wide database and related products).",
-                        choices = ['list', 'fetch', 'setup', 'process1', 'process2', 'analyse', 'analyze', 'collect', 'store', 'builddb', 'report'])
+                        'builddb'(build survey-wide database and related products),\
+                        'summarize' (summarize the observations).",
+                        choices = ['list', 'fetch', 'setup', 'process1', 'process2', 'analyse', 'analyze', 'xmatch', 'collect', 'store', 'builddb', 'report', 'summarize', 'summarise'])
     parser.add_argument("-o", "--observation", dest="captureBlockId", default = None, help="MeerKAT observation to fetch and process.\
                         For the 'fetch' task, this must be a link to an .rdb file on the archive, of the form\
                         https://archive-gw-1.kat.ac.za/captureBlockId/captureBlockId_sdp_l0.full.rdb?token=longTokenString.\
@@ -89,6 +91,8 @@ if __name__ == '__main__':
     elif args.task == 'report':
         tasks.report()
 
+    elif args.task == 'summarize' or args.task == 'summarise':
+        tasks.summarize()
 
-
-
+    elif args.task == 'xmatch':
+        tasks.xmatch()

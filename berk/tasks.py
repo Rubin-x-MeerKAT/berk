@@ -8,14 +8,12 @@ import os
 import sys
 import subprocess
 import glob
-import time
 import datetime
 import astropy.table as atpy
-from . import startup, jobs, catalogs, images,  __version__
+from . import startup, jobs, catalogs, images,  __version__, crossmatch, summaryPlots
 import shlex
+import matplotlib.pyplot as plt
 import numpy as np
-from astropy import units as u
-from astropy.coordinates import SkyCoord, Longitude
 
 #------------------------------------------------------------------------------------------------------------
 def fetch(captureBlockId):
@@ -35,8 +33,8 @@ def fetch(captureBlockId):
         sys.exit()
 
     cmd="mvftoms.py %s --flags cam,data_lost,ingest_rfi -o %s" % (captureBlockIdLink, msPath)
-    cmd_subprocess=shlex.split(cmd)
-    with subprocess.Popen(cmd_subprocess, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True) as process:
+    cmdSubprocess=shlex.split(cmd)
+    with subprocess.Popen(cmdSubprocess, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True) as process:
         with open(fetchLogPath, 'w') as logFile:
             for line in process.stdout:
                 logFile.write(line)
@@ -52,10 +50,10 @@ def fetch(captureBlockId):
     with open(fetchLogPath, 'r') as file:
         fetchLogMsg = file.read()
         if katsString in fetchLogMsg:
-            if os.path.exists(msPath) == True:
+            if os.path.exists(msPath) is True:
                 os.rmdir(msPath)
             os.environ["KATSDPTELSTATE_ALLOW_PICKLE"] = "1"
-            with subprocess.Popen(cmd_subprocess, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True) as process:
+            with subprocess.Popen(cmdSubprocess, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True) as process:
                 with open(fetchLogPath, 'w') as logFile:
                     for line in process.stdout:
                         logFile.write(line)
@@ -78,17 +76,18 @@ def store(captureBlockId):
     sys.exit()
 
 #------------------------------------------------------------------------------------------------------------
-def _getBandKey(freqGHz):
+def getBandKey(freqGHz):
     """Return band name ('L' or 'UHF') based on freqGHz.
 
     """
-    if freqGHz > 1.2 and freqGHz < 1.3:
+    if freqGHz >= 0.9 and freqGHz < 1.7:
         bandKey='L'
-    elif freqGHz > 0.7 and freqGHz < 0.9:
+    elif freqGHz >= 0.6 and freqGHz < 0.9:
         bandKey='UHF'
+    elif freqGHz >= 1.7 and freqGHz < 3.5:
+        bandKey='S'
     else:
-        bandKey='Others'
-        #raise Exception("%f - Not sure what band this is - need to add a band key for it" %freqGHz)
+        raise ValueError("%f - Not sure what band this is - need to add a band key for it" %freqGHz)
 
     return bandKey
 
@@ -145,7 +144,7 @@ def builddb():
     """
 
     # Build global catalog in each band (L-band, UHF)
-    globalTabsDict={'L': None, 'UHF': None, 'Others': None}
+    globalTabsDict={'L': None, 'UHF': None, 'S': None}
 
     # Fixing RA
     tabFilesList=glob.glob(startup.config['productsDir']+os.path.sep+'catalogs'+os.path.sep+'*_bdsfcat.fits')
@@ -153,11 +152,11 @@ def builddb():
         if t.find("srl_bdsfcat") == -1:
             tab=atpy.Table().read(t)
             if any(tab['RA'] < 0.0):
-            	#print("\nFixing RA for %s" %t)
-            	tab = catalogs.fixRA(tab, racol='RA', wrap_angle=360)
+                tab = catalogs.fixRA(tab, raCol='RA', wrapAngle=360)
             freqGHz=tab.meta['FREQ0']/1e9
-            bandKey=_getBandKey(freqGHz)
+            bandKey=getBandKey(freqGHz)
             #tab.meta=None # It'd be good to clear this... but the catalog matching stuff wants many things from here
+            #tab.meta.clear() #
             if globalTabsDict[bandKey] is None:
                 globalTabsDict[bandKey]=tab
             else:
@@ -181,34 +180,65 @@ def builddb():
 
     # Quality flags table
     qualFileName=startup.config['productsDir']+os.path.sep+"qualityFlags.csv"
-    if os.path.exists(qualFileName) == True:
+    if os.path.exists(qualFileName):
         qualTab=atpy.Table().read(qualFileName)
     else:
         qualTab=None
 
     # Make image table - centre coords, radius [approx.], RMS, band, image path - UHF and L together.
     # Report command (when we make it) could load and dump some of that info
+
     outFileName=startup.config['productsDir']+os.path.sep+"images.fits"
+    imageOutDir = startup.config['productsDir']+os.path.sep+"images"
+
+    if os.path.exists(outFileName):
+        existingImgTab = atpy.Table.read(outFileName)
+        processedImages = set(existingImgTab['path'])
+    else:
+        existingImgTab = None
+        processedImages = set()
+
     imgFilesList=glob.glob(startup.config['productsDir']+os.path.sep+"images"+os.path.sep+"pbcorr_*.fits")
     statsDictList=[]
+
     for imgFile in imgFilesList:
+        pathName = imgFile.replace(startup.config['productsDir']+os.path.sep, '')
+
+        if (pathName in processedImages):
+            continue #avoiding recomputing statistics
+
         statDict=images.getImagesStats(imgFile)
         captureBlockId=os.path.split(statDict['path'])[-1].split('img_')[-1].split('_sdp')[0]
         statDict['captureBlockId']=captureBlockId
-        statDict['path']=statDict['path'].replace(startup.config['productsDir']+os.path.sep, '')
-        statDict['band']=_getBandKey(statDict['freqGHz'])
+        statDict['path']=pathName
+        statDict['band']=getBandKey(statDict['freqGHz'])
         statsDictList.append(statDict)
 
-        # plotting images and saving in products/images directory
-        imageOutDir = startup.config['productsDir']+os.path.sep+"images"
-        images.plotImages(imgFile, imageOutDir, ax_label_deg = True, statsDict=statDict)
+    if statsDictList:
+        newImgTab = atpy.Table()
+        for key in statsDictList[0].keys():
+            newImgTab[key] = [s[key] for s in statsDictList]
+    else:
+        newImgTab = None
 
-    imgTab=atpy.Table()
-    for key in statDict.keys():
-        arr=[]
-        for s in statsDictList:
-            arr.append(s[key])
-        imgTab[key]=arr
+    # Combine old and new tables if both exist
+    if existingImgTab is not None and newImgTab is not None:
+        imgTab = existingImgTab.copy()
+        imgTab = atpy.vstack([imgTab, newImgTab])
+    elif existingImgTab is not None:
+        imgTab = existingImgTab
+    else:
+        imgTab = newImgTab
+
+    # plotting images
+    for row in imgTab:
+        imgPath = startup.config['productsDir'] + os.path.sep + row['path']
+        plotName = os.path.basename(row['path']).replace('.fits', '.png')
+        plotPath = os.path.join(imageOutDir, plotName)
+        if not os.path.exists(plotPath):
+            statDictRow = dict(zip(imgTab.colnames, row))
+            images.plotImages(imgPath, imageOutDir, axLabelDeg = True, statsDict=statDictRow, overwrite=False)
+
     # Update quality flag column - we only use quality column from qualTab
     imgTab['quality']=99
     if qualTab is not None:
@@ -216,10 +246,10 @@ def builddb():
             mask=irow['path'] == qualTab['path']
             if 'quality' in qualTab.keys():
                #pulling already existing quality and assigning 99 to newly added images
-            	if mask.any():
-            	    irow['quality']=qualTab[mask]['quality'][0]
-            	else:
-            	    irow['quality'] = 99
+                if mask.any():
+                    irow['quality']=qualTab[mask]['quality'][0]
+                else:
+                    irow['quality'] = 99
 
     # Output
     imgTab.meta['BERKVER']=__version__
@@ -230,53 +260,68 @@ def builddb():
 
     # Generate survey mask in some format - we'll use that to get total survey area
 
-    # cross-matching # to be worked on
-    # from . import crossmatch
-    """
-
-    opt_survey = 'DECaLS'
-    opt_survey_dr = 'DR10'
-    optband_to_match = 'r'
-    search_radius_arcsec = 4.0
-
-    xmatchDirPath = startup.config['productsDir']+os.path.sep+'xmatches'
-    os.makedirs(xmatchDirPath, exist_ok = True)
-
-    globalXmatchTabName=startup.config['productsDir']+os.path.sep+"xmatchCat_%s%s_%s_%sasec.fits" %(opt_survey, opt_survey_dr, optband_to_match, str(search_radius_arcsec).replace('.', 'p'))
-    globalXmatchTab=None
-    radCatFilesList=glob.glob(startup.config['productsDir']+os.path.sep+'catalogs'+os.path.sep+'*srl_bdsfcat.fits')
-
-    for radcat in radCatFilesList:
-    	catalogName = radcat.split(os.path.sep)[-1]
-    	captureBlockId = catalogName.split('_')[3]
-    	targetName = (catalogName.split('_1024ch_')[1]).split('_srl_')[0]
-
-    	# making a subscript for this particular match
-    	outSubscript = '%s_%s%s_%sband_%sasec' %(catalogName.replace('.fits',''), opt_survey, opt_survey_dr, optband_to_match, str(search_radius_arcsec).replace(".","p"))
-
-    	radcattab = atpy.Table().read(radcat)
-    	freqGHz=radcattab.meta['FREQ0']/1e9
-    	radbandname=_getBandKey(freqGHz)
-
-    	xmatchTabName = startup.config['productsDir']+os.path.sep+'xmatches'+os.path.sep+"xmatchTable_%s" %outSubscript+".fits"
-
-    	if os.path.exists(xmatchTabName):
-    	    xmatchTab = atpy.Table().read(xmatchTabName)
-    	else:
-    	    xmatchTab = crossmatch.xmatch_berk(radio_cat=radcat, radio_band=radbandname, xmatchTabOutName=xmatchTabName, opt_survey=opt_survey, opt_survey_dr=opt_survey_dr, opt_mag_col = optband_to_match, search_radius_asec = search_radius_arcsec, makePlots=False, radRACol='RA', radDecCol='DEC', eRadRACol='E_RA', eRadDecCol='E_DEC', outSubscript=outSubscript)
-
-
-    	if(xmatchTab):
-    	    if(globalXmatchTab is None):
-    	        globalXmatchTab = xmatchTab
-    	    else:
-
-    	        globalXmatchTab = atpy.vstack([globalXmatchTab, xmatchTab])
-
-    globalXmatchTab.write(globalXmatchTabName, overwrite = True)
-    print("\nWrote %s" % (globalXmatchTabName))
+def xmatch():
+    """Does cross-matching...
 
     """
+
+    optSurvey = 'DECaLS'
+    optSurveyDR = 'DR10'
+    optBandToMatch = 'r'
+    searchRadiusArcsec = 4.0
+
+    globalBestXmatchTabName=startup.config['productsDir']+os.path.sep+"xmatchCat_%s%s_%s_%sasec.fits" %(optSurvey,
+                                                                                                    optSurveyDR,
+                                                                                                    optBandToMatch,
+                                                                                                    str(searchRadiusArcsec).replace('.', 'p'))
+
+
+    globalBestXmatchTab=None
+    radCatFilesList=sorted(glob.glob(startup.config['productsDir']+os.path.sep+'catalogs'+os.path.sep+'*srl_bdsfcat.fits'))
+
+    for radCat in radCatFilesList:
+        catalogName = radCat.split(os.path.sep)[-1]
+        captureBlockId = catalogName.split('_')[3]
+
+        # making a subscript for this particular match
+        outSubscript = '%s_%s%s_%sband_%sasec' %(catalogName.replace('.fits',''), optSurvey, optSurveyDR, optBandToMatch, str(searchRadiusArcsec).replace(".","p"))
+
+        xmatchDirPath = os.path.join(startup.config['productsDir'], 'xmatches')
+        os.makedirs(xmatchDirPath, exist_ok = True)
+
+        radCatTab = atpy.Table().read(radCat)
+        freqGHz=radCatTab.meta['FREQ0']/1e9
+        radBandName=getBandKey(freqGHz)
+
+        xmatchTab = crossmatch.xmatchRadioOptical(radioCatFilePath=radCat,
+                                                    radioBand=radBandName,
+                                                    xmatchDirPath=xmatchDirPath,
+                                                    optSurvey=optSurvey,
+                                                    optSurveyDR=optSurveyDR,
+                                                    optMagCol = optBandToMatch,
+                                                    searchRadiusArcsec = searchRadiusArcsec,
+                                                    makePlots=True,
+                                                    radRACol='RA', radERACol='E_RA',
+                                                    radDecCol='DEC', radEDecCol='E_DEC',
+                                                    radEMajCol='E_Maj',
+                                                    radEMinCol='E_Min', radPACol='PA',
+                                                    outSubscript=outSubscript,
+                                                    optPosErrAsecValue=0.2, nMagBins=15, beamSizeArcsecValue=6.0,
+                                                    saveFiles = True, skipIfExists=True
+                                                    )
+
+        if xmatchTab:
+            if globalBestXmatchTab is None:
+                globalBestXmatchTab = xmatchTab
+            else:
+                globalBestXmatchTab = atpy.vstack([globalBestXmatchTab, xmatchTab])
+
+    globalBestXmatchTab.write(globalBestXmatchTabName, overwrite = True)
+    print("\n" + "-" * 100)
+    print("\nWrote %s" % (globalBestXmatchTabName))
+    print("\n" + "-" * 100)
+
+
 #------------------------------------------------------------------------------------------------------------
 def collect():
     """Collect...
@@ -287,7 +332,7 @@ def collect():
     if 'BERK_NODES_FILE' not in os.environ.keys():
         print("You need to set the BERK_NODES_FILE environment variable to use the 'collect' task.")
         sys.exit()
-    nodesFilePath=os.environ['BERK_NODES_FILE']
+
     try:
         stubs=[]
         with open(os.environ['BERK_NODES_FILE'], "r") as inFile:
@@ -360,8 +405,8 @@ def setup(captureBlockId):
     if os.path.exists("submit_info_job.sh") is False:
         raise Exception("Failed to generate submit_info_job.sh")
     cmd="berk_chain %s submit_info_job.sh" % (startup.config['workloadManager'])
-    jobID=jobs.submit_job(cmd, "SUBMIT_SETUP", dependent_job_ids = None,
-                          workload_manager = startup.config['workloadManager'],
+    jobID=jobs.submitJob(cmd, "SUBMIT_SETUP", dependentJobIDs = None,
+                          workloadManager = startup.config['workloadManager'],
                           time = "00:05:00")
     print("Setup jobs submitted")
     sys.exit()
@@ -385,8 +430,8 @@ def process1(captureBlockId):
     if os.path.exists("submit_1GC_jobs.sh") is False:
         raise Exception("Failed to generate submit_1GC_jobs.sh")
     cmd="berk_chain %s submit_1GC_jobs.sh" % (startup.config['workloadManager'])
-    jobID=jobs.submit_job(cmd, "SUBMIT_1GC", dependent_job_ids = None,
-                          workload_manager = startup.config['workloadManager'],
+    jobID=jobs.submitJob(cmd, "SUBMIT_1GC", dependentJobIDs = None,
+                          workloadManager = startup.config['workloadManager'],
                           time = "00:05:00")
     print("1GC jobs submitted")
     sys.exit()
@@ -411,8 +456,8 @@ def process2(captureBlockId):
     if os.path.exists("submit_2GC_jobs.sh") is False:
         raise Exception("Failed to generate submit_2GC_jobs.sh")
     cmd="berk_chain %s submit_flag_jobs.sh submit_2GC_jobs.sh" % (startup.config['workloadManager'])
-    jobID=jobs.submit_job(cmd, "SUBMIT_2GC", dependent_job_ids = None,
-                          workload_manager = startup.config['workloadManager'],
+    jobID=jobs.submitJob(cmd, "SUBMIT_2GC", dependentJobIDs = None,
+                          workloadManager = startup.config['workloadManager'],
                           time = "00:05:00")
     print("FLAG and 2GC jobs submitted")
     sys.exit()
@@ -452,12 +497,49 @@ def analyse(captureBlockId):
         #catPath=imgDir+os.path.sep+"pbcorr_trim_"+label+"_pybdsf"+os.path.sep+"pbcorr_trim_"+label+"_bdsfcat.fits"
         #cmd=cmd+"\npython3 catalog_matching.py %s NVSS --astro --flux" % (catPath)
 
-        jobID=jobs.submit_job(cmd, 'source-finding-%s' % (imgFileName), dependent_job_ids = None,
+        jobID=jobs.submitJob(cmd, 'source-finding-%s' % (imgFileName), dependentJobIDs = None,
                               nodes = 1, tasks = 20, mem = 64000, time = "02:00:00",
-                              cmd_is_batch_script = False,
-                              workload_manager = startup.config['workloadManager'])
+                              cmdIsBatchScript = False,
+                              workloadManager = startup.config['workloadManager'])
         print("Submitted source finding and analysis job %d" % (jobID))
     sys.exit()
+
+#------------------------------------------------------------------------------------------------------------
+def summarize():
+    """Summarize the progress in berk processing.
+
+    """
+    print("\n" + "═" * 50)
+    print("║ SUMMARY OF MEERKAT DATA PROCESSING ║".center(50))
+    print("═" * 50 + "\n")
+
+
+    imagesFileName = startup.config['productsDir']+os.path.sep+"images.fits"
+
+    imagesTab = atpy.Table().read(imagesFileName)
+
+    bandColorDict={'L': '#e35c1e', 'UHF': '#1e21e3', 'S': '#145a32'}
+
+    # Plotting sky coverage
+
+    skyPlotName = startup.config['productsDir']+os.path.sep+'MeerKAT_pointings.png'
+
+    summaryPlots.plotSkyCoverage(imagesTab, bandColorDict=bandColorDict, plotOutPath=skyPlotName, plotProjection='aitoff')
+
+    # Plotting sourcecount
+
+    sourceCountPlotName = startup.config['productsDir']+os.path.sep+'MeerKAT_sourcecount.png'
+    summaryPlots.plotSourceCounts(imagesTab, fluxCol='Total_flux', bandColorDict=bandColorDict, nFluxBins=39, plotOutPath=sourceCountPlotName)
+
+    # Plotting RMS coverage
+    #rmsCoveragePlotName = startup.config['productsDir']+os.path.sep+'MeerKAT_RMS_coverage.png'
+    #summaryPlots.plotRMSCoverage(rmsCoveragePlotName)
+
+    # Plotting RMS area coverage
+
+    rmsAreaCoveragePlotName = startup.config['productsDir']+os.path.sep+'MeerKAT_RMS_area.png'
+
+    summaryPlots.plotRMSAreaCoverage(rmsAreaCoveragePlotName, bandColorDict)
 
 #------------------------------------------------------------------------------------------------------------
 def report():
@@ -490,4 +572,3 @@ def report():
     import IPython
     IPython.embed()
     sys.exit()
-

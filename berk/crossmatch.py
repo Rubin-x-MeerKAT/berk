@@ -6,563 +6,917 @@ Routines for cross matching, using likelihood ratio method.
 
 import os
 import numpy as np
-from astropy.coordinates import SkyCoord
-import astropy.units as u
+from astropy.coordinates import SkyCoord, search_around_sky
+from astropy.units import Quantity
+from astropy import units as u
 from astropy.table import Table, hstack
 import matplotlib.pyplot as plt
-from scipy.spatial import cKDTree
-from scipy.optimize import curve_fit
 from zCluster import retrievers
-# from matplotlib import font_manager as fm
-# this_platform = os.environ['THIS_PLATFORM']
-# if(this_platform == 'hp455'): #krishna's laptop
-#     fpath = "/home/krishna/Dropbox/fonts/cmunss.ttf"
-#     prop = fm.FontProperties(fname=fpath,size=12,math_fontfamily='stixsans')
-# else:
-# TODO: Fix this - this global variable is not what we want, but left in for now
-from matplotlib import font_manager as fm
-prop = fm.FontProperties(size=12,math_fontfamily='stixsans')
-
-from . import startup, tasks
+from . import startup, catalogs
+from collections import defaultdict
+from astropy.units import Quantity
 
 
-def _write_no_optical_cat_file(catalog_name, outfilename):
-    """Insert docstring info
-
+def _writeNoOpticalCatFile(catalogName, outFileName):
     """
-    if os.path.exists(outfilename):
-        with open(outfilename, 'a', encoding='utf8') as outfile:
-            outfile.write("%s\n" %(catalog_name))
+    Append or create a text file to record the name of a radio catalogue with no optical counterpart.
+
+    Args:
+        catalogName (:obj:`str`): Name or identifier of the radio catalogue without an optical match.
+        outFileName (:obj:`str`): Path to the output text file where the catalogue name will be recorded.
+
+    Returns:
+        :obj:`int`: Returns 0 upon successful write operation.
+    """
+
+    if os.path.exists(outFileName):
+        with open(outFileName, 'a', encoding='utf8') as outFile:
+            outFile.write("%s\n" %(catalogName))
     else:
-        with open(outfilename, 'w', encoding='utf8') as outfile:
-            outfile.write("%s\n" %(catalog_name))
+        with open(outFileName, 'w', encoding='utf8') as outFile:
+            outFile.write("%s\n" %(catalogName))
     return 0
 
-
-def get_mag_hist(opt_mag, nbins):
-    """Insert docstring info
-
+def filterBadRows(table, columnsToCheck, badValues=[99., 999., -99., -999.]):
     """
-    opt_mag_hist, opt_mag_bins = np.histogram(opt_mag, bins=nbins)
-    return opt_mag_hist, opt_mag_bins
+    Filters rows in an Astropy table where any of the specified columns contain bad placeholder values.
 
+    Args:
+        table (astropy.table.Table): The input table to filter.
+        columnsToCheck (list of str): List of column names to check for bad values.
+        badValues (list of float, optional): Values that should be considered invalid. Defaults to [99., 999., -99., -999.].
 
-def get_n_m(opt_mag, nbins, area_asec):
-    """Insert docstring info
-
-    """
-    opt_mag_hist = get_mag_hist(opt_mag, nbins)[0]
-    # TODO : check if it is whole area of survey or area of the overlapping regions
-    n_m = opt_mag_hist/area_asec.value
-    return n_m
-
-
-def get_matches(radio_cat_table, optical_cat_table, search_radius_asec, rad_ra_col, rad_dec_col,
-                opt_ra_col, opt_dec_col):
-    """Insert docstring info
-
+    Returns:
+        astropy.table.Table: A filtered table with bad rows removed.
     """
 
-    radio_coords = SkyCoord(ra=radio_cat_table[rad_ra_col].value * u.deg,
-                            dec=radio_cat_table[rad_dec_col].value * u.deg)
-    optical_coords = SkyCoord(ra=optical_cat_table[opt_ra_col].value * u.deg,
-                              dec=optical_cat_table[opt_dec_col].value * u.deg)
+    # Start with all rows as valid
+    mask = np.ones(len(table), dtype=bool)
 
-    radio_cartesian = np.vstack(radio_coords.cartesian.xyz).T
-    optical_cartesian = np.vstack(optical_coords.cartesian.xyz).T
+    for col in columnsToCheck:
+        values = table[col]
+        # Convert to raw numeric values if unit is present
+        try:
+            values = values.value
+        except AttributeError:
+            pass
+        mask &= ~np.isin(values, badValues)
 
-    optical_tree = cKDTree(optical_cartesian)
-    search_radius_rad = search_radius_asec.to(u.rad).value
+    nRemoved = len(table) - np.sum(mask)
+    print("\nRemoved %d bad rows out of %d!" % (nRemoved, len(table)))
 
-    matches = optical_tree.query_ball_point(radio_cartesian, r=search_radius_rad)
+    return table[mask]
 
-    return matches
-
-
-def get_separation(radio_cat_table, optical_cat_table, search_radius_asec, rad_ra_col, rad_dec_col,\
-                   opt_ra_col, opt_dec_col):
-    """Insert docstring info
-
+def _getUnitlessValues(col):
     """
-    radio_coords = SkyCoord(ra=radio_cat_table[rad_ra_col].value * u.deg,
-                            dec=radio_cat_table[rad_dec_col].value * u.deg)
-    optical_coords = SkyCoord(ra=optical_cat_table[opt_ra_col].value * u.deg,
-                              dec=optical_cat_table[opt_dec_col].value * u.deg)
-    matches = get_matches(radio_cat_table, optical_cat_table, search_radius_asec,
-                          rad_ra_col, rad_dec_col, opt_ra_col, opt_dec_col)
-
-    separation_list = []
-    no_match_radio_idx = [] # List of radio sources with no match
-    match_radio_idx = [] # List of radio sources with atleast one match
-    match_optical_idx = [] # List of ALL optical sources that are matched to >= one radio source
-
-    for radio_idx, optical_indices in enumerate(matches):
-        if len(optical_indices) == 0: # radio sources with no optical matches in the search radius
-            no_match_radio_idx.append(radio_idx)
-            continue
-        match_radio_idx.append(radio_idx)
-        match_optical_idx.extend(optical_indices)
-        radio_coord = radio_coords[radio_idx]
-        optical_matches_coords = optical_coords[optical_indices]
-        separations = radio_coord.separation(optical_matches_coords)
-        for opt_idx, separation in zip(optical_indices, separations):
-            separation_list.append((radio_idx, opt_idx, separation.arcsec))
-
-    return separation_list, match_radio_idx, match_optical_idx, no_match_radio_idx
-
-
-def combined_error(sigma_rad, sigma_opt):
-    """Insert docstring info
-
+    Returns unitless numeric values from an astropy Table Column.
+    If the column has a unit (not None), returns .value.
+    Otherwise, returns the column as-is.
     """
-    return np.sqrt(sigma_rad**2 + sigma_opt**2)
-
-
-def f_r(radio_coord, sigma_rad, optical_coord, sigma_opt):
-    """Insert docstring info
-
-    """
-    r = radio_coord.separation(optical_coord).value
-    sigma_pos = combined_error(sigma_rad, sigma_opt)
-
-    return (1 / (2 * np.pi * sigma_pos**2)) * np.exp(-0.5 * (r**2 / sigma_pos**2))
-
-
-def random_points_in_circle(center_ra, center_dec, radius_deg, n_points):
-    """Insert docstring info
-
-    """
-    center_coord = SkyCoord(ra=center_ra * u.deg, dec=center_dec * u.deg, frame='icrs')
-
-    rand_r = np.sqrt(np.random.uniform(0, radius_deg**2, n_points))  # Radius
-    rand_theta = np.random.uniform(0, 2 * np.pi, n_points)  # Angle
-
-    rand_ra = center_ra + rand_r * np.cos(rand_theta) / np.cos(center_dec * u.deg.to(u.rad))
-    rand_dec = center_dec + rand_r * np.sin(rand_theta)
-
-    coords = SkyCoord(ra=rand_ra * u.deg, dec=rand_dec * u.deg, frame='icrs')
-    distances = center_coord.separation(coords)
-    within_circle = distances < radius_deg * u.deg
-    return rand_ra[within_circle], rand_dec[within_circle]
-
-
-def make_random_cat(center_ra, center_dec, radius_deg, n_random_points, rad_ra_col, rad_dec_col):
-    """Insert docstring info
-
-    """
-    rand_ra, rand_dec = random_points_in_circle(center_ra, center_dec, radius_deg, n_random_points)
-    random_cat = Table([rand_ra, rand_dec], names=(rad_ra_col, rad_dec_col))
-    return random_cat
-
-
-def get_uobs_urand_ratio(radio_sources, rand_radio_sources, optical_sources, search_radius_asec,
-                         rad_ra_col, rad_dec_col, opt_ra_col, opt_dec_col):
-    """Insert docstring info
-
-    """
-    uobs_r = len(get_separation(radio_sources, optical_sources, search_radius_asec,
-                                rad_ra_col, rad_dec_col, opt_ra_col, opt_dec_col)[3])
-    urand_r = len(get_separation(rand_radio_sources, optical_sources, search_radius_asec,
-                                 rad_ra_col, rad_dec_col, opt_ra_col, opt_dec_col)[3])
-    return uobs_r/urand_r
-
-
-def uobs_urand_ratio_model(r , Q0, sigma):
-    """Insert docstring info
-
-    """
-    return 1. - (Q0*(1. - np.exp(-1*np.power(r,2.)/2.*np.power(sigma,2.))))
-
-
-def get_Q0(radio_sources, rand_radio_sources, optical_sources, beam_size, rad_ra_col, rad_dec_col,
-           opt_ra_col, opt_dec_col):
-    """Insert docstring info
-
-    """
-    radii = np.arange( 1., beam_size, 0.5 )
-    uobs_urand_ratios = []
-    for radius in radii:
-        search_radius_asec = float(radius)*u.arcsec
-        uobs_urand_ratios.append(get_uobs_urand_ratio(radio_sources, rand_radio_sources,
-                                                      optical_sources, search_radius_asec,
-                                                      rad_ra_col, rad_dec_col, opt_ra_col,
-                                                      opt_dec_col))
-    params_fit, params_cov = curve_fit(uobs_urand_ratio_model, radii, uobs_urand_ratios)
-    Q0, sig = params_fit
-    Q0_err, sig_err = np.sqrt(np.diag(params_cov))
-    return Q0, Q0_err
-
-
-def get_q_m(radio_sources, optical_sources, n_m, search_radius_asec,
-            opt_mag_col, Q0, n_mag_bins, rad_ra_col, rad_dec_col, opt_ra_col, opt_dec_col):
-    """Insert docstring info
-
-    """
-    n_radio = len(radio_sources)
-    ####
-    # New
-    result=get_separation(radio_sources, optical_sources, search_radius_asec, rad_ra_col,
-                          rad_dec_col, opt_ra_col, opt_dec_col)
-
-    match_optical_idx=result[2]
-    ####
-    # Old
-    # separation_list, match_radio_idx, match_optical_idx, no_match_radio_idx = \
-        # get_separation(radio_sources, optical_sources, search_radius_asec, rad_ra_col,
-                         # rad_dec_col, opt_ra_col, opt_dec_col)
-    ####
-    opt_match_mags = optical_sources[opt_mag_col][match_optical_idx]
-    mag_bins = get_mag_hist(optical_sources[opt_mag_col], n_mag_bins)[1]
-    total_m = np.histogram(opt_match_mags, bins=mag_bins)[0]
-    #real_m = total_m - (n_m * n_radio * np.pi * search_radius_asec.value**2)
-    real_m = np.maximum(total_m - (n_m * n_radio * np.pi * search_radius_asec.value**2), 0) #TODO
-    q_m = (real_m*Q0)/np.sum(real_m)
-    return q_m
-
-
-def get_qm_nm(mag, mag_bins, qm_nm_values):
-    """Insert docstring info
-
-    """
-    bin_index = np.digitize(mag, mag_bins, right=True) - 1
-    if 0 <= bin_index < len(qm_nm_values):
-        return qm_nm_values[bin_index]
-    #print("Issue with getting qm_nm")
-    return np.nan
-
-
-def make_mag_bins(magnitudes, nbins):
-    """Insert docstring info
-
-    """
-    binwidth = (np.max(magnitudes)-np.min(magnitudes))/nbins
-    mag_bins = np.arange( np.floor(np.min(magnitudes)), np.ceil(np.max(magnitudes)), binwidth )
-    if np.ceil(np.max(magnitudes)) > np.max( mag_bins ):
-        mag_bins = np.append( mag_bins, np.max(mag_bins)+0.4 )
-    if np.floor(np.min(magnitudes)) < np.min( mag_bins ):
-        mag_bins = np.insert( mag_bins, 0, np.min( mag_bins )-0.4 )
-    # NOTE: below was (mag_bins) for some reason - not sure this was intentional?
-    return mag_bins
-
-
-def add_postfix_to_columns(table, postfix):
-    """Insert docstring info
-
-    """
-    new_names = {colname: colname + postfix for colname in table.colnames}
-    table.rename_columns(list(new_names.keys()), list(new_names.values()))
-    return table
-    
-def get_centre_radius(radio_cat, rad_ra_col, rad_dec_col):
-    """Insert docstring info
-
-    """
-    ra_list = list(radio_cat[rad_ra_col])
-    dec_list = list(radio_cat[rad_dec_col])
-    coords = SkyCoord(ra=ra_list * u.deg, dec=dec_list * u.deg, frame='icrs')
-
-    # Centre from bounding box
-    center_ra = (np.min(ra_list) + np.max(ra_list)) / 2
-    center_dec = (np.min(dec_list) + np.max(dec_list)) / 2
-    center_coord = SkyCoord(ra=center_ra * u.deg, dec=center_dec * u.deg, frame='icrs')
-
-    # True maximum angular distance to any source
-    separations = center_coord.separation(coords)
-    radius_deg_max = np.max(separations).deg
-
-    return center_ra, center_dec, radius_deg_max
-    
-
-
-def retrieve_decals(center_ra, center_dec, radius_deg, DR='DR10'):
-    """Insert docstring info
-
-    """
-    print("\nRetrieving DECaLS %s sources with RAcen=%f, Deccen=%f, and radius=%f deg" \
-          % (DR, center_ra, center_dec, radius_deg))
-    if DR == 'DR10':
-        decals_cat = Table(retrievers.DL_DECaLSDR10Retriever(center_ra, center_dec,
-                                                             halfBoxSizeDeg = radius_deg,
-                                                             DR = None))
-    elif DR == 'DR8':
-        # NOTE: There is no such routine in zCluster currently
-        decals_cat = Table(retrievers.DL_DECaLSDR8Retriever(center_ra, center_dec,
-                                                            halfBoxSizeDeg = radius_deg,
-                                                            DR = None))
+    if hasattr(col, 'unit') and col.unit is not None:
+        return col.value
     else:
-        raise Exception("Need to give DR10 or DR8")
-    return decals_cat
+        return col
+
+def makeMagBins(magnitudes, nBins):
+    """ Compute custom magnitude bin edges for a given array of magnitudes.
+
+    Args:
+        magnitudes (:obj:`array_like`): Array of magnitudes to be binned.
+        nBins (:obj:`int`): Desired number of bins.
+
+    Returns:
+        magBins (:obj:`np.ndarray`): Array of bin edges.
+    """
+    minMag = np.min(magnitudes)
+    maxMag = np.max(magnitudes)
+
+    magBins = np.linspace(minMag, maxMag, nBins + 1)
+
+    return magBins
 
 
-def ompute_lr_rel(radio_sources, optical_sources, search_radius_asec, opt_mag_col, mag_bins, Q0,
-                   qm_nm_values, rad_ra_col, rad_dec_col, opt_ra_col, opt_dec_col,
-                   e_rad_ra_col, e_rad_dec_col, opt_pos_err_col):
-    """Insert docstring info
+def getMagHist(optMag, nBins):
+    """Compute histogram of optical magnitudes.
+
+    Args:
+        optMag (:obj:`array_like`): Array of optical magnitudes (e.g., from parent optical catalogue).
+        nBins (:obj:`int`): Number of bins to use for the histogram.
+
+    Returns:
+        tuple:
+            - optMagHist (:obj:`np.ndarray`): Counts in each magnitude bin.
+            - optMagBins (:obj:`np.ndarray`): Edges of the magnitude bins.
+    """
+
+    optMagBins = makeMagBins(optMag, nBins)
+
+    optMagHist, _ = np.histogram(optMag, bins=optMagBins)
+
+    return optMagHist, optMagBins
+
+def getNM(optMag, nBins, areaSqArcsec):
+    """Estimate the magnitude distribution n(m) from an optical catalogue.
+
+    Args:
+        optMag (:obj:`array_like`): Array of optical magnitudes (e.g., from parent optical catalogue).
+        nBins (:obj:`int`): Number of bins to use for the magnitude histogram.
+        areaSqArcsec (:obj:`astropy.units.Quantity`): Survey area in square arcseconds (with units attached).
+
+    Returns:
+        :obj:`np.ndarray`: The magnitude distribution n(m), i.e., number of sources per square arcsecond per bin.
+    """
+
+    optMagHist, optMagBins = getMagHist(optMag, nBins)
+
+    if hasattr(areaSqArcsec, 'unit'):
+        areaSqArcsec = areaSqArcsec.value
+
+    binWidth = np.diff(optMagBins)[0]
+    distNm = optMagHist / (areaSqArcsec * binWidth)
+    return distNm
+
+def randomPointsInCircle(centerRA, centerDec, radiusDeg, nPoints):
+    """
+    Generate uniformly distributed random points within a circular area on the sky.
+
+    Args:
+        centerRA (:obj:`float`): Right Ascension of the circle's center (degrees).
+        centerDec (:obj:`float`): Declination of the circle's center (degrees).
+        radiusDeg (:obj:`float`): Radius of the circular area (degrees).
+        nPoints (:obj:`int`): Number of random points to generate.
+
+    Returns:
+        tuple:
+            - randRA (array): Array of RA values (degrees) for the random points.
+            - randDec (array): Array of Dec values (degrees) for the random points.
+    """
+
+    centerCoord = SkyCoord(ra=centerRA * u.deg, dec=centerDec * u.deg, frame='icrs')
+
+    randRad = np.sqrt(np.random.uniform(0, radiusDeg**2, nPoints))  # Radius
+    randTheta = np.random.uniform(0, 2 * np.pi, nPoints)  # Angle
+
+    randRA = centerRA + randRad * np.cos(randTheta) / np.cos(np.radians(centerDec))
+    randDec = centerDec + randRad * np.sin(randTheta)
+
+    randCoords = SkyCoord(ra=randRA * u.deg, dec=randDec * u.deg, frame='icrs')
+    toCentreDistances = centerCoord.separation(randCoords)
+    withinCircle = toCentreDistances < radiusDeg * u.deg
+    return randRA[withinCircle], randDec[withinCircle]
+
+
+def makeRandomCat(centerRA, centerDec, radiusDeg, nRandomPoints, radRACol, radDecCol):
+    """
+    Create a random catalogue of sources uniformly distributed within a circular sky region.
+
+    Args:
+        centerRA (:obj:`float`): RA of the circle center (degrees).
+        centerDec (:obj:`float`): Dec of the circle center (degrees).
+        radiusDeg (:obj:`float`): Radius of the circle (degrees).
+        nRandomPoints (:obj:`int`): Total number of random points to generate.
+        radRACol (:obj:`str`): Column name for RA in the output table.
+        radDecCol (:obj:`str`): Column name for Dec in the output table.
+
+    Returns:
+        :obj:`~astropy.table.Table`: Astropy Table with columns `[radRACol, radDecCol]` containing the random positions.
+    """
+
+    randRA, randDec = randomPointsInCircle(centerRA, centerDec, radiusDeg, nRandomPoints)
+    randomCat = Table([randRA, randDec], names=(radRACol, radDecCol))
+    return randomCat
+
+
+def countBlanks(skyCatCoords1, skyCatCoords2, searchRadRsArcsec):
+    """
+    Counts the number of sources in skyCatCoords1 that have no match within searchRadRsArcsec in skyCatCoords2.
+
+    Parameters:
+    - skyCatCoords1 : SkyCoord of first catalogue.
+    - skyCatCoords2 : SkyCoord of second catalogue.
+    - searchRadRsArcsec: search radius in arcseconds
+
+    Returns:
+    - nBlanks: number of skyCatCoords1 positions with no match in skyCatCoords2
+    """
+
+    idx2, sep2d, _ = skyCatCoords1.match_to_catalog_sky(skyCatCoords2)
+
+    nBlanks = np.sum(sep2d.arcsec > searchRadRsArcsec)
+
+    return nBlanks
+
+def getQ0(radCatCoords, randRadCatCoords, optCatCoords, searchRadRsArcsec, sigmaRad):
+    """
+    Estimate Q0, the fraction of radio sources with real counterparts, using the blank fields method.
+
+    Args:
+        radCatCoords (:obj:`~astropy.coordinates.SkyCoord`): SkyCoord object for the radio catalogue positions.
+        randRadCatCoords (:obj:`~astropy.coordinates.SkyCoord`): SkyCoord object for the randomised radio catalogue positions.
+        optCatCoords (:obj:`~astropy.coordinates.SkyCoord`): SkyCoord object for the optical/IR catalogue positions.
+        searchRadRsArcsec (:obj:`float`): Search radius in arcseconds within which counterparts are considered.
+        sigmaRad (:obj:`float`): Typical positional uncertainty (sigma) of radio sources in arcseconds.
+
+    Returns:
+        float: Estimated Q0 value representing the fraction of radio sources with true counterparts.
+
+    Raises:
+        ValueError: If the number of blank fields in the random catalogue (nBlankRand) is zero, preventing division by zero.
+    """
+
+    nBlankReal = countBlanks(radCatCoords, optCatCoords, searchRadRsArcsec)
+
+    nBlankRand = countBlanks(randRadCatCoords, optCatCoords, searchRadRsArcsec)
+
+    if nBlankRand == 0:
+        print("nBlankRand is zero — cannot divide by zero when computing Q0. Setting Q0 = 1.0")
+        return 1.0
+
+    Frs = 1 - np.exp( -0.5 * (searchRadRsArcsec**2 / sigmaRad**2))
+
+    if Frs == 0:
+        print("Frs is zero — cannot divide by zero when computing Q0. Setting Q0 = 1")
+        return 1.0
+
+    Q0 = (1 - nBlankReal/nBlankRand)/Frs
+
+    print("\nQ0 = ", Q0)
+    return Q0
+
+def getQM(radCatCoords, nRadio, optCatCoords, optMagList, searchRadRmaxArcsec, nM, Q0):
 
     """
-    matches = get_matches(radio_sources, optical_sources, search_radius_asec,
-                          rad_ra_col, rad_dec_col, opt_ra_col, opt_dec_col)
+    Estimate q(m): the magnitude distribution of real counterparts to radio sources.
 
-    xmatch_optical_idx_list = []
-    xmatch_radio_idx_list = []
-    xmatch_lr_list = []
-    xmatch_rel_list = []
-    xmatch_phax_xm_list = []
-    xmatch_pthix_xm_list = []
+    Args:
+        radCatCoords (SkyCoord): SkyCoord array of radio source positions.
+        nRadio (int): Number of radio sources.
+        optCatCoords (SkyCoord): SkyCoord array of optical catalogue positions.
+        optMagList (array_like): List or array of optical magnitudes corresponding to optCatCoords.
+        searchRadRmaxArcsec (float): Maximum search radius in arcseconds.
+        nM (array_like): Surface density of background sources per magnitude bin, in sources/arcsec².
+        Q0 (float): Fraction of radio sources that have real optical counterparts (0 < Q0 < 1).
 
-    for radio_idx, optical_indices in enumerate(matches):
-        n_cand = len(optical_indices)
-
-        if n_cand == 0: # TODO
-            continue
-
-        radio_coord = SkyCoord(ra=radio_sources[rad_ra_col][radio_idx] * u.deg,
-                               dec=radio_sources[rad_dec_col][radio_idx] * u.deg)
-        sigma_radio = np.sqrt(radio_sources[e_rad_ra_col][radio_idx]**2 + \
-                              radio_sources[e_rad_dec_col][radio_idx]**2)
-
-        lrs_radio_source = []  # List of LRs of all matches for a given radio source
-        for optical_idx in optical_indices:
-            optical_coord = SkyCoord(ra=optical_sources[opt_ra_col][optical_idx] * u.deg,
-                                     dec=optical_sources[opt_dec_col][optical_idx] * u.deg)
-            sigma_optical = optical_sources[opt_pos_err_col][optical_idx]
-
-            F_R = f_r(radio_coord=radio_coord, sigma_rad=sigma_radio, optical_coord=optical_coord,
-                      sigma_opt=sigma_optical)
-            QM_NM = get_qm_nm(optical_sources[opt_mag_col][optical_idx], mag_bins, qm_nm_values)
-
-            lr_given_match = QM_NM * F_R
-
-            lrs_radio_source.append(lr_given_match)
-
-        # Compute reliability
-        sum_lrs_radio_source = np.sum(lrs_radio_source)
-        denominator = sum_lrs_radio_source + (1 - Q0)
-
-        # Handle edge cases
-        if denominator <= 0:
-            raise ValueError(f"Invalid denominator for radio source {radio_idx}: {denominator}")
-
-        # List of Rels of all matches for a given radio source
-        rels_radio_source = [LR / denominator for LR in lrs_radio_source]
-        p_hasxm_radio_source = sum_lrs_radio_source / denominator
-
-        # Collect data for cross-matched table
-        for i, optical_idx in enumerate(optical_indices):
-            xmatch_optical_idx_list.append(optical_idx)
-            xmatch_radio_idx_list.append(radio_idx)
-            xmatch_lr_list.append(lrs_radio_source[i])
-            xmatch_rel_list.append(rels_radio_source[i])
-            xmatch_phax_xm_list.append(p_hasxm_radio_source)
-            xmatch_pthix_xm_list.append(rels_radio_source[i])
-
-    radio_match_rows = radio_sources[xmatch_radio_idx_list]
-    optical_match_rows = optical_sources[xmatch_optical_idx_list]
-
-    radio_match_rows = add_postfix_to_columns(radio_match_rows, '_rad')
-    optical_match_rows = add_postfix_to_columns(optical_match_rows, '_opt')
-
-    # Combine data
-    xmatch_table = hstack([radio_match_rows, optical_match_rows])
-    xmatch_table['LRs'] = xmatch_lr_list
-    xmatch_table['Rels'] = xmatch_rel_list
-    xmatch_table['prob_has_match'] = xmatch_phax_xm_list
-    xmatch_table['prob_this_match'] = xmatch_pthix_xm_list
-
-    return xmatch_table
-
-
-def xmatch_opt(catalog, opt_survey, opt_survey_dr, opt_mag_col, search_radius_asec, out_path,
-              make_plots, rad_ra_col, rad_dec_col, e_rad_ra_col, e_rad_dec_col, out_subscript,
-              save_files = True):
-    """Insert docstring info
-
+    Returns:
+        np.ndarray: Estimated q(m), the probability distribution of magnitudes for real counterparts.
     """
-    catalog_name = catalog.split(os.path.sep)[-1].replace(".fits","")
+    nMagBins = len(nM)
 
-    search_radius_asec = search_radius_asec * u.arcsec
-    n_mag_bins = 15
-    beam_size = 7.0
-    opt_pos_err = (0.2*u.arcsec).to(u.deg).value
+    # getting total(m)
 
-    radio_sources = Table.read(catalog, format='fits', hdu=1)
+    searchRadRmaxDeg = searchRadRmaxArcsec / 3600.
 
-    rad_pos_columns = [rad_ra_col, rad_dec_col, e_rad_ra_col, e_rad_dec_col]
-    if not all(col in radio_sources.colnames for col in rad_pos_columns):
-        print("RA and Dec columns of radio catalogue is not well set. Exiting!")
+    # Find all pairs within r_max
+    _, idxOpt, _, _ = search_around_sky(radCatCoords, optCatCoords, searchRadRmaxDeg * u.deg)
+
+    if len(idxOpt) == 0:
+        print("\nNo cross-matches...!")
         return None
 
-    if any(radio_sources[rad_ra_col] < 0.0):
-        print("\nCrossmatching - Fixing RA for %s" %catalog_name)
-        radio_sources = catalogs.fixRA(radio_sources, racol=rad_ra_col, wrap_angle=360)
+    # idxOpt are indices of optical sources within r_max of any radio source
+    matchedMags = optMagList[idxOpt]
 
-    center_ra, center_dec, rad_ra, rad_dec, radius_deg = get_centre_radius(radio_sources,
-                                                                           rad_ra_col, rad_dec_col)
-    n_radio = len(radio_sources)
-    sky_area_sqdeg = np.pi*rad_ra*rad_dec*u.deg**2
-    sky_area_sqasec = sky_area_sqdeg.to(u.arcsec**2)
+    totalM, _ = getMagHist(optMag=matchedMags, nBins=nMagBins)
 
-    # Collecting optical sources
-    if opt_survey == 'DECaLS':
-        opt_ra_col, opt_dec_col = 'RADeg', 'decDeg'
-        opt_pos_err_col = 'pos_err'
-        optical_sources = retrieve_decals(center_ra, center_dec, radius_deg, DR=opt_survey_dr)
-        if len(optical_sources) == 0:
-            raise RuntimeError("\n%s: No optical sources found in %s database...!" \
-                                % (catalog_name, opt_survey))
-        print("\n%d %s sources found in this region..." % (len(optical_sources), opt_survey))
+    areaPerSource = np.pi * searchRadRmaxArcsec**2  # in sq.arcsec
+    backgroundCounts = nM * nRadio * areaPerSource
+
+    realM = totalM - backgroundCounts
+    realM[realM < 0] = 0.  # prevent negative values
+
+    if realM.sum() > 0:
+        qM = (realM / realM.sum()) * Q0
     else:
-        raise RuntimeError("\n%s: Optical survey not mentioned....!" %catalog_name)
+        qM = np.zeros_like(realM)
 
-    if opt_pos_err_col not in optical_sources.colnames:
-        optical_sources[opt_pos_err_col] = opt_pos_err
+    return qM
 
-    rand_radio_sources=make_random_cat(center_ra, center_dec, radius_deg, n_radio,
-                                       rad_ra_col, rad_dec_col)
+def getValueFromMagBins(magnitude, magBins, binValues):
+    """
+    Returns the corresponding bin value for a given magnitude based on magnitude bins.
 
-    print("\nFinding Q0...")
-    #Q0 = 0.7024573416919023 #TODO
-    Q0, Q0_err = get_Q0(radio_sources, rand_radio_sources, optical_sources, beam_size,
-                        rad_ra_col, rad_dec_col, opt_ra_col, opt_dec_col)
-    print("Q0=", Q0)
-    n_m = get_n_m(opt_mag=list(optical_sources[opt_mag_col]), nbins=n_mag_bins,
-                  area_asec=sky_area_sqasec)
-    q_m = get_q_m(radio_sources, optical_sources, n_m, search_radius_asec,
-                  opt_mag_col, Q0, n_mag_bins, rad_ra_col, rad_dec_col, opt_ra_col, opt_dec_col)
-    qm_nm_values = q_m/n_m
-    mag_bins = make_mag_bins(optical_sources[opt_mag_col], n_mag_bins)
+    Parameters
+    ----------
+    magnitude : float
+        The magnitude value for which the bin value is to be returned.
+    magBins : array-like
+        The edges of the magnitude bins. Length must be N+1 for N binValues.
+    binValues : array-like
+        The value associated with each bin (e.g. q(m) or n(m)). Length must be N.
 
-    if save_files:
-        optical_sources.write(out_path+os.path.sep+'decals_sources_%s.fits' %out_subscript,
-                              format='fits', overwrite=True)
-        rand_radio_sources.write(out_path+os.path.sep+'Randoms_%s.fits' %out_subscript,
-                                 format='fits', overwrite=True)
-        np.savetxt(out_path+os.path.sep+'Q0_%s.txt' %out_subscript, [Q0], fmt='%f')
+    Returns
+    -------
+    float
+        The value corresponding to the bin in which the magnitude falls.
+        Returns np.nan if the value is outside the bin range or if inputs are inconsistent.
+    """
+    if len(binValues) != len(magBins) - 1:
+        raise ValueError("Length of bin_values must be one less than length of bin_edges.")
 
-    print("\nComputing LR and Reliabilities...")
-    xmatch_table = ompute_lr_rel(radio_sources, optical_sources, search_radius_asec, opt_mag_col,
-                                  mag_bins, Q0, qm_nm_values, rad_ra_col, rad_dec_col,
-                                  opt_ra_col, opt_dec_col, e_rad_ra_col, e_rad_dec_col,
-                                  opt_pos_err_col)
+    binIndex = np.digitize(magnitude, magBins, right=True) - 1
+    if 0 <= binIndex < len(binValues):
+        return binValues[binIndex]
+    return np.nan
 
-    # computing cross-match separation
-    coords_rad = SkyCoord(ra=xmatch_table[rad_ra_col+'_rad'].value*u.deg,
-                          dec=xmatch_table[rad_dec_col+'_rad'].value*u.deg)
-    coords_opt = SkyCoord(ra=xmatch_table[opt_ra_col+'_opt'].value*u.deg,
-                          dec=xmatch_table[opt_dec_col+'_opt'].value*u.deg)
-    separation_rad_opt = coords_rad.separation(coords_opt).deg
+def getCentreRadius(radioCat, radRACol, radDecCol):
 
-    xmatch_table['rad_opt_sep_deg'] = separation_rad_opt
+    """Calculate the approximate center and maximum radius of a radio source catalogue footprint.
 
-    if len(xmatch_table) == 0:
-        raise RuntimeError("\n%s: No cross-matched objects...!" %catalog_name)
+    Args:
+        radioCat (:obj:`~astropy.table.Table`): Astropy Table containing radio source catalogue.
+        radRACol (:obj:`str`): Name of the column for right ascension (degrees) in `radioCat`.
+        radDecCol (:obj:`str`): Name of the column for declination (degrees) in `radioCat`.
 
-    if make_plots:
-        # Plotting optical and radio sources
-        plot_out_name = "%s/RadOptSkyPlot_%s.png" %(out_path, out_subscript)
-        if not os.path.exists(plot_out_name):
-            plt.figure(figsize=(6, 6))
-            plt.scatter(optical_sources[opt_ra_col], optical_sources[opt_dec_col], s=1,
-                        c='#8AD5F1', label='%s (N=%d)'%(opt_survey, len(optical_sources)))
-            plt.scatter(radio_sources[rad_ra_col], radio_sources[rad_dec_col], s=2, c='#87340D',
-                        label='MeerKAT (N=%d)' %len(radio_sources))
-            plt.scatter(xmatch_table[rad_ra_col+'_rad'], xmatch_table[rad_dec_col+'_rad'],
-                        marker='o', facecolor='None', linewidth=0.5, s=15,
-                        edgecolor='#06471D',
-                        label='MeerKATx%s (N=%d)' %(opt_survey, len(xmatch_table)))
-            plt.title(catalog_name)
-            plt.title("%s\nSearch radius = %0.1f asec, %s band, Q0=%0.2f" \
-                      % (catalog_name, search_radius_asec.value, opt_mag_col, Q0),
-                      fontproperties=prop)
-            plt.xlabel("RA (deg; J2000)", fontproperties=prop)
-            plt.ylabel("Dec (deg; J2000)", fontproperties=prop)
-            lgnd = plt.legend(loc="lower left", scatterpoints=1, fontsize=10, prop=prop)
-            lgnd.legend_handles[0]._sizes = [30]
-            lgnd.legend_handles[1]._sizes = [30]
-            lgnd.legend_handles[2]._sizes = [30]
-            plt.savefig(plot_out_name , dpi=300, bbox_inches = 'tight')
-            plt.close()
+    Returns:
+        tuple:
+            - center_ra (:obj:`float`): RA of the bounding-box center (degrees).
+            - center_dec (:obj:`float`): Dec of the bounding-box center (degrees).
+    """
 
-        # Plotting LR and Rel
-        lrrelplot_out_name = "%s/LRRelMagPlot_%s.png" %(out_path, out_subscript)
-        if not os.path.exists(lrrelplot_out_name):
-            fig,ax=plt.subplots(nrows=2,ncols=1,sharex=True, sharey=False)
-            fig.set_size_inches(5,5)
-            ax[0].scatter(xmatch_table[opt_mag_col+'_opt'], xmatch_table['LRs'], s=1, c='#87340D')
-            ax[0].set_ylabel('LRs', fontproperties=prop)
-            ax[0].set_yscale('log')
-            ax[1].scatter(xmatch_table[opt_mag_col+'_opt'], xmatch_table['Rels'], s=1, c='#87340D')
-            ax[1].set_ylabel('Rels', fontproperties=prop)
-            ax[1].set_xlabel(opt_mag_col+'-band magnitude', fontproperties=prop)
-            plt.suptitle(catalog_name, fontproperties=prop)
-            plt.subplots_adjust(hspace=0.0,wspace=0.0)
-            plt.savefig(LRRelplot_out_name , dpi=300, bbox_inches = 'tight')
-            plt.close()
+    raColEntries = radioCat[radRACol]
+    decColEntries = radioCat[radDecCol]
 
-    return xmatch_table
+    # Check if RA and Dec has units; if yes, extract raw values
+    if isinstance(raColEntries, Quantity):
+        raList = raColEntries.value
+    else:
+        raList = raColEntries
 
+    if isinstance(decColEntries, Quantity):
+        decList = decColEntries.value
+    else:
+        decList = decColEntries
 
-def xmatch_berk(radio_cat, radio_band, xmatch_tab_out_name, opt_survey='DECaLS',
-                opt_survey_dr='DR10', opt_mag_col = 'r', search_radius_asec = 4.0,
-                make_plots=False, rad_ra_col='RA', rad_dec_col='DEC',
-                e_rad_ra_col='E_RA', e_rad_dec_col='E_DEC', out_subscript=''):
-    """Insert docstring info
+    raList = _getUnitlessValues(radioCat[radRACol])
+    decList = _getUnitlessValues(radioCat[radDecCol])
+    catCoords = SkyCoord(ra=raList * u.deg, dec=decList * u.deg, frame='icrs')
+
+    # Centre from bounding box
+    centerRA = (np.min(raList) + np.max(raList)) / 2
+    centerDec = (np.min(decList) + np.max(decList)) / 2
+    centerCoord = SkyCoord(ra=centerRA * u.deg, dec=centerDec * u.deg, frame='icrs')
+
+    # True maximum angular distance to any source
+    toCentreseparations = centerCoord.separation(catCoords)
+    radiusDegMax = np.max(toCentreseparations).deg
+
+    return centerRA, centerDec, radiusDegMax
+
+def retrieveDECaLS(centerRA, centerDec, radiusDeg, DR='DR10'):
+    """  Retrieve DECaLS sources within a circular region around a given sky position.
+
+    Args:
+        centerRA (:obj:`float`): Right ascension (RA) of the centre of the search region, in degrees.
+        centerDec (:obj:`float`): Declination (Dec) of the centre of the search region, in degrees.
+        radiusDeg (:obj:`float`): Search radius around the central position, in degrees.
+        DR (:obj:`str`, optional): DECaLS data release to use. Currently only 'DR10' is supported. Default is 'DR10'.
+
+    Returns:
+        :obj:`astropy.table.Table`: Table of DECaLS sources within the specified region.
+
+    Raises:
+        :obj:`Exception`: If a data release other than 'DR10' is requested.
+    """
+
+    print("\nRetrieving DECaLS %s sources with RA_central=%.2f deg, Dec_central=%.2f deg, and radius=%.2f deg" \
+          % (DR, centerRA, centerDec, radiusDeg))
+    if DR == 'DR10':
+        decalsCat = Table(retrievers.DL_DECaLSDR10Retriever(centerRA, centerDec,
+                                                             halfBoxSizeDeg = radiusDeg,
+                                                             DR = None))
+
+    else:
+        raise Exception("DR to be DR10")
+
+    return decalsCat
+
+def getFR(rOffsetArcsec, radioSource, opticalSource, radRACol, radDecCol, radEMajCol, radEMinCol, radPACol, optRACol, optDecCol, optPosErrCol, sigmaAst=0.6):
+
+    """
+    Calculate the probability distribution f(r) of offset r between radio and a potential counterpart.
+
+    Args:
+        rOffsetArcsec (:obj:`float` or :obj:`np.ndarray`): Angular offset (separation) between radio and optical positions,
+            in arcsec.
+        radioSource (:obj:`~astropy.table.Row`): A single row from the radio catalogue table.
+        opticalSource (:obj:`~astropy.table.Row`): A single row from the optical catalogue table.
+        radRACol (:obj:`str`): Key for right ascension of the radio source in `radioSource`.
+        radDecCol (:obj:`str`): Key for declination of the radio source in `radioSource`.
+        radEMajCol (:obj:`str`): Key for major axis FWHM error of the radio source Gaussian fit.
+        radEMinCol (:obj:`str`): Key for minor axis FWHM error of the radio source Gaussian fit.
+        radPACol (:obj:`str`): Key for position angle (PA, degrees east of north) of the radio source major axis.
+        optRACol (:obj:`str`): Key for right ascension of the optical source in `opticalSource`.
+        optDecCol (:obj:`str`): Key for declination of the optical source in `opticalSource`.
+        optPosErrCol (:obj:`str`): Key for positional uncertainty of the optical source.
+        sigmaAst (:obj:`float`, optional): Astrometric uncertainty between radio and optical surveys (default 0.6 arcsec).
+
+    Returns:
+        float or np.ndarray:
+            The value of the positional probability distribution f(r) for the given offset(s).
 
     """
 
-    xmatch_dir_path = startup.config['productsDir']+os.path.sep+'xmatches'
+    deltaMaj = radioSource[radEMajCol]
+    deltaMin = radioSource[radEMinCol]
+    sigmaMajRad = deltaMaj/np.sqrt(4 * np.log(2))
+    sigmaMinRad = deltaMin/np.sqrt(4 * np.log(2))
 
-    catalog_name = radio_cat.split(os.path.sep)[-1]
-    capture_block_id = catalog_name.split('_')[3]
-    target_name = (catalog_name.split('_1024ch_')[1]).split('_srl_')[0]
+    # getting vector joining radio to optical counterpart
+
+    RARad = radioSource[radRACol]
+    decRad = radioSource[radDecCol]
+    RAOpt = opticalSource[optRACol]
+    decOpt = opticalSource[optDecCol]
+
+    dRA = (RAOpt - RARad) * np.cos(np.radians(decRad))
+    dDec = decOpt - decRad
+
+    thetaDir = np.arctan2(dDec, dRA) # in radians
+
+    # angle between major axis and radio-optical vector
+
+    positionAngle = np.radians(radioSource[radPACol])
+    thetaPADir = thetaDir - positionAngle
+
+    sigmaDirRad = np.sqrt(
+        (sigmaMajRad * np.cos(thetaPADir))**2 +
+        (sigmaMinRad * np.sin(thetaPADir))** 2
+    )
+
+    # calculating sigmas for optical
+
+    sigmaOpt = opticalSource[optPosErrCol]
+    sigmaRAOpt = sigmaOpt
+    sigmaDecOpt = sigmaOpt # Only one position uncertainty for optical
+    sigmaMajOpt = np.sqrt(
+        (sigmaRAOpt * np.sin(positionAngle))**2 +
+        (sigmaDecOpt * np.cos(positionAngle))**2
+    )
+    positionAngleMin = positionAngle + np.pi/2.
+    sigmaMinOpt = np.sqrt(
+        (sigmaRAOpt * np.sin(positionAngleMin))**2 +
+        (sigmaDecOpt * np.cos(positionAngleMin))**2
+    )
+
+    sigmaDirOpt = np.sqrt(
+        (sigmaRAOpt * np.cos(thetaDir))**2 +
+        (sigmaDecOpt * np.sin(thetaDir))**2
+    )
+
+    sigmaMaj = np.sqrt(sigmaMajRad**2 + sigmaMajOpt**2 + sigmaAst**2)
+    sigmaMin = np.sqrt(sigmaMinRad**2 + sigmaMinOpt**2 + sigmaAst**2)
+    sigmaDir = np.sqrt(sigmaDirRad**2 + sigmaDirOpt**2 + sigmaAst**2)
+
+    probDistR = (1 / (2 * np.pi * sigmaMaj * sigmaMin)) * np.exp(-0.5 * (rOffsetArcsec**2 / sigmaDir**2))
+
+    return probDistR  # f(r)
+
+def computeRelCompl(LRTab, Q0, NRadio, LRThreshold):
+    """
+    Compute the completeness and reliability for a given likelihood ratio (LR) threshold.
+
+    Args:
+        LRTab (:obj:`astropy.table.Table`): Table containing likelihood ratio values for cross-matched sources.
+            Must include a column named 'LR'.
+        Q0 (:obj:`float`): The fraction of true counterparts expected among all radio sources (i.e., the prior).
+        NRadio (:obj:`int`): Total number of radio sources in the catalogue.
+        LRThreshold (:obj:`float`): Likelihood ratio threshold above which identifications are considered reliable.
+
+    Returns:
+        :obj:`tuple`: Tuple containing:
+            - completeness (:obj:`float`): Fraction of real identifications above the LR threshold.
+            - reliability (:obj:`float`): Fraction of accepted identifications that are correct.
+    """
+
+
+    LRVals = LRTab['LR'].value
+
+    # Completeness: sum over LR_i < L_thr
+    thresholdMaskCompl = LRVals < LRThreshold
+    complSum = np.sum((Q0 * LRVals[thresholdMaskCompl]) / (Q0 * LRVals[thresholdMaskCompl] + (1 - Q0)))
+
+    completeness = 1 - complSum / (Q0 * NRadio)
+
+    # Reliability: sum over LR_i >= L_thr
+    thresholdMaskRel = LRVals >= LRThreshold
+    relSum = np.sum((1 - Q0) / (Q0 * LRVals[thresholdMaskRel] + (1 - Q0)))
+
+    reliability = 1 - relSum / (Q0 * NRadio)
+
+    return completeness, reliability
+
+def computeLR(radioCat, opticalCat, searchRadiusArcsec, optMagCol, magBins, qMList, nMList, radRACol, radDecCol, optRACol, optDecCol, radEMajCol, radEMinCol, radPACol, optPosErrCol):
+    """
+    Compute the Likelihood Ratio (LR) for matches between radio and optical sources.
+
+    For each radio source, finds optical candidates within the search radius and calculates
+    the LR = (q(m)/n(m)) * f(r) for each candidate, where:
+      - f(r): positional probability density based on offsets and positional errors,
+      - q(m): magnitude distribution of true counterparts,
+      - n(m): magnitude distribution of background objects.
+
+    Returns a merged Astropy Table containing columns from both catalogs for each matched pair,
+    plus additional columns 'f_r', 'q_m', 'n_m', and 'LR'.
+
+    Args:
+        radioCat (:obj:`~astropy.table.Table`): Radio source catalogue.
+        opticalCat (:obj:`~astropy.table.Table`): Optical source catalogue.
+        searchRadiusArcsec (:obj:`float`): Search radius around radio sources in arcseconds.
+        optMagCol (:obj:`str`): Column name for optical magnitudes in opticalCat.
+        magBins (:obj:`array_like`): Bin edges used for q(m) and n(m) calculation.
+        qMList (:obj:`array_like`): q(m) values for magnitude bins.
+        nMList (:obj:`array_like`): n(m) values for magnitude bins.
+        radRACol (:obj:`str`): RA column name in radioCat.
+        radDecCol (:obj:`str`): Dec column name in radioCat.
+        optRACol (:obj:`str`): RA column name in opticalCat.
+        optDecCol (:obj:`str`): Dec column name in opticalCat.
+        radEMajCol (:obj:`str`): Major axis error column name in radioCat.
+        radEMinCol (:obj:`str`): Minor axis error column name in radioCat.
+        radPACol (:obj:`str`): Position angle column name in radioCat.
+        optPosErrCol (:obj:`str`): Positional error column name in opticalCat.
+
+    Returns:
+        astropy.table.Table: Merged table with one row per matched pair, containing all columns
+        from both input tables (optical and radio columns postfixed with '_opt' and '_rad' resp.) and columns 'f_r', 'q_m', 'n_m', and 'LR'.
+    """
+
+    radRAList = _getUnitlessValues(radioCat[radRACol])
+    radDecList = _getUnitlessValues(radioCat[radDecCol])
+
+    optRAList = _getUnitlessValues(opticalCat[optRACol])
+    optDecList = _getUnitlessValues(opticalCat[optDecCol])
+
+    radCatCoords = SkyCoord(ra= radRAList * u.deg,
+                               dec=radDecList * u.deg)
+    optCatCoords = SkyCoord(ra= optRAList * u.deg,
+                               dec= optDecList * u.deg)
+
+    # Find all pairs within r_max
+    idxRadio, idxOpt, _, _ = search_around_sky(radCatCoords, optCatCoords, searchRadiusArcsec * u.arcsec)
+
+    if len(idxOpt) == 0:
+        print("\nNo cross-matches...!")
+        return None
+
+    rowsRadio = []
+    rowsOptical = []
+    radOptSeparation = []
+    fRVals = []
+    qMVals = []
+    nMVals = []
+    LRVals = []
+
+    for rIdx, oIdx in zip(idxRadio, idxOpt):
+        radioSource = radioCat[rIdx]
+        opticalSource = opticalCat[oIdx]
+
+
+
+        radioCoord = SkyCoord(ra=radRAList[rIdx] * u.deg,
+                               dec=radDecList[rIdx] * u.deg)
+        opticalCoord = SkyCoord(ra=optRAList[oIdx] * u.deg,
+                                     dec=optDecList[oIdx] * u.deg)
+
+        radOptOffsetArcsec = radioCoord.separation(opticalCoord).to(u.arcsec).value
+
+        fRPair = getFR(radOptOffsetArcsec, radioSource, opticalSource, radRACol, radDecCol, radEMajCol, radEMinCol, radPACol, optRACol, optDecCol, optPosErrCol, sigmaAst=0.6)
+
+        opticalMagnitude = opticalSource[optMagCol]
+
+        qMPair = getValueFromMagBins(opticalMagnitude, magBins, qMList)
+
+        nMPair = getValueFromMagBins(opticalMagnitude, magBins, nMList)
+
+        if nMPair == 0 or np.isnan(nMPair) or np.isnan(qMPair):
+            # Avoid division by zero or NaNs
+            LRPair = np.nan
+        else:
+            LRPair = (qMPair / nMPair) * fRPair
+
+        # Collect for merged table
+        rowsRadio.append(dict(radioSource))
+        rowsOptical.append(dict(opticalSource))
+        radOptSeparation.append(radOptOffsetArcsec)
+        fRVals.append(fRPair)
+        qMVals.append(qMPair)
+        nMVals.append(nMPair)
+        LRVals.append(LRPair)
+
+    # Create tables for matched pairs
+    radioMatchesTab = Table(rowsRadio)
+    opticalMatchesTab = Table(rowsOptical)
+
+    # Rename columns to avoid clashes
+    for col in opticalMatchesTab.colnames:
+        opticalMatchesTab.rename_column(col, f"{col}_opt")
+    for col in radioMatchesTab.colnames:
+        radioMatchesTab.rename_column(col, f"{col}_rad")
+
+    # Merge radio + optical tables horizontally
+    radOptMergedTab = hstack([radioMatchesTab, opticalMatchesTab])
+
+    radOptMergedTab['rad_opt_sep_asec'] = radOptSeparation
+    radOptMergedTab['f_r'] = fRVals
+    radOptMergedTab['f_r'] = fRVals
+    radOptMergedTab['q_m'] = qMVals
+    radOptMergedTab['n_m'] = nMVals
+    radOptMergedTab['LR'] = LRVals
+
+    return radOptMergedTab
+
+def xmatchRadioOptical(radioCatFilePath, radioBand, xmatchDirPath, optSurvey, optSurveyDR, optMagCol, searchRadiusArcsec, makePlots, radRACol, radDecCol, radERACol, radEDecCol, radEMajCol, radEMinCol, radPACol, outSubscript, optPosErrAsecValue=0.2, nMagBins=15, beamSizeArcsecValue=6.0, saveFiles = True, skipIfExists=True):
+    """
+    Perform likelihood ratio crossmatching between a radio source catalog and an optical survey.
+
+    For each radio source, this function finds candidate optical counterparts within the
+    search radius and computes the Likelihood Ratio (LR) for each candidate, incorporating:
+      - positional uncertainties of radio and optical sources,
+      - magnitude distributions of true counterparts (q(m)),
+      - background magnitude distributions (n(m)),
+      - and spatial probability density f(r) based on offsets.
+
+    Args:
+        radioCatFilePath (:obj:`str`): Path to the input radio catalog FITS file.
+        radioBand (:obj:`str`): Radio frequency band identifier ('L', 'UHF', 'S').
+        xmatchDirPath (:obj:`str`): Directory to save all resulting output files and plots.
+        optSurvey (:obj:`str`): Optical survey name (e.g., 'DECaLS').
+        optSurveyDR (:obj:`str`): Optical survey data release identifier (e.g., 'DR10').
+        optMagCol (:obj:`str`): Column name for optical magnitudes used in LR calculation.
+        searchRadiusArcsec (:obj:`float`): Search radius around radio positions in arcseconds.
+        makePlots (:obj:`bool`): Whether to generate diagnostic plots.
+        radRACol (:obj:`str`): Radio catalog Right Ascension column name.
+        radDecCol (:obj:`str`): Radio catalog Declination column name.
+        radERACol (:obj:`str`): Radio catalog RA positional error column name.
+        radEDecCol (:obj:`str`): Radio catalog Dec positional error column name.
+        radEMajCol (:obj:`str`): Radio catalog major axis positional error column name.
+        radEMinCol (:obj:`str`): Radio catalog minor axis positional error column name.
+        radPACol (:obj:`str`): Radio catalog position angle column name.
+        outSubscript (:obj:`str`): String appended to output filenames.
+        optPosErrAsecValue (:obj:`float`, optional): Assumed optical positional error in arcseconds. Default is 0.2.
+        nMagBins (:obj:`int`, optional): Number of magnitude bins used for magnitude distribution estimation. Default is 15.
+        beamSizeArcsecValue (:obj:`float`, optional): Radio beam size in arcseconds. Default is 6.0.
+        saveFiles (:obj:`bool`, optional): Whether to save output files. Default is True.
+        skipIfExists (:obj:`bool`, optional): Skip processing if output files exist. Default is True.
+
+    Returns:
+        astropy.table.Table: Table of best crossmatched sources with LR values and Reliability and Completeness in meta.
+    """
+
+    radCatName = radioCatFilePath.split(os.path.sep)[-1]
+    captureBlockId = radCatName.split('_')[3]
+    targetName = (radCatName.split('_1024ch_')[1]).split('_srl_')[0]
+    xmatchIndividualDirPath = os.path.join(xmatchDirPath, 'xmatch_%s' %outSubscript)
+    xmatchTabName = xmatchIndividualDirPath+os.path.sep+"xmatchtable_%s" %outSubscript+".fits"
+    xmatchBestMatchTabName = xmatchIndividualDirPath+os.path.sep+"xmatchtable_bestmatches_%s" %outSubscript+".fits"
+    os.makedirs(xmatchIndividualDirPath, exist_ok = True)
+
+    print("\n" + "═" * 100)
+    print("║ Cross-matching %s ║" %radCatName)
+    print("═" * 100 + "\n")
+
+    if skipIfExists is True:
+        if os.path.exists(xmatchTabName):
+            print("%s cross-match table exists! Skipping to next radio catalogue.\n" %radCatName)
+            xmatchTable = Table.read(xmatchTabName)
+            return xmatchTable
 
     # checking if this catalog is listed as having no optical sources in the area
-    no_optical_sources_filename = startup.config['productsDir']+os.path.sep+'no_%s_sources.txt'\
-                                  %opt_survey
-    if os.path.exists(no_optical_sources_filename):
-        with open(no_optical_sources_filename, 'r', encoding="utf-8") as infile:
-            no_optical_sources_catnames = [line.strip() for line in infile]
-        if catalog_name in no_optical_sources_catnames:
+    noOptSourcesFilename = xmatchDirPath+os.path.sep+'no_%s_%s_sources.txt' %(optSurvey, optSurveyDR)
+
+    if os.path.exists(noOptSourcesFilename):
+        with open(noOptSourcesFilename, 'r', encoding="utf-8") as infile:
+            noOptSourcesCatNames = [line.strip() for line in infile]
+        if radCatName in noOptSourcesCatNames:
             return None
 
     # checking if this catalog is listed as having no optical counterparts in the optical
-    no_xmatches_filename = startup.config['productsDir']+os.path.sep+'no_matches_%s.txt' \
-                           %('_'.join(out_subscript.split('_')[1:]))
-    if os.path.exists(no_xmatches_filename):
-        with open(no_xmatches_filename, 'r', encoding="utf-8") as infile:
-            no_xmatches_catnames = [line.strip() for line in infile]
-        if catalog_name in no_xmatches_catnames:
+    noOptCounterpartsFilename = xmatchDirPath+os.path.sep+'no_counterparts_%s%s_%sband_%sasec.txt' \
+                           %(optSurvey, optSurveyDR, optMagCol, str(searchRadiusArcsec).replace(".","p"))
+
+    if os.path.exists(noOptCounterpartsFilename):
+        with open(noOptCounterpartsFilename, 'r', encoding="utf-8") as infile:
+            noOptCounterpartsCatNames = [line.strip() for line in infile]
+        if radCatName in noOptCounterpartsCatNames:
             return None
 
-    if opt_survey == 'DECaLS':
-        try:
-            xmatch_tab = xmatch_opt(catalog=radio_cat, opt_survey=opt_survey,
-                                    opt_survey_dr=opt_survey_dr, opt_mag_col=opt_mag_col,
-                                    search_radius_asec=search_radius_asec,
-                                    out_path=xmatch_dir_path, make_plots=make_plots,
-                                    rad_ra_col=rad_ra_col, rad_dec_col=rad_dec_col,
-                                    e_rad_ra_col=e_rad_ra_col, e_rad_dec_col=e_rad_dec_col,
-                                    out_subscript=out_subscript, save_files=False)
-
-            if 'captureBlockId' not in xmatch_tab.columns:
-                xmatch_tab.add_column(capture_block_id, name='captureBlockId', index=0)
-            if 'object' not in xmatch_tab.columns:
-                xmatch_tab.add_column(target_name, name='object', index=1)
-            if 'band' not in xmatch_tab.columns:
-                xmatch_tab.add_column(radio_band, name='band')
-
-        except RuntimeError as e:
-            print(e)
-            if "No optical sources found" in str(e):
-                _write_no_optical_cat_file(catalog_name, no_optical_sources_filename)
-            if "No cross-matched objects" in str(e):
-                _write_no_optical_cat_file(catalog_name, no_xmatches_filename)
-            return None
-
-        xmatch_tab.write(xmatch_tab_out_name, format='fits', overwrite=True)
-        print("\nWrote cross-matched table %s." %xmatch_tab_out_name)
-    else:
-        print("\nERROR: Optical survey not mentioned.")
+    if optSurvey.lower() != 'decals':
+        print("\nERROR: Code not working for %s survey." %optSurvey)
+        # Currently configured only for DECaLS...
         return None
 
-    return xmatch_tab
+    optPosErrValueDeg = (optPosErrAsecValue*u.arcsec).to(u.deg).value
+
+    radioSources = Table.read(radioCatFilePath, format='fits', hdu=1)
+    print("\nNumber of radio sources: %d" % (len(radioSources)))
+
+    radColumns = [radRACol, radDecCol, radERACol, radEDecCol, radEMajCol, radEMinCol, radPACol]
+
+    if not all(col in radioSources.colnames for col in radColumns):
+        print("Required columns of radio catalogue is not well set. Exiting!")
+        return
+
+    if any(radioSources[radRACol] < 0.0):
+        radioSources = catalogs.fixRA(radioSources, raCol=radRACol, wrapAngle=360)
+
+    radRAValDegList = _getUnitlessValues(radioSources[radRACol])
+    radDecValDegList = _getUnitlessValues(radioSources[radDecCol])
+
+    radioSourcesCoords = SkyCoord(ra=radRAValDegList * u.deg, dec=radDecValDegList * u.deg, frame='icrs')
+
+    centerRA, centerDec, radiusDeg = getCentreRadius(radioSources, radRACol, radDecCol)
+    nRadio = len(radioSources)
+    skyAreaSqDeg = np.pi*radiusDeg**2
+    skyAreaSqArcsec = skyAreaSqDeg*3600**2
+
+    sigmaRadPos = np.sqrt(radioSources[radERACol]**2 + radioSources[radEDecCol]**2)
+    sigmaRadPosMean = np.mean(sigmaRadPos)
+    sigmaRadPosMeanArcsec = sigmaRadPosMean * 3600.
+
+    # Collecting optical sources
+    optRACol, optDecCol = 'RADeg', 'decDeg'
+    optPosErrCol = 'pos_err'
+
+    optCatFileName = xmatchIndividualDirPath+os.path.sep+'decals_sources_%s.fits' %outSubscript
+    if os.path.exists(optCatFileName):
+        opticalSources = Table.read(optCatFileName, format='fits', hdu=1)
+    else:
+        opticalSourcesRaw = retrieveDECaLS(centerRA, centerDec, radiusDeg, DR=optSurveyDR)
+        if len(opticalSourcesRaw) == 0:
+            print("\n%s: No optical sources found in %s database...!" %(radCatName, optSurvey))
+            _writeNoOpticalCatFile(radCatName, noOptCounterpartsFilename)
+            return
+
+        # filtering optical catalogue
+        opticalSources = filterBadRows(opticalSourcesRaw, [optMagCol])
+
+    if len(opticalSources) == 0:
+        print("\n%s: No optical sources with reliable %s-magnitude found in %s database...!" %(radCatName, optMagCol, optSurvey))
+        _writeNoOpticalCatFile(radCatName, noOptCounterpartsFilename)
+        return
+
+    print("\nNumber of %s%s sources with reliable %s-magnitude in the sky region: %d" % (optSurvey, optSurveyDR, optMagCol, len(opticalSources)))
+
+    if optPosErrCol not in opticalSources.colnames:
+        opticalSources[optPosErrCol] = optPosErrValueDeg
+
+    optMagList = opticalSources[optMagCol]
+    optMagBins = makeMagBins(optMagList, nMagBins)
+    optMagBinCenters = 0.5 * (optMagBins[1:] + optMagBins[:-1])
+
+    optRAValDegList = _getUnitlessValues(opticalSources[optRACol])
+    optDecValDegList = _getUnitlessValues(opticalSources[optDecCol])
+
+    optSourcesCoords = SkyCoord(ra=optRAValDegList * u.deg, dec= optDecValDegList * u.deg, frame='icrs')
+
+    nRandomRadSources = 1 * nRadio # TODO make sure about number of randoms. need to normalize somewhere if different?
+    randomRadioSources=makeRandomCat(centerRA, centerDec, radiusDeg, nRandomRadSources, radRACol, radDecCol)
+
+    randRadRAValDegList = _getUnitlessValues(randomRadioSources[radRACol])
+    randRadDecValDegList = _getUnitlessValues(randomRadioSources[radDecCol])
+
+    randomRadioSourcesCoords = SkyCoord(ra= randRadRAValDegList * u.deg, dec= randRadDecValDegList * u.deg, frame='icrs')
+
+    #Q0 = 0.7024573416919023 #TODO
+
+    Q0 = getQ0(radCatCoords=radioSourcesCoords, randRadCatCoords=randomRadioSourcesCoords, optCatCoords=optSourcesCoords, searchRadRsArcsec=beamSizeArcsecValue, sigmaRad=sigmaRadPosMeanArcsec)
+
+    # Finding n(m)
+
+    nM = getNM(optMag=optMagList, nBins=nMagBins, areaSqArcsec=skyAreaSqArcsec)
+
+    # Finding q(m)
+
+    qM = getQM(radCatCoords=radioSourcesCoords, nRadio=nRadio, optCatCoords=optSourcesCoords, optMagList=optMagList, searchRadRmaxArcsec=beamSizeArcsecValue, nM=nM, Q0=Q0)
+    if qM is None:
+        _writeNoOpticalCatFile(radCatName, noOptCounterpartsFilename)
+        return None
+
+    print("\nComputing LR ...")
+
+    xmatchTable = computeLR(radioCat=radioSources, opticalCat=opticalSources, searchRadiusArcsec=searchRadiusArcsec, optMagCol=optMagCol, magBins=optMagBins, qMList=qM, nMList=nM, radRACol=radRACol, radDecCol=radDecCol, optRACol=optRACol, optDecCol=optDecCol, radEMajCol=radEMajCol, radEMinCol=radEMinCol, radPACol=radPACol, optPosErrCol=optPosErrCol)
+
+    if xmatchTable is None:
+        print("\n%s: No cross-matched objects...!" %radCatName)
+        _writeNoOpticalCatFile(radCatName, noOptCounterpartsFilename)
+        return
+
+    if 'captureBlockId' not in xmatchTable.columns:
+        xmatchTable.add_column(captureBlockId, name='captureBlockId', index=0)
+    if 'object' not in xmatchTable.columns:
+        xmatchTable.add_column(targetName, name='object', index=1)
+    if 'band' not in xmatchTable.columns:
+        xmatchTable.add_column(radioBand, name='band')
+
+    # Finding reliability and completeness
+
+    print("\nComputing Completeness and Reliability ...")
+
+    LRThreshValues = []
+    completenessValues = []
+    reliabilityValues = []
+
+    for LRThresh in np.arange(0.02, 10.5, 0.02):
+        completeness, reliability = computeRelCompl(LRTab=xmatchTable, Q0=Q0, NRadio=nRadio, LRThreshold=LRThresh)
+
+        LRThreshValues.append(LRThresh)
+        completenessValues.append(completeness)
+        reliabilityValues.append(reliability)
+
+    deltaCR = np.abs(np.array(completenessValues) - np.array(reliabilityValues))
+    CRBalanceLRThresholdIndex = np.argmin(deltaCR)
+    CRBalanceLRThreshold = LRThreshValues[CRBalanceLRThresholdIndex]
+    CRBalanceRel = reliabilityValues[CRBalanceLRThresholdIndex]
+    CRBalanceComp = completenessValues[CRBalanceLRThresholdIndex]
+
+    print("\nLR threshold with almost equal reliability (%0.2f) and completeness (%0.2f) = %0.2f"
+          %(CRBalanceRel, CRBalanceComp, CRBalanceLRThreshold))
+
+    xmatchLRThresholdTable = xmatchTable[xmatchTable['LR'] >= CRBalanceLRThreshold]
+
+    # Filters the full xmatch table to keep only the matches with the maximum 'LR' value for each radio source
+    xmatchLRThresholdTable.sort(['Source_id_rad', 'LR'])
+    xmatchLRThresholdTable.reverse()
+    groupedxmatchLRThresholdTable = xmatchLRThresholdTable.group_by('Source_id_rad')
+    xmatchBestMatchTable = groupedxmatchLRThresholdTable.groups.aggregate(lambda rows: rows[0])
+
+    xmatchBestMatchTable.meta['OPTICAL_SURVEY']=optSurvey
+    xmatchBestMatchTable.meta['OPTICAL_SURVEY_DR']=optSurveyDR
+    xmatchBestMatchTable.meta['SEARCH_RADIUS_ASEC']=searchRadiusArcsec
+    xmatchBestMatchTable.meta['LR_THRESHOLD']=CRBalanceLRThreshold
+    xmatchBestMatchTable.meta['RELIABILITY']=CRBalanceRel
+    xmatchBestMatchTable.meta['COMPLETENESS']=CRBalanceComp
+
+    if saveFiles is True:
+
+        opticalSources.write(optCatFileName, format='fits', overwrite=True)
+
+        randomRadioSources.write(xmatchIndividualDirPath+os.path.sep+'Randoms_%s.fits' %outSubscript, format='fits', overwrite=True)
+
+        np.savetxt(xmatchIndividualDirPath+os.path.sep+'Q0_%s.txt' %outSubscript, [Q0], fmt='%f')
+
+    if makePlots is True:
+        # Plotting optical and radio sources
+        RADecplotOutName = "%s/RadOptSkyPlot_%s.png" %(xmatchIndividualDirPath, outSubscript)
+        plt.figure(figsize=(6, 6))
+        plt.scatter(opticalSources[optRACol], opticalSources[optDecCol], s=1,
+                    c='#8AD5F1', label='%s (N=%d)'%(optSurvey, len(opticalSources)))
+        plt.scatter(radioSources[radRACol], radioSources[radDecCol], s=2, c='#87340D',
+                    label='MeerKAT (N=%d)' %len(radioSources))
+        #plt.scatter(xmatchTable[radRACol+'_rad'], xmatchTable[radDecCol+'_rad'],
+        #            marker='o', facecolor='None', linewidth=0.5, s=15,
+        #            edgecolor='#06471D',
+        #            label='MeerKATx%s (N=%d)' %(optSurvey, len(xmatchTable)))
+        plt.scatter(xmatchBestMatchTable[radRACol+'_rad'], xmatchBestMatchTable[radDecCol+'_rad'],
+                    marker='o', facecolor='None', linewidth=0.5, s=15,
+                    edgecolor='#06471D',
+                    label='MeerKATx%s (Best matches; N=%d)' %(optSurvey, len(xmatchBestMatchTable)))
+        plt.title(radCatName)
+        plt.title("%s\nSearch radius = %0.1f asec, %s band, Q0=%0.2f" \
+                    % (radCatName, searchRadiusArcsec, optMagCol, Q0))
+        plt.xlabel("RA (deg; J2000)")
+        plt.ylabel("Dec (deg; J2000)")
+        plt.legend(loc="lower left", scatterpoints=1, fontsize=10)
+        plt.savefig(RADecplotOutName , dpi=300, bbox_inches = 'tight')
+        plt.close()
+        print("\nPlotted sky coverage of radio and optical sources!")
+
+        # Plotting qm/nm as a function of magnitude
+
+        qmNmPlotOutName = "%s/QmNmPlot_%s.png" %(xmatchIndividualDirPath, outSubscript)
+        plt.figure(figsize=(8, 5))
+
+        # avoiding error due to nM = 0
+        qMnMRatio = np.full_like(qM, np.nan, dtype=float)
+        mask = nM != 0
+        qMnMRatio[mask] = qM[mask] / nM[mask]
+
+        plt.plot(optMagBinCenters, qMnMRatio)
+        plt.xlabel(optMagCol+'-band magnitude')
+        plt.ylabel(r'$q(m)/n(m)$')
+        plt.tight_layout()
+        plt.savefig(qmNmPlotOutName, dpi=300, bbox_inches = 'tight')
+        plt.close()
+        print("\nPlotted q(m)/n(m) vs magnitude!")
+
+        # Plotting LR and Rel
+        LRRelPlotOutName = "%s/LRRelMagPlot_%s.png" %(xmatchIndividualDirPath, outSubscript)
+        plt.figure(figsize=(8, 5))
+        plt.plot(LRThreshValues, completenessValues, label='Completeness', color='blue')
+        plt.plot(LRThreshValues, reliabilityValues, label='Reliability', color='green')
+        plt.gca().axvline(x=CRBalanceLRThreshold, linestyle='dashed', color='k', label='Choosen LR Threshold')
+        plt.xlabel('LR Threshold')
+        plt.ylabel('Completeness/Reliability')
+        plt.legend()
+        plt.tight_layout()
+        plt.savefig(LRRelPlotOutName , dpi=300, bbox_inches = 'tight')
+        plt.close()
+        print("\nPlotted Reliability/Completeness vs LR_threshold!")
+
+
+    xmatchTable.write(xmatchTabName, format='fits', overwrite=True)
+    print("\nWrote full cross-matched table %s." %xmatchTabName)
+
+    xmatchBestMatchTable.write(xmatchBestMatchTabName, format='fits', overwrite=True)
+    print("\nWrote cross-matched table with Reliability %0.2f and completeness %0.2f: %s." % (CRBalanceRel, CRBalanceComp, xmatchBestMatchTabName))
+
+    return xmatchBestMatchTable

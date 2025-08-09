@@ -16,46 +16,53 @@ from . import __version__
 import datetime
 
 #------------------------------------------------------------------------------------------------------------
-def fixRA(table, racol='RA', wrap_angle=180):
+def fixRA(table, raCol='RA', wrapAngle=360):
     """Returns table with corrected RA wrap.
 
+    Args:
+        table (:obj:`~astropy.table.Table`): Input table with RA values.
+        raCol (:obj:`str`, optional): Name of the RA column. Default is 'RA'.
+        wrapAngle (:obj:`float`, optional): Angle at which to wrap RA in degrees. Default is 360.
+
+    Returns:
+        :obj:`~astropy.table.Table`: Table with RA values wrapped to [0, 360) range.
     """
     fixTable = table.copy()
-    fixTable[racol] = Longitude(table[racol], unit=u.deg, wrap_angle=wrap_angle * u.deg).value
+    fixTable[raCol] = Longitude(table[raCol], unit=u.deg, wrap_angle=wrapAngle * u.deg).value
     return fixTable
 
 #------------------------------------------------------------------------------------------------------------
 def catalog2DS9(catalog, outFileName, constraintsList = [], addInfo = [], idKeyToUse = 'name',\
                 RAKeyToUse = 'RADeg', decKeyToUse = 'decDeg', color = "cyan", showNames = True,\
                 writeBerkInfo = True, coordSys = 'fk5', regionShape = 'point', width = 1):
-    """Writes a DS9 region file corresponding to the given catalog. 
-    
+    """Writes a DS9 region file corresponding to the given catalog.
+
     Args:
         catalog (:obj:`astropy.table.Table`): An astropy Table where each row represents an object.
         outFileName (:obj:`str`): A file name for the output DS9 region file.
-        constraintsList (:obj:`list`, optional): A list of constraints in the same format as used by 
+        constraintsList (:obj:`list`, optional): A list of constraints in the same format as used by
             :func:`selectFromCatalog`.
-        addInfo (:obj:`list`, optional): A list of dictionaries with keys named `key` and `fmt` (e.g., 
+        addInfo (:obj:`list`, optional): A list of dictionaries with keys named `key` and `fmt` (e.g.,
             ``{'key': "SNR", 'fmt': "%.3f"}``). These will be added to the object label shown in DS9.
-        idKeyToUse (:obj:`str`, optional): The name of the key in each object dictionary that defines the 
+        idKeyToUse (:obj:`str`, optional): The name of the key in each object dictionary that defines the
             object's name. Used to label objects in the DS9 region file.
-        RAKeyToUse (:obj:`str`, optional): The name of the key in each object dictionary that contains the 
+        RAKeyToUse (:obj:`str`, optional): The name of the key in each object dictionary that contains the
             RA of the object in decimal degrees.
         decKeyToUse (:obj:`str`, optional): The name of the key in each object dictionary that contains the
             declination of the object in decimal degrees.
         color (:obj:`str`, optional): The color of the plot symbol used by DS9.
         writeBerkInfo (:obj:`bool`, optional): If ``True``, writes a line with the `berk` version and date
             generated at the top of the DS9 .reg file.
-        coordSys (:obj:`str`, optional): A string defining the coordinate system used for RA, dec, as 
+        coordSys (:obj:`str`, optional): A string defining the coordinate system used for RA, dec, as
             understood by DS9.
-        
+
     Returns:
         None
-    
+
     """
-    
-    cutCatalog=selectFromCatalog(catalog, constraintsList) 
-    
+
+    cutCatalog=selectFromCatalog(catalog, constraintsList)
+
     with open(outFileName, "w") as outFile:
         timeStamp=datetime.datetime.today().date().isoformat()
         comment="# DS9 region file"
@@ -89,48 +96,48 @@ def catalog2DS9(catalog, outFileName, constraintsList = [], addInfo = [], idKeyT
                             % (coordSys, obj[RAKeyToUse], obj[decKeyToUse], colorString, infoString))
             elif regionShape == 'circle':
                 outFile.write('%s;circle(%.6f,%.6f,360") # color={%s} text={%s}\n' \
-                            % (coordSys, obj[RAKeyToUse], obj[decKeyToUse], colorString, infoString))                
+                            % (coordSys, obj[RAKeyToUse], obj[decKeyToUse], colorString, infoString))
 
 #------------------------------------------------------------------------------------------------------------
 def makeName(RADeg, decDeg, prefix = 'MKT'):
     """Makes an object name string from the given object coordinates, following the IAU convention.
-    
+
     Args:
         RADeg (:obj:`float`): Right ascension of the object in J2000 decimal degrees.
         decDeg (:obj:`float`): Declination of the object in J2000 decimal degrees.
         prefix (:obj:`str`, optional): Prefix for the object name.
-    
+
     Returns:
         Object name string in the format `prefix JHHMM.m+/-DDMM`.
-    
+
     """
-    
+
     actName=prefix+" J"+_makeRA(RADeg)+_makeDec(decDeg)
-    
+
     return actName
 
 #------------------------------------------------------------------------------------------------------------
 def makeLongName(RADeg, decDeg, prefix = "MKT"):
     """Makes a long format object name string from the given object coordinates, following the IAU convention.
-    
+
     Args:
         RADeg (:obj:`float`): Right ascension of the object in J2000 decimal degrees.
         decDeg (:obj:`float`): Declination of the object in J2000 decimal degrees.
         prefix (:obj:`str`, optional): Prefix for the object name.
-    
+
     Returns:
         Object name string in the format `prefix JHHMMSS.s+/-DDMMSS`.
-    
+
     """
-    
+
     actName=prefix+" J"+_makeLongRA(RADeg)+_makeLongDec(decDeg)
-    
+
     return actName
-    
+
 #------------------------------------------------------------------------------------------------------------
 def _makeRA(myRADeg):
     """Makes RA part of ACT names.
-    
+
     """
     hours=(myRADeg/360)*24
     strHours=("%.10f" % (hours))
@@ -138,7 +145,7 @@ def _makeRA(myRADeg):
         sHours="0"+strHours[0]
     else:
         sHours=strHours[:2]
-    
+
     mins=float(strHours[strHours.index("."):])*60
     strMins=("%.10f" % (mins))
     if mins < 10:
@@ -147,71 +154,71 @@ def _makeRA(myRADeg):
         sMins=strMins[:4]
 
     return (sHours+sMins)#[:-2] # Trims off .x as not used in ACT names
-        
+
 #------------------------------------------------------------------------------------------------------------
 def _makeDec(myDecDeg):
     """Makes dec part of ACT names
-    
+
     """
-    
+
     # Positive
     if myDecDeg>0:
         if myDecDeg<10:
             sDeg="0"+str(myDecDeg)[0]
         else:
             sDeg=str(myDecDeg)[:2]
-    
+
         mins=float(str(myDecDeg)[str(myDecDeg).index("."):])*60
         if mins<10:
             sMins="0"+str(mins)[:1]
         else:
             sMins=str(mins)[:2]
-        
+
         return "+"+sDeg+sMins
     else:
         if myDecDeg>-10:
             sDeg="-0"+str(myDecDeg)[1]
         else:
             sDeg=str(myDecDeg)[:3]
-    
+
         mins=float(str(myDecDeg)[str(myDecDeg).index("."):])*60
         if mins<10:
             sMins="0"+str(mins)[:1]
         else:
             sMins=str(mins)[:2]
-        
+
         return str(sDeg+sMins)
 
 #-------------------------------------------------------------------------------------------------------------
 def _makeLongRA(myRADeg):
     """Make a long RA string, i.e. in style of long XCS names
-    
+
     """
-    
+
     hours=(myRADeg/360)*24
     if hours<10:
         sHours="0"+str(hours)[0]
     else:
         sHours=str(hours)[:2]
-    
+
     mins=float(str(hours)[str(hours).index("."):])*60
     if mins<10:
         sMins="0"+str(mins)[0]
     else:
         sMins=str(mins)[:2]
-        
+
     secs=float(str(mins)[str(mins).index("."):])*60
     if secs<10:
         sSecs="0"+str(secs)[:3]
     else:
-        sSecs=str(secs)[:4]     
-        
+        sSecs=str(secs)[:4]
+
     return sHours+sMins+sSecs
-        
+
 #-------------------------------------------------------------------------------------------------------------
 def _makeLongDec(myDecDeg):
     """Make a long dec sting i.e. in style of long XCS names
-    
+
     """
     # Positive
     if myDecDeg>0:
@@ -219,55 +226,55 @@ def _makeLongDec(myDecDeg):
             sDeg="0"+str(myDecDeg)[0]
         else:
             sDeg=str(myDecDeg)[:2]
-    
+
         mins=float(str(myDecDeg)[str(myDecDeg).index("."):])*60
         if mins<10:
             sMins="0"+str(mins)[:1]
         else:
             sMins=str(mins)[:2]
-            
+
         secs=float(str(mins)[str(mins).index("."):])*60
         if secs<10:
             sSecs="0"+str(secs)[:3]
         else:
-            sSecs=str(secs)[:4]         
-        
+            sSecs=str(secs)[:4]
+
         return "+"+sDeg+sMins+sSecs
     else:
         if myDecDeg>-10:
             sDeg="-0"+str(myDecDeg)[1]
         else:
             sDeg=str(myDecDeg)[:3]
-    
+
         mins=float(str(myDecDeg)[str(myDecDeg).index("."):])*60
         if mins<10:
             sMins="0"+str(mins)[:1]
         else:
             sMins=str(mins)[:2]
-            
+
         secs=float(str(mins)[str(mins).index("."):])*60
         if secs<10:
             sSecs="0"+str(secs)[:3]
         else:
-            sSecs=str(secs)[:4]         
-        
+            sSecs=str(secs)[:4]
+
         return sDeg+sMins+sSecs
-        
+
 #-------------------------------------------------------------------------------------------------------------
 def selectFromCatalog(catalog, constraintsList):
-    """Return a table of objects matching the given constraints from the catalog. 
-    
+    """Return a table of objects matching the given constraints from the catalog.
+
     Args:
         catalog (:obj:`astropy.table.Table`): The catalog from which objects will be selected.
         constraintsList (:obj:`list`): A list of constraints, where each item is a string of the form
-            "key < value", "key > value", etc.. Note that the spaces between the key, operator 
+            "key < value", "key > value", etc.. Note that the spaces between the key, operator
             (e.g. '<'), and value are essential.
-    
+
     Returns:
         An astropy Table object.
-    
+
     """
-            
+
     passedConstraint=catalog
     for constraintString in constraintsList:
         key, op, value=constraintString.split()
@@ -277,21 +284,21 @@ def selectFromCatalog(catalog, constraintsList):
 
 #------------------------------------------------------------------------------------------------------------
 def removeDuplicates(tab):
-    """Removes duplicate objects from the catalog - keeping the highest SNR detection for each duplicate. 
+    """Removes duplicate objects from the catalog - keeping the highest SNR detection for each duplicate.
     This routine is used to clean up the output of MPI runs (where we have overlapping tiles).
-    
+
     Args:
         tab (:obj:`astropy.table.Table`): The object catalog to be checked for duplicates.
 
     Returns:
         Table with duplicates removed (:obj:`astropy.table.Table`), the number of duplicates found, and a
         list of names for the duplicated objects.
-    
+
     """
 
     if len(tab) == 1:
         return tab, 1, []
-    
+
     # Find all duplicates
     cat=SkyCoord(ra = tab['RADeg'].data, dec = tab['decDeg'].data, unit = 'deg')
     xIndices, rDeg, sep3d = match_coordinates_sky(cat, cat, nthneighbor = 2)
@@ -299,11 +306,11 @@ def removeDuplicates(tab):
     noDupMask=np.greater_equal(rDeg.value, XMATCH_RADIUS_DEG)
     dupTab=tab[mask]
     noDupTab=tab[noDupMask]
-    
+
     # All duplicates removed?
     if mask.sum() == 0:
         return tab, 0, []
-    
+
     # Much faster
     keepMask=np.zeros(len(dupTab), dtype = bool)
     for i in range(len(dupTab)):
@@ -317,29 +324,29 @@ def removeDuplicates(tab):
             bestIndex=indices[np.equal(dupTab['SNR'][mask], dupTab['SNR'][mask].max())][0]
         keepMask[bestIndex]=True
     keepTab=dupTab[keepMask]
-    
+
     keepTab=atpy.vstack([keepTab, noDupTab])
     keepTab.sort('RADeg')
-    
+
     return keepTab, len(dupTab), dupTab['name']
 
 #------------------------------------------------------------------------------------------------------------
 def crossMatch(refCatalog, matchCatalog, radiusArcmin = 2.5):
-    """Cross matches `matchCatalog` onto `refCatalog` for objects found within some angular radius 
+    """Cross matches `matchCatalog` onto `refCatalog` for objects found within some angular radius
     (specified in arcmin).
-    
+
     Args:
         refCatalog (:obj:`astropy.table.Table`): The reference catalog.
         matchCatalog (:obj:`astropy.table.Table`): The catalog to match onto the reference catalog.
         radiusArcmin (:obj:`float`, optional): Cross-match radius in arcmin.
-    
+
     Returns:
-        Cross-matched reference catalog, matchCatalog, and array of angular separation in degrees, for 
+        Cross-matched reference catalog, matchCatalog, and array of angular separation in degrees, for
         objects in common within the matching radius. The cross matched columns are sorted such that rows in
         each correspond to the matched objects.
-    
+
     """
-    
+
     inTab=refCatalog
     outTab=matchCatalog
     RAKey1, decKey1=getTableRADecKeys(inTab)
@@ -348,29 +355,29 @@ def crossMatch(refCatalog, matchCatalog, radiusArcmin = 2.5):
     xMatchRadiusDeg=radiusArcmin/60.
     cat2=SkyCoord(ra = outTab[RAKey2].data, dec = outTab[decKey2].data, unit = 'deg')
     xIndices, rDeg, sep3d = match_coordinates_sky(cat1, cat2, nthneighbor = 1)
-    mask=np.less(rDeg.value, xMatchRadiusDeg)  
+    mask=np.less(rDeg.value, xMatchRadiusDeg)
     matched_outTab=outTab[xIndices]
     inTab=inTab[mask]
     matched_outTab=matched_outTab[mask]
     rDeg=rDeg.value[mask]
-    
+
     return inTab, matched_outTab, rDeg
 
 #------------------------------------------------------------------------------------------------------------
 def removeCrossMatched(refCatalog, matchCatalog, radiusArcmin = 2.5):
-    """Cross matches `matchCatalog` onto `refCatalog` for objects found within some angular radius 
+    """Cross matches `matchCatalog` onto `refCatalog` for objects found within some angular radius
     (specified in arcmin), and returns `refCatalog` with the matching entries removed.
-    
+
     Args:
         refCatalog (:obj:`astropy.table.Table`): The reference catalog.
         matchCatalog (:obj:`astropy.table.Table`): The catalog to match onto the reference catalog.
         radiusArcmin (:obj:`float`, optional): Cross-match radius in arcmin.
-    
+
     Returns:
         Cross-matched reference catalog (:obj:`astropy.table.Table`) with matches to `matchCatalog` removed.
-        
+
     """
-        
+
     inTab=refCatalog
     outTab=matchCatalog
     RAKey1, decKey1=getTableRADecKeys(inTab)
@@ -379,22 +386,22 @@ def removeCrossMatched(refCatalog, matchCatalog, radiusArcmin = 2.5):
     xMatchRadiusDeg=radiusArcmin/60.
     cat2=SkyCoord(ra = outTab[RAKey2].data, dec = outTab[decKey2].data, unit = 'deg')
     xIndices, rDeg, sep3d = match_coordinates_sky(cat1, cat2, nthneighbor = 1)
-    mask=np.greater(rDeg.value, xMatchRadiusDeg)  
+    mask=np.greater(rDeg.value, xMatchRadiusDeg)
     inTab=inTab[mask]
-    
+
     return inTab
-    
+
 #------------------------------------------------------------------------------------------------------------
 def getTableRADecKeys(tab):
     """Returns the column names in the table in which RA, dec coords are stored, after trying a few possible
     name variations.
-    
+
     Args:
         tab (:obj:`astropy.table.Table`): The table to search.
-        
+
     Returns:
         Name of the RA column, name of the dec. column
-    
+
     """
     RAKeysToTry=['ra', 'RA', 'RADeg']
     decKeysToTry=['dec', 'DEC', 'decDeg', 'Dec']
@@ -409,16 +416,16 @@ def getTableRADecKeys(tab):
             break
     if RAKey is None or decKey is None:
         raise Exception("Couldn't identify RA, dec columns in the supplied table.")
-    
+
     return RAKey, decKey
 
 #------------------------------------------------------------------------------------------------------------
 def getCatalogWithinImage(tab, shape, wcs, mask = None):
-    """Returns the subset of the catalog with coordinates within the image defined by the given `shape`, 
+    """Returns the subset of the catalog with coordinates within the image defined by the given `shape`,
     `wcs`. Optionally, a `mask` may also be applied.
-    
+
     Args:
-        tab (:obj:`astropy.table.Table`): Catalog, as an astropy Table object. Must have columns called 
+        tab (:obj:`astropy.table.Table`): Catalog, as an astropy Table object. Must have columns called
             'RADeg', 'decDeg' that contain object coordinates in decimal degrees.
         shape (:obj:`list`): Shape of the array corresponding to the image / map.
         wcs (:obj:`astWCS.WCS`): WCS of the image.
@@ -426,12 +433,12 @@ def getCatalogWithinImage(tab, shape, wcs, mask = None):
             value = 1 indicate valid area, and pixels with value = 0 are considered to be outside the mask.
             If this is given, the returned catalog will contain only objects in the valid area defined by
             this image mask.
-    
+
     Returns:
         An astropy Table containing the subset of objects within the image.
-    
+
     """
-    
+
     xyCoords=np.array(wcs.wcs2pix(tab['RADeg'].tolist(), tab['decDeg'].tolist()))
     selected=[]
     for i in range(len(tab)):
@@ -449,7 +456,7 @@ def getCatalogWithinImage(tab, shape, wcs, mask = None):
                 selected.append(True)
         else:
             selected.append(False)
-    
+
     return tab[selected]
 
 #------------------------------------------------------------------------------------------------------------

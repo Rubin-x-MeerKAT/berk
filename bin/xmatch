@@ -17,21 +17,30 @@ def make_parser():
     parser.add_argument("catalog", help="A .fits table to crossmatch")
     parser.add_argument("-s", "--survey", help="The optical survey to be crossmatched with",
                         default='DECaLS', type=str)
-    parser.add_argument("-b", "--band", help="The optical band to be used for LR calculation",
+    parser.add_argument("--surveydr", help="The optical survey data release",
+                        default='DR10', type=str)
+    parser.add_argument("--radioband", help="The frequency band of radio data",
+                        default='L', type=str)
+    parser.add_argument("--opticalband", help="The optical band to be used for LR calculation",
                         default='r', type=str)
     parser.add_argument("-r", "--radius", help="The search radius in arcsec", default=4.0,
                         type=float)
     parser.add_argument("-o", "--output", help="Output directory", default=os.getcwd(),
                         type=str)
-    parser.add_argument("-p", "--makeplots", help="Whether to make plots.", action='store_true')
-    parser.add_argument("--rad_ra_col", help="RA column of radio catalog", default='RA',
+    parser.add_argument("--radracol", help="RA column of radio catalog", default='RA',
                         type=str)
-    parser.add_argument("--rad_dec_col", help="Dec column of radio catalog", default='DEC',
+    parser.add_argument("--raddeccol", help="Dec column of radio catalog", default='DEC',
                         type=str)
-    parser.add_argument("--err_rad_ra_col", help="Error RA column of radio catalog",
+    parser.add_argument("--raderacol", help="Error RA column of radio catalog",
                         default='E_RA', type=str)
-    parser.add_argument("--err_rad_dec_col", help="Error Dec column of radio catalog",
+    parser.add_argument("--radedeccol", help="Error Dec column of radio catalog",
                         default='E_DEC', type=str)
+    parser.add_argument("--rademajcol", help="Error major axis column of radio catalog",
+                        default='E_Maj', type=str)
+    parser.add_argument("--rademincol", help="Error minor axis column of radio catalog",
+                        default='E_Min', type=str)
+    parser.add_argument("--radpacol", help="Error position angle column of radio catalog",
+                        default='PA', type=str)
 
     return parser
 
@@ -41,37 +50,26 @@ if __name__ == '__main__':
     parser=make_parser()
     args=parser.parse_args()
 
-    radio_cat = args.catalog
-    opt_survey = args.survey
-    opt_mag_col = args.band
-    search_radius_asec = args.radius
-    make_plots=args.makeplots
-    out_path = args.output
-    rad_ra_col = args.rad_ra_col
-    rad_dec_col = args.rad_dec_col
-    e_rad_ra_col = args.err_rad_ra_col
-    e_rad_dec_col = args.err_rad_dec_col
+    radioCat = args.catalog
+    optSurvey = args.survey
+    optSurveyDR = args.surveydr
+    radioBand = args.radioband
+    optMagCol = args.opticalband
+    searchRadiusAsec = args.radius
+    makePlots=True
+    outPath = args.output
+    radRACol = args.radracol
+    radDecCol = args.raddeccol
+    radERACol = args.raderacol
+    radEDecCol = args.radedeccol
+    radEMajCol = args.rademajcol
+    radEMinCol = args.rademincol
+    radPACol = args.radpacol
 
-    out_subscript = '%s_%s_%sband_%sasec' %(radio_cat.replace(".fits",""), opt_survey, opt_mag_col,
-                                            str(search_radius_asec).replace(".","p"))
+    radioCatFilePath = os.path.abspath(radioCat)
 
-    in_file = os.path.abspath(radio_cat)
-    out_file = out_path+os.path.sep+'crossmatch_%s.fits' %out_subscript
+    outSubscript = '%s_%s%s_%sband_%sasec' %(radioCat.replace('.fits',''), optSurvey, optSurveyDR, optMagCol, str(searchRadiusAsec).replace(".","p"))
 
-    # Old - this has named arguments, but xmatch_opt itself doesn't, so commented out
-    # cross_match_table = crossmatch.xmatch_opt(in_file, opt_survey=opt_survey,
-    #                                           opt_survey_dr='DR10',
-    #                                           opt_mag_col=opt_mag_col,
-    #                                           search_radius_asec=search_radius_asec,
-    #                                           out_path=out_path, make_plots=make_plots,
-    #                                           rad_ra_col=rad_ra_col, rad_dec_col=rad_dec_col,
-    #                                           e_rad_ra_col=e_rad_ra_col,
-    #                                           e_rad_dec_col=e_rad_dec_col,
-    #                                           out_subscript=out_subscript)
-    # We have to hard code DR10 in here for now
-    cross_match_table = crossmatch.xmatch_opt(in_file, opt_survey, 'DR10', opt_mag_col,
-                                              search_radius_asec, out_path, make_plots,
-                                              rad_ra_col, rad_dec_col, e_rad_ra_col,
-                                              e_rad_dec_col, out_subscript)
+    outFile = outPath+os.path.sep+'xmatchTable_%s.fits' %outSubscript
 
-    cross_match_table.write(out_file, format='fits', overwrite=True)
+    xmatchTab = crossmatch.xmatchRadioOptical(radioCatFilePath, radioBand, outPath, outFile, optSurvey, optSurveyDR, optMagCol, searchRadiusAsec, makePlots, radRACol, radDecCol, radERACol, radEDecCol, radEMajCol, radEMinCol, radPACol, outSubscript, optPosErrAsecValue=0.2, nMagBins=15, beamSizeArcsecValue=6.0, saveFiles = True)

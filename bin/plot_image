@@ -1,0 +1,50 @@
+#!/usr/bin/env python
+
+"""
+
+Plot the radio image.
+
+"""
+
+import os
+import argparse
+from berk import images
+
+#--------------------------------------------------------------------------------------------------
+def make_parser():
+    parser=argparse.ArgumentParser("plot_image")
+
+    parser.add_argument("imageFileName", help="""A .fits image to plot.""")
+    parser.add_argument("--out-dir", dest="outDirName", help="Path to the output directory where png files are to be saved",
+                        default=os.getcwd(), type=str)
+    parser.add_argument("--vmin", dest="vmin", help="Minimum data value to anchor the colormap. Default is 0.", default=None, type=float)
+    parser.add_argument("--vmax", dest="vmax", help="Maximum data value to anchor the colormap. Default is 95th percentile.", default=None, type=float)
+    parser.add_argument("--axLabelDeg", action="store_true", help="If specified, axis labels will be in degrees.")
+    parser.add_argument("--calculateStats", action="store_true", help="If specified, stats such as the image centre coords, effective frequency (GHz), RMS in uJy/beam, sky area will be calculated and shown in the resulting image.")
+
+    return parser
+
+#--------------------------------------------------------------------------------------------------
+if __name__ == '__main__':
+
+    parser=make_parser()
+    args=parser.parse_args()
+
+    imgFilePath = args.imageFileName
+    outDirName = args.outDirName
+    axLabelDeg = args.axLabelDeg
+    vmin = args.vmin
+    vmax = args.vmax
+    calculateStats = args.calculateStats
+
+    if calculateStats:
+        statsDict = images.getImagesStats(imgFilePath)
+        print("Image statistics:")
+        for key, value in statsDict.items():
+            print(f"  {key:15} : {value}")
+
+    else:
+        statsDict= None
+
+
+    images.plotImages(imgFilePath, outDirName, vmin=vmin, vmax=vmax, axLabelDeg = axLabelDeg, statsDict=statsDict, overwrite=True)

@@ -675,9 +675,10 @@ def xmatchRadioOptical(radioCatFilePath, radioBand, xmatchDirPath, optSurvey, op
     print("═" * 100 + "\n")
 
     if skipIfExists is True:
-        if os.path.exists(xmatchTabName):
+        doesItExist = os.path.exists(xmatchBestMatchTabName) and os.path.exists(xmatchTabName)
+        if doesItExist:
             print("%s cross-match table exists! Skipping to next radio catalogue.\n" %radCatName)
-            xmatchTable = Table.read(xmatchTabName)
+            xmatchTable = Table.read(xmatchBestMatchTabName)
             return xmatchTable
 
     # checking if this catalog is listed as having no optical sources in the area
@@ -707,7 +708,9 @@ def xmatchRadioOptical(radioCatFilePath, radioBand, xmatchDirPath, optSurvey, op
     optPosErrValueDeg = (optPosErrAsecValue*u.arcsec).to(u.deg).value
 
     radioSources = Table.read(radioCatFilePath, format='fits', hdu=1)
-    print("\nNumber of radio sources: %d" % (len(radioSources)))
+
+    nRadio = len(radioSources)
+    print("\nNumber of radio sources: %d" %nRadio)
 
     radColumns = [radRACol, radDecCol, radERACol, radEDecCol, radEMajCol, radEMinCol, radPACol]
 
@@ -724,7 +727,7 @@ def xmatchRadioOptical(radioCatFilePath, radioBand, xmatchDirPath, optSurvey, op
     radioSourcesCoords = SkyCoord(ra=radRAValDegList * u.deg, dec=radDecValDegList * u.deg, frame='icrs')
 
     centerRA, centerDec, radiusDeg = getCentreRadius(radioSources, radRACol, radDecCol)
-    nRadio = len(radioSources)
+
     skyAreaSqDeg = np.pi*radiusDeg**2
     skyAreaSqArcsec = skyAreaSqDeg*3600**2
 
@@ -833,18 +836,23 @@ def xmatchRadioOptical(radioCatFilePath, radioBand, xmatchDirPath, optSurvey, op
 
     xmatchLRThresholdTable = xmatchTable[xmatchTable['LR'] >= CRBalanceLRThreshold]
 
+    if len(xmatchLRThresholdTable) == 0:
+        print("\nNo cross-matched sources above LR threshold!")
+        _writeNoOpticalCatFile(radCatName, noOptCounterpartsFilename)
+        return None
+
+
     # Filters the full xmatch table to keep only the matches with the maximum 'LR' value for each radio source
     xmatchLRThresholdTable.sort(['Source_id_rad', 'LR'])
     xmatchLRThresholdTable.reverse()
     groupedxmatchLRThresholdTable = xmatchLRThresholdTable.group_by('Source_id_rad')
     xmatchBestMatchTable = groupedxmatchLRThresholdTable.groups.aggregate(lambda rows: rows[0])
 
-    xmatchBestMatchTable.meta['OPTICAL_SURVEY']=optSurvey
-    xmatchBestMatchTable.meta['OPTICAL_SURVEY_DR']=optSurveyDR
-    xmatchBestMatchTable.meta['SEARCH_RADIUS_ASEC']=searchRadiusArcsec
-    xmatchBestMatchTable.meta['LR_THRESHOLD']=CRBalanceLRThreshold
-    xmatchBestMatchTable.meta['RELIABILITY']=CRBalanceRel
-    xmatchBestMatchTable.meta['COMPLETENESS']=CRBalanceComp
+    xmatchBestMatchTable.meta['OPT_SUR']='%s%s' %(optSurvey, optSurveyDR)
+    xmatchBestMatchTable.meta['SEAR_RAD']='%f arcsec' %searchRadiusArcsec
+    xmatchBestMatchTable.meta['LR_THR']=CRBalanceLRThreshold
+    xmatchBestMatchTable.meta['REL']=CRBalanceRel
+    xmatchBestMatchTable.meta['COMP']=CRBalanceComp
 
     if saveFiles is True:
 

@@ -913,7 +913,7 @@ def xmatchRadioOptical(radioCatFilePath, radioBand, xmatchDirPath, optSurvey, op
         plt.plot(LRThreshValues, reliabilityValues, label='Reliability', color='green')
         plt.gca().axvline(x=CRBalanceLRThreshold, linestyle='dashed', color='k', label='Choosen LR Threshold')
         plt.xlabel('LR Threshold')
-        plt.ylabel('Completeness/Reliability')
+        plt.ylabel('Completeness or Reliability')
         plt.legend()
         plt.tight_layout()
         plt.savefig(LRRelPlotOutName , dpi=300, bbox_inches = 'tight')

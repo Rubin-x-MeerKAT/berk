@@ -8,7 +8,7 @@ for generating object catalogs.
 
 * **Documentation:** https://berk.readthedocs.io
 * **License:** `GPL v3 <LICENSE>`_
-* **Authors:** Matt Hilton
+* **Authors:** Matt Hilton, Unnikrishnan Sureshkumar
 * **Installation:** ``pip install berk``
 * **Support:** Please use the `GitHub issues page <https://github.com/mattyowl/berk/issues>`_,
   and/or contact `Matt Hilton <mailto:matt.hilton@mykolab.com>`_.

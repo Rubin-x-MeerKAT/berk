@@ -13,47 +13,47 @@ from berk import jobs
 if len(sys.argv) < 2:
     print("Run: berk_chain workload_manager script*.sh")
 
-workload_manager=sys.argv[1]
-assert(workload_manager in ['slurm', 'pbs'])
-script_filenames=sys.argv[2:]
+workloadManager=sys.argv[1]
+assert(workloadManager in ['slurm', 'pbs'])
+scriptFileNames=sys.argv[2:]
 
 lines=[]
-for filename in script_filenames:
-    with open(filename, encoding = 'utf8') as in_file:
-        lines=lines+in_file.readlines()
+for fileName in scriptFileNames:
+    with open(fileName, encoding = 'utf8') as inFile:
+        lines=lines+inFile.readlines()
 
-job_cmds=[]
+jobCmds=[]
 dependent=[]
 for line in lines:
-    if line.find("sbatch") != -1 and workload_manager == 'slurm':
-        sbatch_cmd=line[line.find("sbatch") :].split(" |")[0]
-        if sbatch_cmd.find("-d afterok:") != -1:
-            sbatch_cmd=sbatch_cmd.split("}")[-1].strip()
+    if line.find("sbatch") != -1 and workloadManager == 'slurm':
+        sbatchCmd=line[line.find("sbatch") :].split(" |")[0]
+        if sbatchCmd.find("-d afterok:") != -1:
+            sbatchCmd=sbatchCmd.split("}")[-1].strip()
             dependent.append(True)
         else:
-            sbatch_cmd=sbatch_cmd.split("sbatch")[-1].strip()
+            sbatchCmd=sbatchCmd.split("sbatch")[-1].strip()
             dependent.append(False)
-        job_cmds.append(sbatch_cmd)
-    elif line.find("qsub") != -1 and workload_manager == 'pbs':
-        qsub_cmd=line[line.find("qsub") :].split(" |")[0]
-        if qsub_cmd.find("-W depend=afterok") != -1:
-            qsub_cmd=qsub_cmd.split("}")[-1].strip()
+        jobCmds.append(sbatchCmd)
+    elif line.find("qsub") != -1 and workloadManager == 'pbs':
+        qsubCmd=line[line.find("qsub") :].split(" |")[0]
+        if qsubCmd.find("-W depend=afterok") != -1:
+            qsubCmd=qsubCmd.split("}")[-1].strip()
             dependent.append(True)
         else:
-            qsub_cmd=qsub_cmd.split("qsub")[-1].strip()
+            qsubCmd=qsubCmd.split("qsub")[-1].strip()
             dependent.append(False)
-        job_cmds.append(qsub_cmd)
+        jobCmds.append(qsubCmd)
 
 # There's no dependency on running jobs if this script was actually run from a job
 # We just submit each job in turn and have it depend on the previous one completing successfully
-job_ids=[]
-for cmd, dep in zip(job_cmds, dependent):
-    if cmd == job_cmds[0]:
-        dependent_job_ids=None
+jobIDs=[]
+for cmd, dep in zip(jobCmds, dependent):
+    if cmd == jobCmds[0]:
+        dependentJobIDs=None
     else:
-        dependent_job_ids=[job_ids[-1]]
-    job_name=os.path.split(cmd)[-1]
-    job_id=jobs.submit_job(cmd, job_name, dependent_job_ids = dependent_job_ids,
-                           workload_manager = workload_manager,
-                           cmd_is_batch_script = True)
-    job_ids.append(job_id)
+        dependentJobIDs=[jobIDs[-1]]
+    jobName=os.path.split(cmd)[-1]
+    jobID=jobs.submitJob(cmd, jobName, dependentJobIDs = dependentJobIDs,
+                           workloadManager = workloadManager,
+                           cmdIsBatchScript = True)
+    jobIDs.append(jobID)

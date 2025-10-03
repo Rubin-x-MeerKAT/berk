@@ -33,17 +33,6 @@ def plotSkyCoverage(fullImagesTab, bandColorDict, plotOutPath, plotProjection='a
     for band in orderedBands:
         bandMask = fullImagesTab['band'] == band
         bandData = fullImagesTab[bandMask]
-        bandCount = len(bandData)
-        bandTotalArea = bandData['skyArea_sqDeg'].sum()
-
-        catFileName = startup.config['productsDir']+os.path.sep+"survey_catalog_%s.fits" %band
-        catalogTab = atpy.Table().read(catFileName)
-        nPybdsfSources = len(catalogTab)
-
-        print("\n---------------- %s band --------------------" %band)
-        print("\nNumber of pointings: %d \
-              \nTotal area: %.3f sq. deg. \
-              \nNumber of PyBDSF sources: %d\n" % (bandCount, bandTotalArea, nPybdsfSources))
 
         # Plotting sky coverage
 
@@ -54,9 +43,10 @@ def plotSkyCoverage(fullImagesTab, bandColorDict, plotOutPath, plotProjection='a
         raBandDataRad = np.radians(np.remainder(raBandDataDeg + 360 - 180, 360) - 180)
         decBandDataRad = np.radians(decBandDataDeg)
 
-        ax.scatter(raBandDataRad, decBandDataRad, color="black", fc=bandColorDict[band], s=70, alpha=1, label="%s" %band)
+        ax.scatter(raBandDataRad, decBandDataRad, color="black", fc=bandColorDict[band], s=70, alpha=1, label="%s" %band, zorder=5)
 
-    ax.grid(True)
+    ax.grid(True, color='gray', linestyle='--', linewidth=0.7, zorder=0)
+
     ax.set_xlabel("RA (deg)")
     ax.set_ylabel("Dec (deg)")
     plt.legend(loc="upper right")
@@ -107,7 +97,7 @@ def _computeSourceCount(fluxVals, skyAreaSqDeg, nFluxBins=20):
 
     return SMean, sourceCountValues, sourceCountErr
 
-def plotSourceCounts(fullImagesTab, fluxCol, nFluxBins, bandColorDict, plotOutPath):
+def plotSourceCounts(fullImagesTab, fluxCol, nFluxBins, bandColorDict, plotOutPath, plotMALS=False, plotLOFAR=False):
     """Plot Euclidean-normalized source counts for each band using survey catalogs.
 
     Args:
@@ -139,7 +129,31 @@ def plotSourceCounts(fullImagesTab, fluxCol, nFluxBins, bandColorDict, plotOutPa
 
         sourceCountFlux, sourceCountVal, sourceCountErr =  _computeSourceCount(fluxVals=fluxVals, skyAreaSqDeg=bandTotalArea, nFluxBins=nFluxBins)
 
-        ax.errorbar(sourceCountFlux, sourceCountVal, sourceCountErr, color=bandColorDict[band], marker='o', ms=7, alpha=1, ls='None', label="%s" %band)
+        ax.errorbar(sourceCountFlux, sourceCountVal, sourceCountErr, mec='k', mfc=bandColorDict[band], ecolor=bandColorDict[band], marker='o', ms=7, alpha=1, ls='None', label="MeerKAT %s-band" %band)
+
+    if plotMALS is True:
+
+        malsData = np.loadtxt(startup.config['productsDir']+os.path.sep+"source_counts_MALS.txt", skiprows=1)
+
+        SmJyMALS = malsData[:, 0]
+        SJyMALS = SmJyMALS * 1e-3
+        S5dNdSMALS = malsData[:, 1]
+        S5dNdSErrMALS = malsData[:, 2]
+
+        ax.errorbar(SJyMALS, S5dNdSMALS, S5dNdSErrMALS, mec='k', mfc='#F0B13B', ecolor='#F0B13B', marker='s', ms=7, alpha=1, ls='None', label="MALS L-band (Wagenveld+23)")
+
+    if plotLOFAR is True:
+        lofarData = np.loadtxt(startup.config['productsDir']+os.path.sep+"source_counts_LOFAR.txt", skiprows=1)
+
+        SmJyLOFAR = lofarData[:, 0]
+        SJyLOFAR = SmJyLOFAR * 1e-3
+        S5dNdSLOFAR = lofarData[:, 1]
+        S5dNdSLowerErrLOFAR = lofarData[:, 2]
+        S5dNdSUpperErrLOFAR = lofarData[:, 3]
+
+        ax.errorbar(SJyLOFAR, S5dNdSLOFAR, [S5dNdSLowerErrLOFAR, S5dNdSUpperErrLOFAR], mec='k', mfc='#FDA5D5', ecolor='#FDA5D5', marker='s', ms=7, alpha=1, ls='None', label="LOFAR 150 MHz (Williams+16)")
+
+
 
     ax.set_xlabel("Total Flux (%s)" %fluxUnitLabel)
     ax.set_ylabel(r"$S^{5/2} \mathrm{d}N/\mathrm{d}S$ $(\mathrm{Jy}^{3/2} \mathrm{sr}^{-1})$")
@@ -229,7 +243,7 @@ def _getRMSHistogram(rmsFile, rmsBins):
     areaInBins = countsInBins * pixelAreaSqDeg
     return countsInBins, areaInBins
 
-def plotRMSAreaCoverage(plotOutPath, bandColorDict, nRMSBins=30):
+def plotRMSAreaCoverageDifferential(plotOutPath, bandColorDict, nRMSBins=30):
     """Plot RMS noise vs sky area coverage for all bands, using cached histograms if available.
 
     Args:
@@ -293,21 +307,101 @@ def plotRMSAreaCoverage(plotOutPath, bandColorDict, nRMSBins=30):
         globalRMSCountDict[bandKey] += countsInBins
         globalRMSAreaDict[bandKey] += areaSqDegInBins
 
-    plt.figure(figsize=(8, 5))
-    ax = plt.subplot(111)
+    #plt.figure(figsize=(8, 5))
+    #ax = plt.subplot(111)
 
-    for band in orderedBands:
+    fig,ax=plt.subplots(nrows=1,ncols=3,sharex=True, sharey=False)
+    fig.set_size_inches(16,5)
+
+    for bandi, band in enumerate(orderedBands):
         positiveMask = globalRMSCountDict[band] > 0
 
-        ax.plot(binCentresMuJy[positiveMask], globalRMSAreaDict[band][positiveMask], drawstyle='steps-mid', color=bandColorDict[band],  label="%s" %band)
+        ax[bandi].plot(binCentresMuJy[positiveMask], globalRMSAreaDict[band][positiveMask], drawstyle='steps-mid', color=bandColorDict[band],  label="%s" %band)
 
-    ax.set_xlabel("RMS Noise (%s/beam)" %fluxUnitLabel)
-    ax.set_ylabel("Area (sq. deg.)")
+        ax[bandi].set_xlabel("RMS Noise (%s/beam)" %fluxUnitLabel)
+        ax[bandi].set_xscale('log')
+        ax[bandi].set_yscale('log')
 
-    ax.set_xscale('log')
-    ax.set_yscale('log')
+    ax[0].set_ylabel("Area (sq. deg.)")
 
     plt.legend(loc="upper right")
     plt.savefig(plotOutPath, dpi=700, bbox_inches='tight')
     plt.close()
     print("\nRMS Area coverage plotted!\n")
+
+def plotRMSAreaCoverageCumulative(plotOutPath, bandColorDict, nRMSBins=30):
+    """Plot cumulative sky area as a function of RMS noise for all bands.
+
+    Args:
+        plotOutPath (str): Path to save the output plot.
+        bandColorDict (dict): Dictionary mapping band names to color codes.
+        nRMSBins (int, optional): Number of RMS bins to use (default is 30).
+
+    Returns:
+        None. Saves the cumulative RMS area plot to the specified path.
+    """
+
+    rmsDirPath = startup.config['productsDir'] + os.path.sep + 'rms'
+    rmsFiles = sorted(glob.glob(rmsDirPath + os.path.sep + "*rms.fits"))
+
+    rmsBins = np.linspace(0, 2e-4, nRMSBins)
+    binCentres = 0.5 * (rmsBins[1:] + rmsBins[:-1])
+    binCentresMuJy = binCentres * 1e6
+    fluxUnitLabel = r'$\mu$Jy'
+
+    orderedBands = list(bandColorDict.keys())
+    globalRMSAreaDict = {band: np.zeros(len(binCentres)) for band in orderedBands}
+
+    # Loop over RMS files
+    for rmsFile in rmsFiles:
+        rmsFileHeader = fits.getheader(rmsFile)
+        bandFreqHz = rmsFileHeader['CRVAL4']
+        bandKey = tasks.getBandKey(bandFreqHz * 1e-9)
+
+        if bandKey not in globalRMSAreaDict:
+            print("Skipping unrecognised band:", rmsFile)
+            continue
+
+        baseName = os.path.basename(rmsFile).split('.fits')[0]
+        rmsHistFile = os.path.join(rmsDirPath, baseName + "_rmshist.txt")
+
+        if os.path.exists(rmsHistFile):
+            rmsHistFromFile = np.loadtxt(rmsHistFile)
+            binCentresFile, _, areaSqDegFile = rmsHistFromFile[:, 0], rmsHistFromFile[:, 1], rmsHistFromFile[:, 2]
+
+            if len(binCentres) != len(binCentresFile) or not np.allclose(binCentres, binCentresFile):
+                countsInBins, areaSqDegInBins = _getRMSHistogram(rmsFile, rmsBins)
+                np.savetxt(rmsHistFile, np.column_stack((binCentres, countsInBins, areaSqDegInBins)))
+            else:
+                areaSqDegInBins = areaSqDegFile
+        else:
+            countsInBins, areaSqDegInBins = _getRMSHistogram(rmsFile, rmsBins)
+            np.savetxt(rmsHistFile, np.column_stack((binCentres, countsInBins, areaSqDegInBins)))
+
+        globalRMSAreaDict[bandKey] += areaSqDegInBins
+
+    # Compute cumulative area
+
+    fig,ax=plt.subplots(nrows=1,ncols=3,sharex=True, sharey=False)
+    fig.set_size_inches(12,3)
+
+    for bandi, band in enumerate(orderedBands):
+        cumulativeArea = np.cumsum(globalRMSAreaDict[band])
+
+        positiveMask = cumulativeArea > 0
+
+        ax[bandi].plot(binCentresMuJy[positiveMask], cumulativeArea[positiveMask],
+                drawstyle='steps-mid', color=bandColorDict[band])
+
+        ax[bandi].set_xlabel("RMS Noise (%s/beam)" % fluxUnitLabel)
+        ax[bandi].set_xlim(0, 200)
+        ax[bandi].text(0.5,0.10, "%s band" %(band),transform=ax[bandi].transAxes,ha='center')
+
+
+    ax[0].set_ylabel("Cumulative Area (sq. deg.)")
+    #ax.set_xscale('log')
+    #ax.set_yscale('log')
+
+    plt.savefig(plotOutPath, dpi=700, bbox_inches='tight')
+    plt.close()
+    print("\nCumulative RMS area plotted!\n")

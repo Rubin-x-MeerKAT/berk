@@ -16,6 +16,15 @@ from . import __version__
 import datetime
 
 #------------------------------------------------------------------------------------------------------------
+def IsFixingRARequired(RAValues):
+    diffsRA = np.diff(np.sort(RAValues))
+    maxGap = np.max(diffsRA)
+    if maxGap > 180.0:
+        return True
+    else:
+        return False
+
+#------------------------------------------------------------------------------------------------------------
 def fixRA(table, raCol='RA', wrapAngle=360):
     """Returns table with corrected RA wrap.
 
@@ -27,8 +36,17 @@ def fixRA(table, raCol='RA', wrapAngle=360):
     Returns:
         :obj:`~astropy.table.Table`: Table with RA values wrapped to [0, 360) range.
     """
+    print("\nFixing RA with wrap angle = %0.2f deg..." %wrapAngle)
     fixTable = table.copy()
     fixTable[raCol] = Longitude(table[raCol], unit=u.deg, wrap_angle=wrapAngle * u.deg).value
+    if IsFixingRARequired(fixTable[raCol]) is True:
+        newWrapAngle = 180.0 if wrapAngle == 360 else 360
+        print("\nWrapping at %0.2f deg did not make it continuous. Wrapping at %0.2f deg" %(wrapAngle, newWrapAngle))
+        fixTable[raCol] = Longitude(table[raCol], unit=u.deg, wrap_angle=newWrapAngle * u.deg).value
+        if IsFixingRARequired(fixTable[raCol]) is True:
+            print("\nWrapping at %0.2f deg did not make it continuous as well. Check the sample well." %(newWrapAngle))
+            return None
+
     return fixTable
 
 #------------------------------------------------------------------------------------------------------------

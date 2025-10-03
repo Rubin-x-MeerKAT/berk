@@ -151,7 +151,7 @@ def builddb():
     for t in tabFilesList:
         if t.find("srl_bdsfcat") == -1:
             tab=atpy.Table().read(t)
-            if any(tab['RA'] < 0.0):
+            if catalogs.IsFixingRARequired(tab['RA']) is True:
                 tab = catalogs.fixRA(tab, raCol='RA', wrapAngle=360)
             freqGHz=tab.meta['FREQ0']/1e9
             bandKey=getBandKey(freqGHz)
@@ -270,7 +270,7 @@ def xmatch():
     optBandToMatch = 'r'
     searchRadiusArcsec = 4.0
 
-    globalBestXmatchTabName=startup.config['productsDir']+os.path.sep+"xmatchCat_%s%s_%s_%sasec.fits" %(optSurvey,
+    globalBestXmatchTabName=startup.config['productsDir']+os.path.sep+"xmatchCat_zphot_%s%s_%s_%sasec.fits" %(optSurvey,
                                                                                                     optSurveyDR,
                                                                                                     optBandToMatch,
                                                                                                     str(searchRadiusArcsec).replace('.', 'p'))
@@ -286,7 +286,7 @@ def xmatch():
         # making a subscript for this particular match
         outSubscript = '%s_%s%s_%sband_%sasec' %(catalogName.replace('.fits',''), optSurvey, optSurveyDR, optBandToMatch, str(searchRadiusArcsec).replace(".","p"))
 
-        xmatchDirPath = os.path.join(startup.config['productsDir'], 'xmatches')
+        xmatchDirPath = os.path.join(startup.config['productsDir'], 'xmatches_zphot')
         os.makedirs(xmatchDirPath, exist_ok = True)
 
         radCatTab = atpy.Table().read(radCat)
@@ -307,7 +307,7 @@ def xmatch():
                                                     radEMinCol='E_Min', radPACol='PA',
                                                     outSubscript=outSubscript,
                                                     optPosErrAsecValue=0.2, nMagBins=15, beamSizeArcsecValue=6.0,
-                                                    saveFiles = True, skipIfExists=True
+                                                    skipIfExists=True
                                                     )
 
         if xmatchTab:
@@ -509,16 +509,42 @@ def summarize():
     """Summarize the progress in berk processing.
 
     """
+
+    imagesFileName = startup.config['productsDir']+os.path.sep+"images.fits"
+    xmatchFileName = startup.config['productsDir']+os.path.sep+"xmatchCat_DECaLSDR10_r_4p0asec.fits"
+
+    imagesTab = atpy.Table().read(imagesFileName)
+    xmatchTab = atpy.Table().read(xmatchFileName)
+
+    bandColorDict={'L': '#e35c1e', 'UHF': '#1e21e3', 'S': '#145a32'}
+    orderedBands = list(bandColorDict.keys())
+
+    # Printing summary
+
     print("\n" + "═" * 50)
     print("║ SUMMARY OF MEERKAT DATA PROCESSING ║".center(50))
     print("═" * 50 + "\n")
 
+    for band in orderedBands:
+        bandMaskImages = imagesTab['band'] == band
+        bandDataImages = imagesTab[bandMaskImages]
+        bandCountImages = len(bandDataImages)
+        bandTotalArea = bandDataImages['skyArea_sqDeg'].sum()
 
-    imagesFileName = startup.config['productsDir']+os.path.sep+"images.fits"
+        catFileName = startup.config['productsDir']+os.path.sep+"survey_catalog_%s.fits" %band
+        catalogTab = atpy.Table().read(catFileName)
+        nPybdsfSources = len(catalogTab)
 
-    imagesTab = atpy.Table().read(imagesFileName)
+        bandMaskXmatches = xmatchTab['band'] == band
+        bandDataXmatches = xmatchTab[bandMaskXmatches]
+        bandCountXmatches = len(bandDataXmatches)
 
-    bandColorDict={'L': '#e35c1e', 'UHF': '#1e21e3', 'S': '#145a32'}
+        print("\n---------------- %s band --------------------" %band)
+        print("\nNumber of pointings: %d \
+                \nTotal area: %.3f sq. deg. \
+                \nNumber of PyBDSF sources: %d \
+              \n Number of DECaLS cross-matches: %d\n" % (bandCountImages, bandTotalArea, nPybdsfSources, bandCountXmatches))
+
 
     # Plotting sky coverage
 
@@ -529,7 +555,7 @@ def summarize():
     # Plotting sourcecount
 
     sourceCountPlotName = startup.config['productsDir']+os.path.sep+'MeerKAT_sourcecount.png'
-    summaryPlots.plotSourceCounts(imagesTab, fluxCol='Total_flux', bandColorDict=bandColorDict, nFluxBins=39, plotOutPath=sourceCountPlotName)
+    summaryPlots.plotSourceCounts(imagesTab, fluxCol='Total_flux', bandColorDict=bandColorDict, nFluxBins=39, plotOutPath=sourceCountPlotName, plotMALS=True, plotLOFAR=True)
 
     # Plotting RMS coverage
     #rmsCoveragePlotName = startup.config['productsDir']+os.path.sep+'MeerKAT_RMS_coverage.png'
@@ -537,9 +563,9 @@ def summarize():
 
     # Plotting RMS area coverage
 
-    rmsAreaCoveragePlotName = startup.config['productsDir']+os.path.sep+'MeerKAT_RMS_area.png'
+    rmsAreaCoveragePlotName = startup.config['productsDir']+os.path.sep+'MeerKAT_RMS_area_cumulative.png'
 
-    summaryPlots.plotRMSAreaCoverage(rmsAreaCoveragePlotName, bandColorDict)
+    summaryPlots.plotRMSAreaCoverageCumulative(rmsAreaCoveragePlotName, bandColorDict, nRMSBins=50)
 
 #------------------------------------------------------------------------------------------------------------
 def report():

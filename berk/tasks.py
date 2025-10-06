@@ -151,7 +151,8 @@ def builddb():
     for t in tabFilesList:
         if t.find("srl_bdsfcat") == -1:
             tab=atpy.Table().read(t)
-            if catalogs.IsFixingRARequired(tab['RA']) is True:
+            if any(tab['RA'] < 0.0):
+                # This pybdsf catalog has -180 to 180 wrapping. Need to change to 360 wrapping
                 tab = catalogs.fixRA(tab, raCol='RA', wrapAngle=360)
             freqGHz=tab.meta['FREQ0']/1e9
             bandKey=getBandKey(freqGHz)
@@ -279,9 +280,10 @@ def xmatch():
     globalBestXmatchTab=None
     radCatFilesList=sorted(glob.glob(startup.config['productsDir']+os.path.sep+'catalogs'+os.path.sep+'*srl_bdsfcat.fits'))
 
+
+
     for radCat in radCatFilesList:
         catalogName = radCat.split(os.path.sep)[-1]
-        captureBlockId = catalogName.split('_')[3]
 
         # making a subscript for this particular match
         outSubscript = '%s_%s%s_%sband_%sasec' %(catalogName.replace('.fits',''), optSurvey, optSurveyDR, optBandToMatch, str(searchRadiusArcsec).replace(".","p"))

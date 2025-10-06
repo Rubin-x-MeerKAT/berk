@@ -11,18 +11,50 @@ from astropy.coordinates import SkyCoord, Longitude
 from astropy.coordinates import match_coordinates_sky
 from astropy import units as u
 from . import __version__
+import os
 
 # For adding meta data to output
 import datetime
 
 #------------------------------------------------------------------------------------------------------------
+def listCatalogInFile(catalogName, outFileName):
+    """
+    Append or create a text file to record the name of a radio catalogue with no optical counterpart.
+
+    Args:
+        catalogName (:obj:`str`): Name or identifier of the radio catalogue without an optical match.
+        outFileName (:obj:`str`): Path to the output text file where the catalogue name will be recorded.
+
+    Returns:
+        :obj:`int`: Returns 0 upon successful write operation.
+    """
+
+    with open(outFileName, 'a', encoding='utf8') as outFile:
+        outFile.write("%s\n" %(catalogName))
+    return 0
+
+#------------------------------------------------------------------------------------------------------------
 def IsFieldContinuous(RAValues):
+    """
+    Check whether a set of right ascension values forms a continuous field
+    without wrapping around the 0°/360° boundary.
+
+    Args:
+        RAValues (:obj:`array-like`): Array or list of RA values in degrees.
+
+    Returns:
+        bool:
+            - True if the RA values form a continuous field (no jump > 180°).
+            - False if there is a large jump indicating the field wraps around
+              the RA=0°/360° boundary.
+    """
+
     diffsRA = np.diff(np.sort(RAValues))
     maxGap = np.max(diffsRA)
     if maxGap > 180.0:
-        return True
-    else:
         return False
+    else:
+        return True
 
 #------------------------------------------------------------------------------------------------------------
 def fixRA(table, raCol='RA', wrapAngle=360):
@@ -36,16 +68,13 @@ def fixRA(table, raCol='RA', wrapAngle=360):
     Returns:
         :obj:`~astropy.table.Table`: Table with RA values wrapped to [0, 360) range.
     """
-    print("\nFixing RA with wrap angle = %0.2f deg..." %wrapAngle)
     fixTable = table.copy()
     fixTable[raCol] = Longitude(table[raCol], unit=u.deg, wrap_angle=wrapAngle * u.deg).value
-    if IsFieldContinuous(fixTable[raCol]) is True:
+    if IsFieldContinuous(fixTable[raCol]) is False:
         newWrapAngle = 180.0 if wrapAngle == 360 else 360
-        print("\nWrapping at %0.2f deg did not make it continuous. Wrapping at %0.2f deg" %(wrapAngle, newWrapAngle))
         fixTable[raCol] = Longitude(table[raCol], unit=u.deg, wrap_angle=newWrapAngle * u.deg).value
-        if IsFieldContinuous(fixTable[raCol]) is True:
-            print("\nWrapping at %0.2f deg did not make it continuous as well. Check the sample well." %(newWrapAngle))
-            return None
+        if IsFieldContinuous(fixTable[raCol]) is False:
+            print("\nIssue with RA wrap fixing for table of " %table.meta['INIMAGE'])
 
     return fixTable
 

@@ -146,14 +146,20 @@ def builddb():
     # Build global catalog in each band (L-band, UHF)
     globalTabsDict={'L': None, 'UHF': None, 'S': None}
 
+    # File to list the catalogues with wrapping issue
+    catWrapIssueList = startup.config['productsDir']+os.path.sep+'catalogs_wrappingissue.txt'
+    if os.path.exists(catWrapIssueList):
+        os.remove(catWrapIssueList)
+
     # Fixing RA
-    tabFilesList=glob.glob(startup.config['productsDir']+os.path.sep+'catalogs'+os.path.sep+'*_bdsfcat.fits')
+    tabFilesList=sorted(glob.glob(startup.config['productsDir']+os.path.sep+'catalogs'+os.path.sep+'*_bdsfcat.fits'))
     for t in tabFilesList:
         if t.find("srl_bdsfcat") == -1:
             tab=atpy.Table().read(t)
             if any(tab['RA'] < 0.0):
                 # This pybdsf catalog has -180 to 180 wrapping. Need to change to 360 wrapping
                 tab = catalogs.fixRA(tab, raCol='RA', wrapAngle=360)
+                catalogs.listCatalogInFile(t, catWrapIssueList)
             freqGHz=tab.meta['FREQ0']/1e9
             bandKey=getBandKey(freqGHz)
             #tab.meta=None # It'd be good to clear this... but the catalog matching stuff wants many things from here
@@ -302,7 +308,6 @@ def xmatch():
                                                     optSurveyDR=optSurveyDR,
                                                     optMagCol = optBandToMatch,
                                                     searchRadiusArcsec = searchRadiusArcsec,
-                                                    makePlots=True,
                                                     radRACol='RA', radERACol='E_RA',
                                                     radDecCol='DEC', radEDecCol='E_DEC',
                                                     radEMajCol='E_Maj',

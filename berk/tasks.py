@@ -267,27 +267,33 @@ def builddb():
 
     # Generate survey mask in some format - we'll use that to get total survey area
 
-def xmatch():
+def xmatch(optSurveyInput):
     """Does cross-matching...
 
     """
 
-    optSurvey = 'RubinDP1'
-    #optSurvey = 'DECaLSDR10'
+    optSurveyParamDict = {'decalsdr10': {'surveyTag': 'DECaLSDR10',
+                                         'optPosErrAsecValue': 0.2},
+                          'rubindp1': {'surveyTag': 'RubinDP1',
+                                         'optPosErrAsecValue': 0.05}}
+
+    optSurvey = optSurveyParamDict[optSurveyInput]['surveyTag']
+    optPosErrAsecValue = optSurveyParamDict[optSurveyInput]['optPosErrAsecValue']
     optBandToMatch = 'r'
     searchRadiusArcsec = 4.0
-    optPosErrAsecValueDict = {'DECaLSDR10': 0.2,
-                              'RubinDP1': 0.05}
+
+    print("\n" + "═" * 100)
+    print("\n" + "═" * 100)
+    print("║ Cross-matching with %s ║" %optSurvey)
+    print("═" * 100 + "\n")
+    print("═" * 100 + "\n")
 
     globalBestXmatchTabName=startup.config['productsDir']+os.path.sep+"xmatchCat_zphot_%s_%s_%sasec.fits" %(optSurvey,
                                                                                                     optBandToMatch,
                                                                                                     str(searchRadiusArcsec).replace('.', 'p'))
 
-
     globalBestXmatchTab=None
     radCatFilesList=sorted(glob.glob(startup.config['productsDir']+os.path.sep+'catalogs'+os.path.sep+'*srl_bdsfcat.fits'))
-
-
 
     for radCat in radCatFilesList:
         catalogName = radCat.split(os.path.sep)[-1]
@@ -313,7 +319,7 @@ def xmatch():
                                                     radEMajCol='E_Maj',
                                                     radEMinCol='E_Min', radPACol='PA',
                                                     outSubscript=outSubscript,
-                                                    optPosErrAsecValue=optPosErrAsecValueDict[optSurvey], nMagBins=15, beamSizeArcsecValue=6.0,
+                                                    optPosErrAsecValue=optPosErrAsecValue, nMagBins=15, beamSizeArcsecValue=6.0,
                                                     skipIfExists=True
                                                     )
 

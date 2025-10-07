@@ -17,6 +17,37 @@ from collections import defaultdict
 from astropy.units import Quantity
 import requests
 import pyvo as vo
+from dl import authClient as ac
+from getpass import getpass
+
+def DLLogin(username=None, password=None, max_attempts=3):
+    """
+    Logs into Data Lab and returns a token.
+    Prompts user if username/password are not provided.
+    Retries up to max_attempts times if login fails.
+    """
+    username = username or os.getenv("DL_USERNAME")
+    password = password or os.getenv("DL_PASSWORD")
+
+    if username is None:
+        username = input("Enter Data Lab username: ")
+
+    attempt = 0
+    while attempt < max_attempts:
+        if password is None:
+            password = getpass("Enter Data Lab password: ")
+
+        try:
+            token = ac.login(username, password)
+            print("\nLogin to %s successful!" %ac.whoAmI())
+            return token
+        except Exception as e:
+            print("\nLogin failed:", e)
+            password = None  # prompt again on next loop
+            attempt += 1
+
+    # If we get here, all attempts failed
+    raise RuntimeError("Failed to login to Data Lab after %d attempts." % max_attempts)
 
 def filterBadRows(table, columnsToCheck, badValues=[99., 999., -99., -999.]):
     """
@@ -395,13 +426,16 @@ def retrieveDECaLSDR10(centerRA, centerDec, radiusDeg):
         :obj:`Exception`: If a data release other than 'DR10' is requested.
     """
 
+    token = DLLogin()
+
     print("\nRetrieving DECaLS DR10 sources with RA_central=%.2f deg, Dec_central=%.2f deg, and radius=%.2f deg" \
           % (centerRA, centerDec, radiusDeg))
     zClusterCacheDir = os.environ['ZCLUSTER_CACHE']+os.path.sep+"zCluster"+os.path.sep+"cache"
     resultRetrieve = retrievers.DL_DECaLSDR10RetrieverPhotoZ(centerRA, centerDec,
                                                              halfBoxSizeDeg = radiusDeg,
                                                              DR = None,
-                                                             optionsDict={'altCacheDir': zClusterCacheDir})
+                                                             optionsDict={'altCacheDir': zClusterCacheDir,
+                                                                          'token': token})
 
     if resultRetrieve is not None:
         decalsCat = Table(resultRetrieve)
@@ -727,7 +761,7 @@ def xmatchRadioOptical(radioCatFilePath, radioBand, xmatchDirPath, optSurvey, op
     xmatchBestMatchTabName = xmatchIndividualDirPath+os.path.sep+"xmatchtable_bestmatches_%s" %outSubscript+".fits"
 
     print("\n" + "═" * 100)
-    print("║ Cross-matching %s ║" %radCatName)
+    print("║ Radio catalogue: %s ║" %radCatName)
     print("═" * 100 + "\n")
 
     if skipIfExists is True:
@@ -769,7 +803,7 @@ def xmatchRadioOptical(radioCatFilePath, radioBand, xmatchDirPath, optSurvey, op
         print("\nERROR: Required columns of radio catalogue is not well set!")
         return None
 
-    if any(radioSources[radRACol]) < 0.0:
+    if any(radioSources[radRACol] < 0.0):
         # This pybdsf catalog has -180 to 180 wrapping. Need to change to 360 wrapping
         radioSources = catalogs.fixRA(radioSources, raCol=radRACol, wrapAngle=360)
 

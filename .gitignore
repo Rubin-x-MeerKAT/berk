@@ -1,0 +1,8 @@
+# Python bytecode
+__pycache__/
+berk/__pycache__/
+*.py[cod]
+
+# BERK build and package metadata
+build/
+berk.egg-info/

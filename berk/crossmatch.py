@@ -760,14 +760,9 @@ def xmatchRadioOptical(radioCatFilePath, radioBand, xmatchDirPath, optSurvey, op
     xmatchTabName = xmatchIndividualDirPath+os.path.sep+"xmatchtable_%s" %outSubscript+".fits"
     xmatchBestMatchTabName = xmatchIndividualDirPath+os.path.sep+"xmatchtable_bestmatches_%s" %outSubscript+".fits"
 
-    print("\n" + "═" * 100)
-    print("║ Radio catalogue: %s ║" %radCatName)
-    print("═" * 100 + "\n")
-
     if skipIfExists is True:
         doesItExist = os.path.exists(xmatchBestMatchTabName) and os.path.exists(xmatchTabName)
         if doesItExist:
-            print("%s cross-match table exists! Skipping to next radio catalogue.\n" %radCatName)
             xmatchTable = Table.read(xmatchBestMatchTabName)
             return xmatchTable
 
@@ -789,6 +784,10 @@ def xmatchRadioOptical(radioCatFilePath, radioBand, xmatchDirPath, optSurvey, op
             noOptCounterpartsCatNames = [line.strip() for line in infile]
         if radCatName in noOptCounterpartsCatNames:
             return None
+
+    print("\n" + "-" * 100)
+    print("║ Radio catalogue: %s ║" %radCatName)
+    print("-" * 100 + "\n")
 
     optPosErrValueDeg = (optPosErrAsecValue*u.arcsec).to(u.deg).value
 

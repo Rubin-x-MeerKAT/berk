@@ -282,11 +282,9 @@ def xmatch(optSurveyInput):
     optBandToMatch = 'r'
     searchRadiusArcsec = 4.0
 
-    print("\n" + "═" * 100)
-    print("\n" + "═" * 100)
+    print("\n" + "═" * 40)
     print("║ Cross-matching with %s ║" %optSurvey)
-    print("═" * 100 + "\n")
-    print("═" * 100 + "\n")
+    print("═" * 40 + "\n")
 
     globalBestXmatchTabName=startup.config['productsDir']+os.path.sep+"xmatchCat_zphot_%s_%s_%sasec.fits" %(optSurvey,
                                                                                                     optBandToMatch,
@@ -328,6 +326,10 @@ def xmatch(optSurveyInput):
                 globalBestXmatchTab = xmatchTab
             else:
                 globalBestXmatchTab = atpy.vstack([globalBestXmatchTab, xmatchTab])
+
+    if globalBestXmatchTab is None:
+        print("\nNo radio catalogs had successful cross-matching with %s!\n" %optSurvey)
+        return
 
     globalBestXmatchTab.write(globalBestXmatchTabName, overwrite = True)
     print("\n" + "-" * 100)

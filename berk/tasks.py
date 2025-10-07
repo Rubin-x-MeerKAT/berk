@@ -272,13 +272,14 @@ def xmatch():
 
     """
 
-    optSurvey = 'DECaLS'
-    optSurveyDR = 'DR10'
+    optSurvey = 'RubinDP1'
+    #optSurvey = 'DECaLSDR10'
     optBandToMatch = 'r'
     searchRadiusArcsec = 4.0
+    optPosErrAsecValueDict = {'DECaLSDR10': 0.2,
+                              'RubinDP1': 0.05}
 
-    globalBestXmatchTabName=startup.config['productsDir']+os.path.sep+"xmatchCat_zphot_%s%s_%s_%sasec.fits" %(optSurvey,
-                                                                                                    optSurveyDR,
+    globalBestXmatchTabName=startup.config['productsDir']+os.path.sep+"xmatchCat_zphot_%s_%s_%sasec.fits" %(optSurvey,
                                                                                                     optBandToMatch,
                                                                                                     str(searchRadiusArcsec).replace('.', 'p'))
 
@@ -292,9 +293,9 @@ def xmatch():
         catalogName = radCat.split(os.path.sep)[-1]
 
         # making a subscript for this particular match
-        outSubscript = '%s_%s%s_%sband_%sasec' %(catalogName.replace('.fits',''), optSurvey, optSurveyDR, optBandToMatch, str(searchRadiusArcsec).replace(".","p"))
+        outSubscript = '%s_%s_%sband_%sasec' %(catalogName.replace('.fits',''), optSurvey, optBandToMatch, str(searchRadiusArcsec).replace(".","p"))
 
-        xmatchDirPath = os.path.join(startup.config['productsDir'], 'xmatches_zphot')
+        xmatchDirPath = os.path.join(startup.config['productsDir'], 'xmatches_%s' %optSurvey)
         os.makedirs(xmatchDirPath, exist_ok = True)
 
         radCatTab = atpy.Table().read(radCat)
@@ -305,7 +306,6 @@ def xmatch():
                                                     radioBand=radBandName,
                                                     xmatchDirPath=xmatchDirPath,
                                                     optSurvey=optSurvey,
-                                                    optSurveyDR=optSurveyDR,
                                                     optMagCol = optBandToMatch,
                                                     searchRadiusArcsec = searchRadiusArcsec,
                                                     radRACol='RA', radERACol='E_RA',
@@ -313,7 +313,7 @@ def xmatch():
                                                     radEMajCol='E_Maj',
                                                     radEMinCol='E_Min', radPACol='PA',
                                                     outSubscript=outSubscript,
-                                                    optPosErrAsecValue=0.2, nMagBins=15, beamSizeArcsecValue=6.0,
+                                                    optPosErrAsecValue=optPosErrAsecValueDict[optSurvey], nMagBins=15, beamSizeArcsecValue=6.0,
                                                     skipIfExists=True
                                                     )
 

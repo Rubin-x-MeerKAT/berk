@@ -329,7 +329,7 @@ def plotRMSAreaCoverageDifferential(plotOutPath, bandColorDict, nRMSBins=30):
     plt.close()
     print("\nRMS Area coverage plotted!\n")
 
-def plotRMSAreaCoverageCumulative(plotOutPath, bandColorDict, nRMSBins=30):
+def plotRMSAreaCoverageCumulative(coveragePlotOutPath, fractionPlotOutPath, bandColorDict, bandTotalAreaDict, nRMSBins=30):
     """Plot cumulative sky area as a function of RMS noise for all bands.
 
     Args:
@@ -380,7 +380,7 @@ def plotRMSAreaCoverageCumulative(plotOutPath, bandColorDict, nRMSBins=30):
 
         globalRMSAreaDict[bandKey] += areaSqDegInBins
 
-    # Compute cumulative area
+    # Plot cumulative area
 
     fig,ax=plt.subplots(nrows=1,ncols=3,sharex=True, sharey=False)
     fig.set_size_inches(12,3)
@@ -402,6 +402,32 @@ def plotRMSAreaCoverageCumulative(plotOutPath, bandColorDict, nRMSBins=30):
     #ax.set_xscale('log')
     #ax.set_yscale('log')
 
-    plt.savefig(plotOutPath, dpi=700, bbox_inches='tight')
+    plt.savefig(coveragePlotOutPath, dpi=700, bbox_inches='tight')
     plt.close()
     print("\nCumulative RMS area plotted!\n")
+
+    # Plot cumulative area fraction
+
+    fig,ax=plt.subplots(nrows=1,ncols=3,sharex=True, sharey=False)
+    fig.set_size_inches(12,3)
+
+    for bandi, band in enumerate(orderedBands):
+        cumulativeArea = np.cumsum(globalRMSAreaDict[band])
+
+        positiveMask = cumulativeArea > 0
+
+        ax[bandi].plot(binCentresMuJy[positiveMask], cumulativeArea[positiveMask]/bandTotalAreaDict[band],
+                drawstyle='steps-mid', color=bandColorDict[band])
+
+        ax[bandi].set_xlabel("RMS Noise (%s/beam)" % fluxUnitLabel)
+        #ax[bandi].set_xlim(0, 200)
+        ax[bandi].text(0.5,0.10, "%s band" %(band),transform=ax[bandi].transAxes,ha='center')
+
+
+    ax[0].set_ylabel("Fraction of cumulative Area")
+    #ax.set_xscale('log')
+    #ax.set_yscale('log')
+
+    plt.savefig(fractionPlotOutPath, dpi=700, bbox_inches='tight')
+    plt.close()
+    print("\nCumulative RMS area fraction plotted!\n")

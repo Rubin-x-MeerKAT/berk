@@ -534,6 +534,7 @@ def summarize():
 
     bandColorDict={'L': '#e35c1e', 'UHF': '#1e21e3', 'S': '#145a32'}
     orderedBands = list(bandColorDict.keys())
+    bandTotalAreaDict = {}
 
     # Printing summary
 
@@ -546,6 +547,7 @@ def summarize():
         bandDataImages = imagesTab[bandMaskImages]
         bandCountImages = len(bandDataImages)
         bandTotalArea = bandDataImages['skyArea_sqDeg'].sum()
+        bandTotalAreaDict[band] = bandTotalArea
 
         catFileName = startup.config['productsDir']+os.path.sep+"survey_catalog_%s.fits" %band
         catalogTab = atpy.Table().read(catFileName)
@@ -580,8 +582,9 @@ def summarize():
     # Plotting RMS area coverage
 
     rmsAreaCoveragePlotName = startup.config['productsDir']+os.path.sep+'MeerKAT_RMS_area_cumulative.png'
+    rmsAreaFractionPlotName = startup.config['productsDir']+os.path.sep+'MeerKAT_RMS_area_cumulative_fraction.png'
 
-    summaryPlots.plotRMSAreaCoverageCumulative(rmsAreaCoveragePlotName, bandColorDict, nRMSBins=50)
+    summaryPlots.plotRMSAreaCoverageCumulative(rmsAreaCoveragePlotName, rmsAreaFractionPlotName, bandColorDict, bandTotalAreaDict, nRMSBins=50)
 
 #------------------------------------------------------------------------------------------------------------
 def report():

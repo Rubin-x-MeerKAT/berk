@@ -160,6 +160,7 @@ def builddb():
                 # This pybdsf catalog has -180 to 180 wrapping. Need to change to 360 wrapping
                 tab = catalogs.fixRA(tab, raCol='RA', wrapAngle=360)
                 catalogs.listCatalogInFile(t, catWrapIssueList)
+            tab = tab[tab['Total_flux'] > 0.0] # ignoring negative flux entries
             freqGHz=tab.meta['FREQ0']/1e9
             bandKey=getBandKey(freqGHz)
             #tab.meta=None # It'd be good to clear this... but the catalog matching stuff wants many things from here
@@ -526,7 +527,7 @@ def summarize():
     """
 
     imagesFileName = startup.config['productsDir']+os.path.sep+"images.fits"
-    xmatchFileName = startup.config['productsDir']+os.path.sep+"xmatchCat_DECaLSDR10_r_4p0asec.fits"
+    xmatchFileName = startup.config['productsDir']+os.path.sep+"xmatchCat_zphot_DECaLSDR10_r_4p0asec.fits"
 
     imagesTab = atpy.Table().read(imagesFileName)
     xmatchTab = atpy.Table().read(xmatchFileName)

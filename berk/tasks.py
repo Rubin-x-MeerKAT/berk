@@ -215,7 +215,8 @@ def builddb():
         imgFileName = pathName.split(os.path.sep)[-1]
         commonFilenamePart = imgFileName.split('.ms_pcalmask-MFS-image.fits')[0]
         commonFilenamePartForCat = commonFilenamePart.split(".")[0]
-        radCatPath = startup.config['productsDir']+os.path.sep+"catalogs"+os.path.sep+commonFilenamePartForCat+"_srl_bdsfcat.fits"
+        radCatName = "catalogs"+os.path.sep+commonFilenamePartForCat+"_srl_bdsfcat.fits"
+        radCatPath = startup.config['productsDir']+os.path.sep+radCatName
 
         if not os.path.exists(radCatPath):
             nPybdsfSources = -99
@@ -232,7 +233,7 @@ def builddb():
         statDict['captureBlockId']=captureBlockId
         statDict['path']=pathName
         statDict['band']=getBandKey(statDict['freqGHz'])
-        statDict['radioCatPath']=radCatPath
+        statDict['radioCatPath']=radCatName
         statDict['nRadioSources']=nPybdsfSources
         statsDictList.append(statDict)
 

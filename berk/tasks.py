@@ -206,11 +206,23 @@ def builddb():
         existingImgTab = None
         processedImages = set()
 
-    imgFilesList=glob.glob(startup.config['productsDir']+os.path.sep+"images"+os.path.sep+"pbcorr_*.fits")
+    imgFilesList=sorted(glob.glob(startup.config['productsDir']+os.path.sep+"images"+os.path.sep+"pbcorr_*.fits"))
     statsDictList=[]
 
     for imgFile in imgFilesList:
         pathName = imgFile.replace(startup.config['productsDir']+os.path.sep, '')
+
+        imgFileName = pathName.split(os.path.sep)[-1]
+        commonFilenamePart = imgFileName.split('.ms_pcalmask-MFS-image.fits')[0]
+        commonFilenamePartForCat = commonFilenamePart.split(".")[0]
+        radCatPath = startup.config['productsDir']+os.path.sep+"catalogs"+os.path.sep+commonFilenamePartForCat+"_srl_bdsfcat.fits"
+
+        if not os.path.exists(radCatPath):
+            nPybdsfSources = -99
+            radCatPath = '-'
+        else:
+            radCatTab = atpy.Table.read(radCatPath)
+            nPybdsfSources = len(radCatTab)
 
         if (pathName in processedImages):
             continue #avoiding recomputing statistics
@@ -220,6 +232,8 @@ def builddb():
         statDict['captureBlockId']=captureBlockId
         statDict['path']=pathName
         statDict['band']=getBandKey(statDict['freqGHz'])
+        statDict['radioCatPath']=radCatPath
+        statDict['nRadioSources']=nPybdsfSources
         statsDictList.append(statDict)
 
     if statsDictList:

@@ -268,7 +268,7 @@ def builddb():
 
     # Generate survey mask in some format - we'll use that to get total survey area
 
-def xmatch(optSurveyInput):
+def xmatch(optSurveyInput='decalsdr10'):
     """Does cross-matching...
 
     """
@@ -322,7 +322,10 @@ def xmatch(optSurveyInput):
                                                     skipIfExists=True
                                                     )
 
-        if xmatchTab:
+        if xmatchTab is not None:
+            if 'radCatPath' not in xmatchTab.columns:
+                radCatPathName = radCat.replace(startup.config['productsDir']+os.path.sep, '')
+                xmatchTab.add_column(radCatPathName, name='radCatPath', index=0)
             if globalBestXmatchTab is None:
                 globalBestXmatchTab = xmatchTab
             else:

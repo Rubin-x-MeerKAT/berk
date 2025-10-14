@@ -25,8 +25,8 @@ PBS_TEMPLATE="""#!/bin/sh
 #PBS -P $PBS_PROJECT
 #PBS -q $PBS_QUEUE
 #PBS -l walltime=$TIME
+#PBS -j oe
 #PBS -o $JOBNAME.log
-#PBS -e $JOBNAME.err
 #PBS -m abe
 #PBS -M $PBS_EMAIL
 ulimit -s unlimited

@@ -220,8 +220,9 @@ def builddb():
 
         if not os.path.exists(radCatPath):
             nPybdsfSources = -99
-            radCatPath = '-'
+            radCatNameToImages = '-'
         else:
+            radCatNameToImages = radCatName
             radCatTab = atpy.Table.read(radCatPath)
             nPybdsfSources = len(radCatTab)
 
@@ -233,7 +234,7 @@ def builddb():
         statDict['captureBlockId']=captureBlockId
         statDict['path']=pathName
         statDict['band']=getBandKey(statDict['freqGHz'])
-        statDict['radioCatPath']=radCatName
+        statDict['radioCatPath']=radCatNameToImages
         statDict['nRadioSources']=nPybdsfSources
         statsDictList.append(statDict)
 

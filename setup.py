@@ -10,5 +10,5 @@ setup(name='berk',
       author='Matt Hilton, Unnikrishnan Sureshkumar',
       author_email='matt.hilton@wits.ac.za',
       packages=['berk'],
-      scripts=['bin/berk', 'bin/berk_chain', 'bin/mkat_primary_beam_correct', 'bin/xmatch'],
+      scripts=['bin/berk', 'bin/berk_chain', 'bin/mkat_primary_beam_correct', 'bin/xmatch', 'bin/plot_image'],
 )

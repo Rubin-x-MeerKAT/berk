@@ -112,17 +112,23 @@ def plotImages(imgFilePath, outDirName=os.getcwd(), colorMap = 'viridis', vmin =
             imageData=imageData[0, 0]
         assert(imageData.ndim == 2)
 
-    fluxUnit = imageHeader.get('BUNIT').strip()
+    if 'BUNIT' in imageHeader:
+        fluxUnit = imageHeader.get('BUNIT').strip()
+    else:
+        fluxUnit = None
+
     if not fluxUnit:
         print("Unit of flux not found in header, assuming it to be Jy/beam")
         fluxUnit = 'Jy/beam'
-        fluxUnitLab = 'Jy/beam'
 
     fluxUnit = fluxUnit.lower()
     if fluxUnit == 'jy/beam':
         imageData = imageData * 1e6 # converting from Jy/beam to microJy/beam
-        fluxUnit = 'microjy/beam'
-        fluxUnitLab = r'$\mu$Jy/beam'
+    elif fluxUnit == 'mjy/beam':
+        imageData = imageData * 1e3 # converting from mJy/beam to microJy/beam
+
+    fluxUnit = 'microjy/beam'
+    fluxUnitLab = r'$\mu$Jy/beam'
 
     # finding vmin and vmax
     imageDataClean = np.nan_to_num(imageData, nan=-99., posinf=-99., neginf=-99.)

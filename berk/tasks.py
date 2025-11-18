@@ -399,13 +399,31 @@ def collect():
         cmd="rsync -avP %s%s %s" % (s, os.path.sep+catPath, toPath)
         os.system(cmd)
 
-    # Get rms
+    # Get rms maps
     print("Collecting rms images...")
     toPath=startup.config['productsDir']+os.path.sep+"rms"
     os.makedirs(toPath, exist_ok = True)
     for s in stubs:
         rmsPath="processing/*/IMAGES/pbcorr_trim_*_pybdsf/*_rms.fits"
         cmd="rsync -avP %s%s %s" % (s, os.path.sep+rmsPath, toPath)
+        os.system(cmd)
+
+    # Get mean maps
+    print("Collecting mean images...")
+    toPath=startup.config['productsDir']+os.path.sep+"mean"
+    os.makedirs(toPath, exist_ok = True)
+    for s in stubs:
+        meanPath="processing/*/IMAGES/pbcorr_trim_*_pybdsf/*_mean.fits"
+        cmd="rsync -avP %s%s %s" % (s, os.path.sep+meanPath, toPath)
+        os.system(cmd)
+
+    # Get residual maps
+    print("Collecting residual images...")
+    toPath=startup.config['productsDir']+os.path.sep+"residual"
+    os.makedirs(toPath, exist_ok = True)
+    for s in stubs:
+        residualPath="processing/*/IMAGES/pbcorr_trim_*_pybdsf/*_gaus_resid.fits"
+        cmd="rsync -avP %s%s %s" % (s, os.path.sep+residualPath, toPath)
         os.system(cmd)
 
     print("Finished!")

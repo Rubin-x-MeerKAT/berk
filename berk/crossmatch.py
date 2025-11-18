@@ -148,6 +148,19 @@ def getNM(optMag, nBins, areaSqArcsec):
     distNm = optMagHist / (areaSqArcsec * binWidth)
     return distNm
 
+def randomPointsInCircleExactNPoints(centerRA, centerDec, radiusDeg, nPoints):
+    center = SkyCoord(centerRA*u.deg, centerDec*u.deg, frame='icrs')
+
+    # Proper spherical random distribution
+    randR = radiusDeg * np.sqrt(np.random.uniform(0, 1, nPoints))
+    randTheta = np.random.uniform(0, 2*np.pi, nPoints)
+
+    # Offset using spherical geometry
+    coords = center.directional_offset_by(randTheta * u.rad,
+                                          randR * u.deg)
+
+    return coords.ra.deg, coords.dec.deg
+
 def randomPointsInCircle(centerRA, centerDec, radiusDeg, nPoints):
     """
     Generate uniformly distributed random points within a circular area on the sky.

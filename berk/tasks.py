@@ -372,7 +372,7 @@ def collect():
         stubs=[]
         with open(os.environ['BERK_NODES_FILE'], "r") as inFile:
             for line in inFile.readlines():
-                stubs.append(line)
+                stubs.append(line.strip())
     except:
         import urllib.request  # the lib that handles the url stuff
         stubs=[]

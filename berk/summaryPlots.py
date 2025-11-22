@@ -69,41 +69,77 @@ def getS2p5dNdS(SMean, NSources, SBinWidth, skyAreaSqDeg):
     skyAreaSqDeg = np.array(skyAreaSqDeg)
     skyAreaSterdian = ((np.pi/180.)**2)*skyAreaSqDeg # sq. deg to steredian
 
-    sourceCount = SMean**2.5 * (NSources/(SBinWidth*skyAreaSterdian))
+    mask = (SBinWidth > 0) & (skyAreaSterdian > 0)
+    sourceCount = np.full_like(NSources, np.nan, dtype=float)
+    sourceCount[mask] = SMean[mask]**2.5 * (NSources[mask] / (SBinWidth[mask]*skyAreaSterdian[mask]))
+
     return sourceCount
 
-def computeSourceCount(fluxVals, skyAreaSqDeg, fluxMin=None, fluxMax=None, nFluxBins=20):
+def getEffectiveAreaInFluxBinsfromRMS(fluxBinCentres, rmsBinsCentres, cumArea, sigmaDetection=5.0):
+    """Compute the effective survey area accessible for each flux bin using the RMS histogram.
+
+    Args:
+        fluxBinCentres (:obj:`np.ndarray`): Array of flux-bin centres (Jy).
+        rmsBinsCentres (:obj:`np.ndarray`): Array of RMS-bin centres (Jy).
+        cumArea (:obj:`np.ndarray`): Cumulative area (e.g., in deg²) for each RMS bin.
+        sigmaDetection (:obj:`float`, optional): Detection threshold in units of RMS.
+            Default is 5.0.
+
+    Returns:
+        :obj:`np.ndarray`: Effective survey area corresponding to each flux bin.
+    """
+
+    effArea = np.zeros(len(fluxBinCentres))
+
+    for i, fluxMean in enumerate(fluxBinCentres):
+
+        rmsMax = fluxMean / sigmaDetection
+
+        # find which RMS-bin it falls in
+        idx = np.digitize([rmsMax], rmsBinsCentres) - 1
+        idx = np.clip(idx[0], 0, len(rmsBinsCentres)-1)
+
+        effArea[i] = cumArea[idx]
+
+    return effArea
+
+def computeSourceCount(fluxVals, fluxBins, rmsBinCentreJy, cumAreaSqDeg, corrRMSCoverage=True):
     """Compute source counts normalized by S^2.5 for log-spaced flux bins.
 
     Args:
         fluxVals (:obj:`np.ndarray`): Array of flux values.
-        skyAreaSqDeg (:obj:`float`): Array of area (sq. deg) covered in each flux bin.
-        nFluxBins (:obj:`int`, optional): Number of flux bins (default is 20).
+        fluxBins (:obj:`np.ndarray`): Array of flux bins.
+        rmsBinCentreJy (:obj:`float`): Array of RMS bins.
+        cumAreaSqDeg (:obj:`float`): Array of cumulative area in RMS bins.
+        corrRMSCoverage (:obj:`bool`, optional): Corrects for RMS coverage. Default is True.
 
     Returns:
-        tuple: (bin centers, source count values, source count errors).
+        tuple: (bin centers, row counts, row count errors, source count values, source count errors).
     """
 
-    fluxMin = np.min(fluxVals) if fluxMin is None else fluxMin
-    fluxMax = np.max(fluxVals) if fluxMax is None else fluxMax
-    fluxBins = np.logspace(np.log10(fluxMin), np.log10(fluxMax), nFluxBins+1)
+    fluxBinCentre = np.sqrt(fluxBins[:-1] * fluxBins[1:])
+    fluxCounts, binEdges = np.histogram(fluxVals, bins=fluxBins)
+    fluxCountsErr = np.sqrt(fluxCounts) # Poissor error
 
-    SCounts, binEdges = np.histogram(fluxVals, bins=fluxBins)
+    fluxBinWidths = np.diff(binEdges)
 
-    SMean = (binEdges[:-1] + binEdges[1:]) / 2.
-    SBinWidths = np.diff(binEdges)
+    if corrRMSCoverage is True:
+        effAreaInFluxBins = getEffectiveAreaInFluxBinsfromRMS(fluxBinCentre, rmsBinCentreJy, cumAreaSqDeg, sigmaDetection=5.0)
+    else:
+        effAreaInFluxBins = [cumAreaSqDeg[-1] for i in range(len(fluxBinCentre))]
 
-    sourceCountValues = getS2p5dNdS(SMean, SCounts, SBinWidths, skyAreaSqDeg)
-    sourceCountErr = getS2p5dNdS(SMean, np.sqrt(SCounts), SBinWidths, skyAreaSqDeg)
+    sourceCountValues = getS2p5dNdS(fluxBinCentre, fluxCounts, fluxBinWidths, effAreaInFluxBins)
+    sourceCountErr = getS2p5dNdS(fluxBinCentre, fluxCountsErr, fluxBinWidths, effAreaInFluxBins)
 
-    return SMean, sourceCountValues, sourceCountErr
+    return fluxBinCentre, fluxCounts, fluxCountsErr, sourceCountValues, sourceCountErr
 
-def plotSourceCounts(fullImagesTab, fluxCol, nFluxBins, bandColorDict, plotOutPath, plotMALS=False, plotLOFAR=False):
+def plotSourceCounts(fluxCol='Total_flux', fluxMin=None, fluxMax=None, nFluxBins=50, bandColorDict=None, plotOutPath=None):
     """Plot Euclidean-normalized source counts for each band using survey catalogs.
 
     Args:
-        fullImagesTab (:obj:`astropy.table.Table`): Table containing metadata for all images.
         fluxCol (:obj:`str`): Name of the flux column in the catalog table.
+        fluxMin (:obj:`float`): Minimum flux to be considered.
+        fluxMax (:obj:`float`): Maximum flux to be considered.
         nFluxBins (:obj:`int`): Number of flux bins.
         bandColorDict (:obj:`dict`): Dictionary mapping band names to color codes.
         plotOutPath (:obj:`str`): Path to save the output plot.
@@ -118,9 +154,6 @@ def plotSourceCounts(fullImagesTab, fluxCol, nFluxBins, bandColorDict, plotOutPa
     orderedBands = list(bandColorDict.keys())
 
     for band in orderedBands:
-        bandMask = fullImagesTab['band'] == band
-        bandData = fullImagesTab[bandMask]
-        bandTotalArea = bandData['skyArea_sqDeg'].sum()
 
         catFileName = startup.config['productsDir']+os.path.sep+"survey_catalog_%s.fits" %band
         catalogTab = atpy.Table().read(catFileName)
@@ -128,33 +161,31 @@ def plotSourceCounts(fullImagesTab, fluxCol, nFluxBins, bandColorDict, plotOutPa
         fluxVals = catalogTab[fluxCol].value
         fluxUnitLabel = catalogTab[fluxCol].unit
 
-        sourceCountFlux, sourceCountVal, sourceCountErr =  computeSourceCount(fluxVals=fluxVals, skyAreaSqDeg=bandTotalArea, nFluxBins=nFluxBins)
+        fluxMin = np.min(fluxVals) if fluxMin is None else fluxMin
+        fluxMax = np.max(fluxVals) if fluxMax is None else fluxMax
+        fluxBins = np.logspace(np.log10(fluxMin), np.log10(fluxMax), nFluxBins+1)
 
-        ax.errorbar(sourceCountFlux, sourceCountVal, sourceCountErr, mec='k', mfc=bandColorDict[band], ecolor=bandColorDict[band], marker='o', ms=7, alpha=1, ls='None', label="MeerKAT %s-band" %band)
+        RMSAreaCoverageName = startup.config['productsDir']+os.path.sep+"MeerKAT_RMS_area_coverage_%s.txt" %band
 
-    if plotMALS is True:
+        RMSAreaCoverage = np.loadtxt(RMSAreaCoverageName)
+        rmsBinCentreJy = RMSAreaCoverage[:, 0]
+        cumAreaSqDeg = RMSAreaCoverage[:, 4]
 
-        malsData = np.loadtxt(startup.config['productsDir']+os.path.sep+"source_counts_MALS.txt", skiprows=1)
+        fluxBinCentre, rowCount, rawCountErr, sourceCountUncorr, sourceCountErrUncorr = computeSourceCount(fluxVals, fluxBins, rmsBinCentreJy, cumAreaSqDeg, corrRMSCoverage=False)
+        fluxBinCentre, rowCount, rawCountErr, sourceCountCorr, sourceCountErrCorr = computeSourceCount(fluxVals, fluxBins, rmsBinCentreJy, cumAreaSqDeg, corrRMSCoverage=True)
 
-        SmJyMALS = malsData[:, 0]
-        SJyMALS = SmJyMALS * 1e-3
-        S5dNdSMALS = malsData[:, 1]
-        S5dNdSErrMALS = malsData[:, 2]
+        ax.errorbar(fluxBinCentre, sourceCountUncorr, sourceCountErrUncorr, mec=bandColorDict[band], mfc='white', ecolor=bandColorDict[band], marker='o', ms=7, alpha=1, ls='None', label="%s (RMS Uncor.)" %band)
+        ax.errorbar(fluxBinCentre, sourceCountCorr, sourceCountErrCorr, mec='k', mew=0.5, mfc=bandColorDict[band], ecolor=bandColorDict[band], marker='o', ms=4, alpha=1, ls='None', label="%s (RMS Cor.)" %band)
 
-        ax.errorbar(SJyMALS, S5dNdSMALS, S5dNdSErrMALS, mec='k', mfc='#F0B13B', ecolor='#F0B13B', marker='s', ms=7, alpha=1, ls='None', label="MALS L-band (Wagenveld+23)")
-
-    if plotLOFAR is True:
-        lofarData = np.loadtxt(startup.config['productsDir']+os.path.sep+"source_counts_LOFAR.txt", skiprows=1)
-
-        SmJyLOFAR = lofarData[:, 0]
-        SJyLOFAR = SmJyLOFAR * 1e-3
-        S5dNdSLOFAR = lofarData[:, 1]
-        S5dNdSLowerErrLOFAR = lofarData[:, 2]
-        S5dNdSUpperErrLOFAR = lofarData[:, 3]
-
-        ax.errorbar(SJyLOFAR, S5dNdSLOFAR, [S5dNdSLowerErrLOFAR, S5dNdSUpperErrLOFAR], mec='k', mfc='#FDA5D5', ecolor='#FDA5D5', marker='s', ms=7, alpha=1, ls='None', label="LOFAR 150 MHz (Williams+16)")
-
-
+        textFileName = plotOutPath.split('.png')[0]+'_%s.txt' %band
+        np.savetxt(textFileName,
+                   np.column_stack((fluxBinCentre,
+                                    rowCount,
+                                    rawCountErr,
+                                    sourceCountUncorr, sourceCountErrUncorr,
+                                    sourceCountCorr, sourceCountErrCorr)),
+                   fmt='%.6f\t%d\t%d\t%.6f\t%.6f\t%.6f\t%.6f',
+                   header='Flux(Jy)\tRawCount\tRawCountErr\tSourceCountUncorr\tSourceCountUncorrErr\tSourceCountCorr\tSourceCountCorrErr')
 
     ax.set_xlabel("Total Flux (%s)" %fluxUnitLabel)
     ax.set_ylabel(r"$S^{5/2} \mathrm{d}N/\mathrm{d}S$ $(\mathrm{Jy}^{3/2} \mathrm{sr}^{-1})$")
@@ -162,7 +193,7 @@ def plotSourceCounts(fullImagesTab, fluxCol, nFluxBins, bandColorDict, plotOutPa
     ax.set_xscale('log')
     ax.set_yscale('log')
 
-    plt.legend(loc="upper left")
+    plt.legend(loc="lower right")
     plt.savefig(plotOutPath, dpi=700, bbox_inches='tight')
     plt.close()
     print("\nSourcecounts plotted!\n")
@@ -194,7 +225,7 @@ def plotRMSAreaCoverageCumulative(areaCoveragePlotOutName, bandColorDict, nRMSBi
     """Plot cumulative sky area as a function of RMS noise for all bands.
 
     Args:
-        plotOutPath (str): Path to save the output plot.
+        areaCoveragePlotOutName (str): Path to save the output plot.
         bandColorDict (dict): Dictionary mapping band names to color codes.
         nRMSBins (int, optional): Number of RMS bins to use (default is 30).
 
@@ -214,6 +245,8 @@ def plotRMSAreaCoverageCumulative(areaCoveragePlotOutName, bandColorDict, nRMSBi
     globalRMSAreaInBinsDict = {band: np.zeros(len(binCentres)) for band in orderedBands}
     globalRMSCumulativeAreaInBinsDict = {band: np.zeros(len(binCentres)) for band in orderedBands}
     totalRMSAreaDict = {band: 0 for band in orderedBands}
+
+    print("\nCalculating RMS area coverage ... \n")
 
     # Loop over RMS files
     for rmsFile in rmsFiles:
@@ -240,7 +273,7 @@ def plotRMSAreaCoverageCumulative(areaCoveragePlotOutName, bandColorDict, nRMSBi
             rmsHistFromFile = np.loadtxt(rmsHistFile)
             binCentresFile, _, areaSqDegFile, cumulativeAreaSqDegFile = rmsHistFromFile[:, 0], rmsHistFromFile[:, 1], rmsHistFromFile[:, 2], rmsHistFromFile[:, 3]
 
-            if len(binCentres) != len(binCentresFile) or not np.allclose(binCentres, binCentresFile):
+            if len(binCentres) != len(binCentresFile) or not np.allclose(np.round(binCentres,6), np.round(binCentresFile,6)):
                 countsInBins, areaSqDegInBins = getRMSAreaCoverage(rmsFile, rmsBins)
             else:
                 areaSqDegInBins = areaSqDegFile
@@ -265,16 +298,16 @@ def plotRMSAreaCoverageCumulative(areaCoveragePlotOutName, bandColorDict, nRMSBi
             fig,ax=plt.subplots(nrows=1,ncols=1)
             fig.set_size_inches(5,4)
 
-            ax.plot(binCentres, cumulativeAreaSqDegInBins/rmsFileSkyArea)
-            ax.axhline(y=1.0, linestyle='dashed')
+            ax.plot(binCentres, cumulativeAreaSqDegInBins)
+            ax.axhline(y=rmsFileSkyArea, linestyle='dashed')
             ax.set_xscale('log')
             ax.set_xlabel("RMS Noise (Jy/beam)")
-            ax.set_ylabel("Fraction of area")
+            ax.set_ylabel("Sky Area (sq. deg.)")
             ax.set_xlim(1E-7, 1E-1)
             plt.savefig(rmsPlotFile, dpi=700, bbox_inches='tight')
             plt.close()
 
-    # Plot cumulative area fraction
+    # Plot cumulative area
 
     fig,ax=plt.subplots(nrows=1,ncols=3,sharex=True, sharey=False)
     fig.set_size_inches(12,3)
@@ -294,19 +327,17 @@ def plotRMSAreaCoverageCumulative(areaCoveragePlotOutName, bandColorDict, nRMSBi
 
         cumulativeArea = globalRMSCumulativeAreaInBinsDict[band]
 
-        ax[bandi].plot(binCentres, cumulativeArea/totalRMSAreaDict[band], color=bandColorDict[band])
+        ax[bandi].plot(binCentres, cumulativeArea, color=bandColorDict[band])
 
-        ax[bandi].axhline(y=1.0, linestyle='dashed', color='k')
+        ax[bandi].axhline(y=totalRMSAreaDict[band], linestyle='dashed', color='k')
 
         ax[bandi].set_xlabel("RMS Noise (Jy/beam)")
         ax[bandi].set_xlim(1E-7, 1E-1)
-        ax[bandi].text(0.5,0.10, "%s band" %(band),transform=ax[bandi].transAxes,ha='center')
+        ax[bandi].text(0.75,0.15, "%s band\n(%0.2f sq. deg.)" %(band, totalRMSAreaDict[band]),transform=ax[bandi].transAxes,ha='center')
         ax[bandi].set_xscale('log')
 
-
-    ax[0].set_ylabel("Fraction of Cumulative Area")
-
+    ax[0].set_ylabel("Sky Area (sq. deg.)")
 
     plt.savefig(areaCoveragePlotOutName, dpi=700, bbox_inches='tight')
     plt.close()
-    print("\nCumulative RMS area fraction plotted!\n")
+    print("\nCumulative RMS area plotted!\n")

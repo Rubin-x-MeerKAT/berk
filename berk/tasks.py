@@ -600,23 +600,22 @@ def summarize():
                 \nNumber of PyBDSF sources: %d \
               \nNumber of DECaLS cross-matches: %d\n" % (bandCountImages, bandTotalArea, nPybdsfSources, bandCountXmatches))
 
-
     # Plotting sky coverage
 
     skyPlotName = startup.config['productsDir']+os.path.sep+'MeerKAT_pointings.png'
 
     summaryPlots.plotSkyCoverage(imagesTab, bandColorDict=bandColorDict, plotOutPath=skyPlotName, plotProjection='aitoff')
 
-    # Plotting sourcecount
-
-    sourceCountPlotName = startup.config['productsDir']+os.path.sep+'MeerKAT_sourcecount.png'
-    summaryPlots.plotSourceCounts(imagesTab, fluxCol='Total_flux', bandColorDict=bandColorDict, nFluxBins=39, plotOutPath=sourceCountPlotName, plotMALS=True, plotLOFAR=True)
-
     # Plotting RMS area coverage
 
     rmsAreaCoveragePlotName = startup.config['productsDir']+os.path.sep+'MeerKAT_RMS_area_coverage.png'
 
     summaryPlots.plotRMSAreaCoverageCumulative(rmsAreaCoveragePlotName, bandColorDict, nRMSBins=100)
+
+    # Plotting sourcecount
+
+    sourceCountPlotName = startup.config['productsDir']+os.path.sep+'MeerKAT_sourcecount.png'
+    summaryPlots.plotSourceCounts(fluxCol='Total_flux', fluxMin=1E-5, fluxMax=1.0, nFluxBins=39, bandColorDict=bandColorDict, plotOutPath=sourceCountPlotName)
 
 #------------------------------------------------------------------------------------------------------------
 def report():

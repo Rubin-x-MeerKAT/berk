@@ -14,6 +14,36 @@ import matplotlib.pyplot as plt
 from astropy.wcs import WCS
 
 #------------------------------------------------------------------------------------
+def getImageAreaSqDeg(imgFileName):
+    """Calculate the total sky area of a given FITS image
+    file(image or rms) in square degrees.
+
+    Args:
+        imgFileName (:obj:`str`): Path to the FITS image file.
+
+    Returns:
+        float: Total sky area covered by the image in square degrees.
+    """
+
+    with pyfits.open(imgFileName) as img:
+        imgData=img[0].data
+        if imgData.ndim == 4:
+            imgData=imgData[0, 0]
+        assert(imgData.ndim == 2)
+        wcs=astWCS.WCS(img[0].header, mode = 'pyfits')
+
+    imgDataFlat = imgData.flatten()
+    imgDataFlatNonNan = imgDataFlat[~np.isnan(imgDataFlat)] # ignoring pixels with NaN
+    totalNPixels = len(imgDataFlatNonNan) # Number of non Nan pixels
+
+    pixelAreaSqDeg = abs(wcs.header['CDELT1']) * abs(wcs.header['CDELT2']) # area of a pixel in sq. deg.
+
+    skyAreaSqDeg = pixelAreaSqDeg * totalNPixels
+
+    return skyAreaSqDeg
+
+
+#------------------------------------------------------------------------------------
 def getImagesStats(imgFileName, radiusArcmin = 12):
     """Read the given MeerKAT image and return stats such as the image centre coords,
        effective frequency (GHz), RMS in uJy/beam, sky area in sq. deg. etc.
@@ -36,9 +66,11 @@ def getImagesStats(imgFileName, radiusArcmin = 12):
         wcs=astWCS.WCS(img[0].header, mode = 'pyfits')
 
     # calculating area
-    radiusRA = abs(wcs.header['NAXIS1']*wcs.header['CDELT1']*0.5)
-    radiusDec = abs(wcs.header['NAXIS2']*wcs.header['CDELT2']*0.5)
-    skyAreaSqDeg = np.pi*radiusRA*radiusDec
+    # radiusRA = abs(wcs.header['NAXIS1']*wcs.header['CDELT1']*0.5)
+    # radiusDec = abs(wcs.header['NAXIS2']*wcs.header['CDELT2']*0.5)
+    # skyAreaSqDeg = np.pi*radiusRA*radiusDec
+
+    skyAreaSqDeg = getImageAreaSqDeg(imgFileName)
 
     targetObject = wcs.header.get('OBJECT', 'Unspecified')
 

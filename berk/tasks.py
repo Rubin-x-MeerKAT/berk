@@ -598,7 +598,7 @@ def summarize():
         print("\nNumber of pointings: %d \
                 \nTotal area: %.3f sq. deg. \
                 \nNumber of PyBDSF sources: %d \
-              \n Number of DECaLS cross-matches: %d\n" % (bandCountImages, bandTotalArea, nPybdsfSources, bandCountXmatches))
+              \nNumber of DECaLS cross-matches: %d\n" % (bandCountImages, bandTotalArea, nPybdsfSources, bandCountXmatches))
 
 
     # Plotting sky coverage
@@ -612,16 +612,11 @@ def summarize():
     sourceCountPlotName = startup.config['productsDir']+os.path.sep+'MeerKAT_sourcecount.png'
     summaryPlots.plotSourceCounts(imagesTab, fluxCol='Total_flux', bandColorDict=bandColorDict, nFluxBins=39, plotOutPath=sourceCountPlotName, plotMALS=True, plotLOFAR=True)
 
-    # Plotting RMS coverage
-    #rmsCoveragePlotName = startup.config['productsDir']+os.path.sep+'MeerKAT_RMS_coverage.png'
-    #summaryPlots.plotRMSCoverage(rmsCoveragePlotName)
-
     # Plotting RMS area coverage
 
-    rmsAreaCoveragePlotName = startup.config['productsDir']+os.path.sep+'MeerKAT_RMS_area_cumulative.png'
-    rmsAreaFractionPlotName = startup.config['productsDir']+os.path.sep+'MeerKAT_RMS_area_cumulative_fraction.png'
+    rmsAreaCoveragePlotName = startup.config['productsDir']+os.path.sep+'MeerKAT_RMS_area_coverage.png'
 
-    summaryPlots.plotRMSAreaCoverageCumulative(rmsAreaCoveragePlotName, rmsAreaFractionPlotName, bandColorDict, bandTotalAreaDict, nRMSBins=50)
+    summaryPlots.plotRMSAreaCoverageCumulative(rmsAreaCoveragePlotName, bandColorDict, nRMSBins=100)
 
 #------------------------------------------------------------------------------------------------------------
 def report():

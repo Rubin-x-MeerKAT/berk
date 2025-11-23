@@ -103,15 +103,19 @@ def getEffectiveAreaInFluxBinsfromRMS(fluxBinCentres, rmsBinsCentres, cumArea, s
 
     return effArea
 
-def computeSourceCount(fluxVals, fluxBins, rmsBinCentreJy, cumAreaSqDeg, corrRMSCoverage=True):
+def computeSourceCount(fluxVals, fluxBins, rmsBinCentreJy=None, cumAreaSqDeg=None, corrRMSCoverage=True, commonAreaSqDeg=None):
     """Compute source counts normalized by S^2.5 for log-spaced flux bins.
 
     Args:
-        fluxVals (:obj:`np.ndarray`): Array of flux values.
-        fluxBins (:obj:`np.ndarray`): Array of flux bins.
-        rmsBinCentreJy (:obj:`float`): Array of RMS bins.
-        cumAreaSqDeg (:obj:`float`): Array of cumulative area in RMS bins.
-        corrRMSCoverage (:obj:`bool`, optional): Corrects for RMS coverage. Default is True.
+        fluxVals (:obj:`np.ndarray`): Array of source flux densities (Jy).
+        fluxBins (:obj:`np.ndarray`): Array of flux-bin edges (Jy). Must be monotonic.
+        rmsBinCentreJy (:obj:`np.ndarray`, optional): Array of RMS-bin centres (Jy). Required only if corrRMSCoverage=True.
+        cumAreaSqDeg (:obj:`np.ndarray`, optional): Cumulative survey area (sq.deg.) corresponding to each RMS bin.
+            Required if corrRMSCoverage=True OR if corrRMSCoverage=False and
+            no commonAreaSqDeg is supplied.
+        corrRMSCoverage (:obj:`bool`, optional): Whether to apply RMS-dependent area correction. Default: True.
+        commonAreaSqDeg (:obj:`float`, optional): A constant survey area (sq.deg.) used when corrRMSCoverage=False and
+            cumAreaSqDeg is not supplied.
 
     Returns:
         tuple: (bin centers, row counts, row count errors, source count values, source count errors).
@@ -120,13 +124,18 @@ def computeSourceCount(fluxVals, fluxBins, rmsBinCentreJy, cumAreaSqDeg, corrRMS
     fluxBinCentre = np.sqrt(fluxBins[:-1] * fluxBins[1:])
     fluxCounts, binEdges = np.histogram(fluxVals, bins=fluxBins)
     fluxCountsErr = np.sqrt(fluxCounts) # Poissor error
-
     fluxBinWidths = np.diff(binEdges)
 
     if corrRMSCoverage is True:
         effAreaInFluxBins = getEffectiveAreaInFluxBinsfromRMS(fluxBinCentre, rmsBinCentreJy, cumAreaSqDeg, sigmaDetection=5.0)
     else:
-        effAreaInFluxBins = [cumAreaSqDeg[-1] for i in range(len(fluxBinCentre))]
+        if cumAreaSqDeg is not None:
+            effAreaInFluxBins = [cumAreaSqDeg[-1] for i in range(len(fluxBinCentre))]
+        elif commonAreaSqDeg is not None:
+            effAreaInFluxBins = [commonAreaSqDeg for i in range(len(fluxBinCentre))]
+        else:
+            print("Either cumAreaSqDeg or commonAreaSqDeg must be provided when corrRMSCoverage=False.")
+            return
 
     sourceCountValues = getS2p5dNdS(fluxBinCentre, fluxCounts, fluxBinWidths, effAreaInFluxBins)
     sourceCountErr = getS2p5dNdS(fluxBinCentre, fluxCountsErr, fluxBinWidths, effAreaInFluxBins)

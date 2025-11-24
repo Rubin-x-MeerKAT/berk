@@ -197,7 +197,7 @@ def plotSourceCounts(fluxCol='Total_flux', fluxMin=None, fluxMax=None, nFluxBins
                    header='Flux(Jy)\tRawCount\tRawCountErr\tSourceCountUncorr\tSourceCountUncorrErr\tSourceCountCorr\tSourceCountCorrErr')
 
     ax.set_xlabel("Total Flux (%s)" %fluxUnitLabel)
-    ax.set_ylabel(r"$S^{5/2} \mathrm{d}N/\mathrm{d}S$ $(\mathrm{Jy}^{3/2} \mathrm{sr}^{-1})$")
+    ax.set_ylabel(r"$S^{2.5} \ \mathrm{d}N/\mathrm{d}S$ $(\mathrm{Jy}^{1.5} \mathrm{sr}^{-1})$")
 
     ax.set_xscale('log')
     ax.set_yscale('log')

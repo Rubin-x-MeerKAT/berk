@@ -162,6 +162,7 @@ def builddb():
                 catalogs.listCatalogInFile(t, catWrapIssueList)
             tab = tab[tab['Total_flux'] > 0.0] # ignoring negative flux entries
             freqGHz=tab.meta['FREQ0']/1e9
+            tab['freqGHz']=freqGHz # for scaling of the global catalog
             bandKey=getBandKey(freqGHz)
             #tab.meta=None # It'd be good to clear this... but the catalog matching stuff wants many things from here
             #tab.meta.clear() #

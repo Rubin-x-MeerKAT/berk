@@ -232,7 +232,57 @@ def countBlanks(skyCatCoords1, skyCatCoords2, searchRadRsDeg):
 
     return nBlanks
 
-def getQ0(radCatCoords, randRadCatCoords, optCatCoords, searchRadRsDeg, sigmaRadDeg):
+def getQ0FitForRs(radCatCoords, randRadCatCoords, optCatCoords, searchRadiusDeg, sigmaRadDeg):
+    """
+    Estimate Q0, the fraction of radio sources with real counterparts, using the blank fields method
+    by fitting for a series of radii.
+
+    Args:
+        radCatCoords (:obj:`~astropy.coordinates.SkyCoord`): SkyCoord object for the radio catalogue positions.
+        randRadCatCoords (:obj:`~astropy.coordinates.SkyCoord`): SkyCoord object for the randomised radio catalogue positions.
+        optCatCoords (:obj:`~astropy.coordinates.SkyCoord`): SkyCoord object for the optical/IR catalogue positions.
+        searchRadRsDeg (:obj:`float`): Search radius in deg within which counterparts are considered (used to get maximum radii).
+        sigmaRadDeg (:obj:`float`): Typical positional uncertainty (sigma) of radio sources in deg.
+
+    Returns:
+        tuple:
+            - Q0 (float) : Value of Q0 after fitting
+            - radiiDeg (array): Array of radii used for ratio estimation and fitting
+            - UobsByUrandArray (array): Array of Uobs/Urandom ratio for the radii
+            - FrsArray (array): Array of F(r) obtained for the radii
+
+    Raises:
+        ValueError: If the number of blank fields in the random catalogue (nBlankRand) is zero, preventing division by zero.
+    """
+
+    radiiDeg = np.linspace(0, searchRadiusDeg, 20)   # 20 radii up to the search limit
+
+    UobsByUrandArray = []
+    FrsArray = []
+
+    for rs in radiiDeg:
+
+        nBlankReal = countBlanks(radCatCoords, optCatCoords, rs)
+        nBlankRand = countBlanks(randRadCatCoords, optCatCoords, rs)
+
+        if nBlankRand == 0:
+            print("nBlankRand is zero — cannot divide by zero when computing Q0. Setting Q0 = 1.0")
+            continue
+
+        Frs = 1 - np.exp( -0.5 * (rs**2 / sigmaRadDeg**2))
+
+        UobsByUrandArray.append(nBlankReal / nBlankRand)
+        FrsArray.append(Frs)
+
+    UobsByUrandArray = np.array(UobsByUrandArray)
+    FrsArray = np.array(FrsArray)
+
+    # Fit: Y = 1 - Q0 * X => (1 - Y) = Q0 * X
+    Q0, _ = np.polyfit(FrsArray, 1 - UobsByUrandArray, 1)
+
+    return Q0, radiiDeg, UobsByUrandArray, FrsArray
+
+def getQ0SingleRs(radCatCoords, randRadCatCoords, optCatCoords, searchRadRsDeg, sigmaRadDeg):
     """
     Estimate Q0, the fraction of radio sources with real counterparts, using the blank fields method.
 
@@ -1056,7 +1106,10 @@ def xmatchRadioOptical(radioCatFilePath, radioBand, xmatchDirPath, optSurvey, op
 
     randomRadioSourcesCoords = SkyCoord(ra= randRadRAValDegList * u.deg, dec= randRadDecValDegList * u.deg, frame='icrs')
 
-    Q0 = getQ0(radCatCoords=radioSourcesCoords, randRadCatCoords=randomRadioSourcesCoords, optCatCoords=optSourcesCoords, searchRadRsDeg=beamSizeDegValue, sigmaRadDeg=sigmaRadPosMeanDeg)
+    #Q0 = getQ0SingleRs(radCatCoords=radioSourcesCoords, randRadCatCoords=randomRadioSourcesCoords, optCatCoords=optSourcesCoords, #searchRadRsDeg=beamSizeDegValue, sigmaRadDeg=sigmaRadPosMeanDeg)
+
+    Q0, radiiDeg, UobsByUrandArray, FrsArray = getQ0FitForRs(radCatCoords=radioSourcesCoords, randRadCatCoords=randomRadioSourcesCoords, optCatCoords=optSourcesCoords,
+                       searchRadiusDeg=searchRadiusDegVal, sigmaRadDeg=sigmaRadPosMeanDeg)
     np.savetxt(xmatchIndividualDirPath+os.path.sep+'Q0_%s.txt' %outSubscript, [Q0], fmt='%f')
 
     # Finding n(m)
@@ -1132,8 +1185,6 @@ def xmatchRadioOptical(radioCatFilePath, radioBand, xmatchDirPath, optSurvey, op
 
     # Saving the results
 
-
-
     # Plotting optical and radio sources
     RADecplotOutName = "%s/RadOptSkyPlot_%s.png" %(xmatchIndividualDirPath, outSubscript)
     if os.path.exists(RADecplotOutName):
@@ -1155,6 +1206,21 @@ def xmatchRadioOptical(radioCatFilePath, radioBand, xmatchDirPath, optSurvey, op
     plt.savefig(RADecplotOutName, dpi=300, bbox_inches = 'tight')
     plt.close()
     print("\nPlotted sky coverage of radio and optical sources!")
+
+    # Plotting optical and radio sources
+    Q0RsplotOutName = "%s/Q0_rs_%s.png" %(xmatchIndividualDirPath, outSubscript)
+    if os.path.exists(Q0RsplotOutName):
+        os.remove(Q0RsplotOutName)
+    plt.figure(figsize=(6, 6))
+    plt.scatter(radiiDeg*3600, UobsByUrandArray)
+    yFit = 1 - Q0 * FrsArray
+    plt.plot(radiiDeg*3600, yFit, label='Fit: $1 - Q_0 F(r)$')
+    plt.xlabel("radius (arcsec)")
+    plt.ylabel(r"$1-Q_0 F(r)$")
+    plt.legend(loc="lower left", scatterpoints=1, fontsize=10)
+    plt.savefig(Q0RsplotOutName, dpi=300, bbox_inches = 'tight')
+    plt.close()
+    print("\nPlotted Q0 vs rs plot!")
 
     # Plotting q(m)/n(m) and n(m) as a function of magnitude
 

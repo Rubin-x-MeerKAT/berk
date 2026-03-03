@@ -231,6 +231,8 @@ def builddb():
             continue #avoiding recomputing statistics
 
         statDict=images.getImagesStats(imgFile)
+        if statDict is None:
+            continue
         captureBlockId=os.path.split(statDict['path'])[-1].split('img_')[-1].split('_sdp')[0]
         statDict['captureBlockId']=captureBlockId
         statDict['path']=pathName

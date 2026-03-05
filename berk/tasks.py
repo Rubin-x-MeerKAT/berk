@@ -283,7 +283,7 @@ def builddb():
     imgTab.meta['DATEMADE']=datetime.date.today().isoformat()
     imgTab.write(outFileName, overwrite = True)
     print("\nWrote %s" % (outFileName))
-    imgTab.write(qualFileName, overwrite = True)
+    qualTab.write(qualFileName, overwrite = True)
 
     # Generate survey mask in some format - we'll use that to get total survey area
 

@@ -919,7 +919,7 @@ def computeLR(radioCat, opticalCat, searchRadiusDegVal, optMagCol, magBins, qMLi
 
     return radOptMergedTab
 
-def xmatchRadioOptical(radioCatFilePath, radioBand, xmatchDirPath, optSurvey, optMagCol, searchRadiusArcsecVal, radRACol, radDecCol, radERACol, radEDecCol, radEMajCol, radEMinCol, radPACol, outSubscript, optPosErrAsecValue, nMagBins=15, beamSizeArcsecValue=6.0, nAreaTimeOptFetch=3.0, skipIfExists=True, dofRSymErr=True):
+def xmatchRadioOptical(radioCatFilePath, radioBand, xmatchDirPath, optSurvey, optMagCol, searchRadiusArcsec, radRACol, radDecCol, radERACol, radEDecCol, radEMajCol, radEMinCol, radPACol, outSubscript, optPosErrAsecValue, nMagBins=15, beamSizeArcsecValue=6.0, nAreaTimeOptFetch=2.0, skipIfExists=True, dofRSymErr=True):
     """
     Perform likelihood ratio crossmatching between a radio source catalog and an optical survey.
 
@@ -936,7 +936,7 @@ def xmatchRadioOptical(radioCatFilePath, radioBand, xmatchDirPath, optSurvey, op
         xmatchDirPath (:obj:`str`): Directory to save all resulting output files and plots.
         optSurvey (:obj:`str`): Optical survey name (e.g., 'DECaLSDR10', 'RubinDP1').
         optMagCol (:obj:`str`): Column name for optical magnitudes used in LR calculation.
-        searchRadiusArcsecVal (:obj:`float`): Search radius around radio positions in arcseconds.
+        searchRadiusArcsec (:obj:`float`): Search radius around radio positions in arcseconds.
         makePlots (:obj:`bool`): Whether to generate diagnostic plots.
         radRACol (:obj:`str`): Radio catalog Right Ascension column name.
         radDecCol (:obj:`str`): Radio catalog Declination column name.
@@ -959,7 +959,7 @@ def xmatchRadioOptical(radioCatFilePath, radioBand, xmatchDirPath, optSurvey, op
 
     # Quantities to degree from arcsec.
     beamSizeDegValue = beamSizeArcsecValue/3600.0
-    searchRadiusDegVal = searchRadiusArcsecVal/3600.0
+    searchRadiusDegVal = searchRadiusArcsec/3600.0
     optPosErrValueDeg = optPosErrAsecValue/3600.0
 
     radCatName = radioCatFilePath.split(os.path.sep)[-1]
@@ -986,7 +986,7 @@ def xmatchRadioOptical(radioCatFilePath, radioBand, xmatchDirPath, optSurvey, op
 
     # checking if this catalog is listed as having no optical counterparts in the optical
     noOptCounterpartsFilename = xmatchDirPath+os.path.sep+'no_counterparts_%s_%sband_%sasec.txt' \
-                           %(optSurvey, optMagCol, str(searchRadiusArcsecVal).replace(".","p"))
+                           %(optSurvey, optMagCol, str(searchRadiusArcsec).replace(".","p"))
 
     if os.path.exists(noOptCounterpartsFilename):
         with open(noOptCounterpartsFilename, 'r', encoding="utf-8") as infile:
@@ -1178,7 +1178,7 @@ def xmatchRadioOptical(radioCatFilePath, radioBand, xmatchDirPath, optSurvey, op
     xmatchBestMatchTable = groupedxmatchLRThresholdTable.groups.aggregate(lambda rows: rows[0])
 
     xmatchBestMatchTable.meta['OPT_SUR']='%s' %optSurvey
-    xmatchBestMatchTable.meta['SEAR_RAD']='%f arcsec' %searchRadiusArcsecVal
+    xmatchBestMatchTable.meta['SEAR_RAD']='%f arcsec' %searchRadiusArcsec
     xmatchBestMatchTable.meta['LR_THR']=CRBalanceLRThreshold
     xmatchBestMatchTable.meta['REL']=CRBalanceRel
     xmatchBestMatchTable.meta['COMP']=CRBalanceComp
@@ -1199,7 +1199,7 @@ def xmatchRadioOptical(radioCatFilePath, radioBand, xmatchDirPath, optSurvey, op
                 edgecolor='#06471D',
                 label='MeerKATx%s (Best matches; N=%d)' %(optSurvey, len(xmatchBestMatchTable)))
     plt.title("%s\nSearch radius = %0.1f asec, %s band, Q0=%0.2f" \
-                % (radCatName, searchRadiusArcsecVal, optMagCol, Q0))
+                % (radCatName, searchRadiusArcsec, optMagCol, Q0))
     plt.xlabel("RA (deg; J2000)")
     plt.ylabel("Dec (deg; J2000)")
     plt.legend(loc="lower left", scatterpoints=1, fontsize=10)

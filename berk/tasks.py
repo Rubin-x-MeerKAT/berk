@@ -138,6 +138,81 @@ def listObservations():
         print("   %s    %s" % (captureBlockId, status))
 
 #------------------------------------------------------------------------------------------------------------
+def buildedr():
+    """Build Early Data Release...
+
+    """
+
+    parentImagesFile = os.path.join(startup.config['productsDir'], 'images.fits')
+
+    parentImagesTab = atpy.Table().read(parentImagesFile)
+
+    edrDir = os.path.join(startup.config['rootDir'], 'EDR')
+    edrImageDir = os.path.join(edrDir, 'images')
+    edrCatDir = os.path.join(edrDir, 'catalogs')
+
+    os.makedirs(edrDir, exist_ok = True)
+    os.makedirs(edrImageDir, exist_ok = True)
+    os.makedirs(edrCatDir, exist_ok = True)
+
+    qualZeroOne = parentImagesTab[((parentImagesTab['quality'] == 0) |
+                                   (parentImagesTab['quality'] == 1)) &     # quality 0 or 1
+                                  (parentImagesTab['band'] == 'L')]         # only L band in EDR
+
+    edrImages = qualZeroOne
+    nEDR = len(edrImages)
+
+    for row in edrImages:
+
+        fitsFile = os.path.join(startup.config['productsDir'], row['path'])
+        pngFile = fitsFile.replace('.fits','.png')
+        catFile = os.path.join(startup.config['productsDir'], row['radioCatPath'].replace('_srl',''))
+
+        if os.path.exists(fitsFile) and not os.path.exists(os.path.join(edrDir, row['path'])):
+            os.system("rsync -avP %s %s" %(fitsFile, edrImageDir))
+            os.system("rsync -avP %s %s" %(pngFile, edrImageDir))
+        if os.path.exists(catFile) and not os.path.exists(os.path.join(edrDir, row['radioCatPath'].replace('_srl',''))):
+            os.system("rsync -avP %s %s" %(catFile, edrCatDir))
+
+    print("\nCopied %d L-band observations with qualityFlag=0 or 1 to %s" %(nEDR, edrDir))
+
+    edrImagesOutFileName = edrDir+os.path.sep+'images_EDR.fits'
+    edrImages.write(edrImagesOutFileName, overwrite = True)
+    print("\nWrote %s" % (edrImagesOutFileName))
+
+    # Generate survey catalogue for EDR
+
+    surveyTab = None
+
+    tabFilesList=sorted(glob.glob(edrCatDir+os.path.sep+'*_bdsfcat.fits'))
+    for t in tabFilesList:
+        tab=atpy.Table().read(t)
+        # Fixing RA
+        if any(tab['RA'] < 0.0):
+            # This pybdsf catalog has -180 to 180 wrapping. Need to change to 360 wrapping
+            tab = catalogs.fixRA(tab, raCol='RA', wrapAngle=360)
+        tab = tab[tab['Total_flux'] > 0.0] # ignoring negative flux entries
+        freqGHz=tab.meta['FREQ0']/1e9
+        tab['freqGHz']=freqGHz # for scaling of the global catalog
+        bandKey=getBandKey(freqGHz)
+        if surveyTab is None:
+            surveyTab=tab
+        else:
+            surveyTab=atpy.vstack([surveyTab, tab])
+
+    outFileName=os.path.join(edrDir, "EDR_survey_catalog_L.fits")
+
+    surveyTab.meta['BAND']='L'
+    surveyTab.meta['QUALITYFLAGS']='0 or 1'
+    surveyTab.meta['BERKVER']=__version__
+    surveyTab.meta['DATEMADE']=datetime.date.today().isoformat()
+    surveyTab.write(outFileName, overwrite = True)
+    catalogs.catalog2DS9(surveyTab, outFileName.replace(".fits", ".reg"),
+                         idKeyToUse = 'Source_name', RAKeyToUse = 'RA', decKeyToUse = 'DEC')
+    print("\nWrote %s" % (outFileName))
+
+
+#------------------------------------------------------------------------------------------------------------
 def builddb():
     """Build database...
 
@@ -151,11 +226,11 @@ def builddb():
     if os.path.exists(catWrapIssueList):
         os.remove(catWrapIssueList)
 
-    # Fixing RA
     tabFilesList=sorted(glob.glob(startup.config['productsDir']+os.path.sep+'catalogs'+os.path.sep+'*_bdsfcat.fits'))
     for t in tabFilesList:
         if t.find("srl_bdsfcat") == -1:
             tab=atpy.Table().read(t)
+            # Fixing RA
             if any(tab['RA'] < 0.0):
                 # This pybdsf catalog has -180 to 180 wrapping. Need to change to 360 wrapping
                 tab = catalogs.fixRA(tab, raCol='RA', wrapAngle=360)

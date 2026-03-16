@@ -850,7 +850,7 @@ def computeLR(radioCat, opticalCat, searchRadiusDegVal, optMagCol, magBins, qMLi
     idxRadio, idxOpt, _, _ = search_around_sky(radCatCoords, optCatCoords, searchRadiusDegVal * u.deg)
 
     if len(idxOpt) == 0:
-        print("\nNo cross-matches...!")
+        print("\nNo optical candidates within the search radius...!")
         return None
 
     rowsRadio = []
@@ -1020,8 +1020,6 @@ def xmatchRadioOptical(radioCatFilePath, radioBand, xmatchDirPath, optSurvey, op
 
     centerRA, centerDec, radiusDeg = getCentreRadiusFromImagesTab(radioCatFilePath)
 
-    skyAreaSqDeg = np.pi*radiusDeg**2
-
     sigmaRadPosDeg = np.sqrt(radioSources[radERACol]**2 + radioSources[radEDecCol]**2)
     sigmaRadPosMeanDeg = np.mean(sigmaRadPosDeg)
 
@@ -1044,11 +1042,6 @@ def xmatchRadioOptical(radioCatFilePath, radioBand, xmatchDirPath, optSurvey, op
 
     if opticalSourcesRaw is None:
         print("\nRetrieval process unsuccessfull.")
-        catalogs.listCatalogInFile(radCatName, noOptSourcesFilename)
-        return None
-
-    if len(opticalSourcesRaw) == 0:
-        print("\n%s: No optical sources found in %s database...!" %(radCatName, optSurvey))
         catalogs.listCatalogInFile(radCatName, noOptSourcesFilename)
         return None
 

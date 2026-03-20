@@ -7,10 +7,11 @@ Tools for running jobs via a workload manager (Slurm or PBS).
 import os
 import subprocess
 
+
+# Taken out: #SBATCH --cpus-per-task=$CPUSPERTASK
 SLURM_TEMPLATE="""#!/bin/sh
 #SBATCH --nodes=$NODES
 #SBATCH --ntasks=$TASKS
-#SBATCH --cpus-per-task=$CPUSPERTASK
 #SBATCH --mem=$MEM
 #SBATCH --time=$TIME
 #SBATCH --output=$JOBNAME.log

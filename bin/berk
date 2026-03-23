@@ -36,9 +36,10 @@ def makeParser():
                         'xmatch' (cross-match with DECaLS DR10),\
                         'collect' (collect data products for all processed observations - i.e., primary beam corrected images and catalogs),\
                         'store' (store a more extensive set of processed data products for an observations for possible further processing in future),\
+                        'builddr' (build data release products),\
                         'builddb'(build survey-wide database and related products),\
                         'summarize' (summarize the observations).",
-                        choices = ['list', 'fetch', 'setup', 'process1', 'process2', 'analyse', 'analyze', 'xmatch', 'collect', 'store', 'builddb', 'report', 'summarize', 'summarise'])
+                        choices = ['list', 'fetch', 'setup', 'process1', 'process2', 'analyse', 'analyze', 'xmatch', 'collect', 'store', 'builddr', 'builddb', 'report', 'summarize', 'summarise'])
     parser.add_argument("-o", "--observation", dest="captureBlockId", default = None, help="MeerKAT observation to fetch and process.\
                         For the 'fetch' task, this must be a link to an .rdb file on the archive, of the form\
                         https://archive-gw-1.kat.ac.za/captureBlockId/captureBlockId_sdp_l0.full.rdb?token=longTokenString.\
@@ -46,6 +47,9 @@ def makeParser():
     parser.add_argument("-s", "--opticalsurvey", dest="optSurvey", default = 'decalsdr10', help="Name of optical survey to crossmatch (default: decalsdr10).\
                         Should be one of: decalsdr10 or rubindp1.",
                         choices=['decalsdr10', 'rubindp1'])
+    parser.add_argument("-d", "--dr", dest="dataRelease", default = 'edr', help="Name of data release to build (default: edr).\
+                        Should be one of: edr or dr1.",
+                        choices=['edr', 'dr1'])
     parser.add_argument("-v", "--version", action = 'version', version = '%(prog)s' + ' %s' % (berk.__version__))
 
     return parser
@@ -57,6 +61,7 @@ if __name__ == '__main__':
     args=parser.parse_args()
     captureBlockId=args.captureBlockId
     optSurvey=args.optSurvey
+    dataRelease=args.dataRelease
 
     topDir=os.getcwd()
 
@@ -88,6 +93,15 @@ if __name__ == '__main__':
 
     elif args.task == 'analyse' or args.task == 'analyze':
         tasks.analyse(captureBlockId)
+
+    elif args.task == 'builddr':
+        if dataRelease == 'edr':
+            tasks.builddr(dataRelease='EDR', includeBands=['L'], includeQuality=[0, 1], removeDuplicates=True)
+        elif dataRelease == 'dr1':
+            print("DR1 data release products are not yet available - stay tuned!")
+        else:
+            print("Invalid data release specified - should be one of: edr or dr1.")
+            sys.exit()
 
     elif args.task == 'builddb':
         tasks.builddb()

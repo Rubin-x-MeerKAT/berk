@@ -14,6 +14,9 @@ from . import startup, jobs, catalogs, images,  __version__, crossmatch, summary
 import shlex
 import matplotlib.pyplot as plt
 import numpy as np
+from astropy.coordinates import SkyCoord
+import astropy.units as u
+import random
 
 #------------------------------------------------------------------------------------------------------------
 def fetch(captureBlockId):
@@ -138,78 +141,181 @@ def listObservations():
         print("   %s    %s" % (captureBlockId, status))
 
 #------------------------------------------------------------------------------------------------------------
-def buildedr():
-    """Build Early Data Release...
+def builddr(dataRelease='EDR', includeBands=['L'], includeQuality=[0,1], removeDuplicates=True):
+    """Build Data Release...
+
+    Args:
+        dataRelease (str): The name of the data release to build.
+        includeBands (list of str): List of bands to include.
+        includeQuality (list of int): List of quality flags to include.
+        removeDuplicates (bool): Whether to remove duplicate entries.
 
     """
+
+    print("\n" + "═" * 40)
+    print("║ Building %s ║" %dataRelease)
+    print("═" * 40 + "\n")
 
     parentImagesFile = os.path.join(startup.config['productsDir'], 'images.fits')
 
     parentImagesTab = atpy.Table().read(parentImagesFile)
 
-    edrDir = os.path.join(startup.config['rootDir'], 'EDR')
-    edrImageDir = os.path.join(edrDir, 'images')
-    edrCatDir = os.path.join(edrDir, 'catalogs')
+    DRDir = os.path.join(startup.config['rootDir'], dataRelease)
+    DRImageDir = os.path.join(DRDir, 'images')
+    DRCatDir = os.path.join(DRDir, 'catalogs')
 
-    os.makedirs(edrDir, exist_ok = True)
-    os.makedirs(edrImageDir, exist_ok = True)
-    os.makedirs(edrCatDir, exist_ok = True)
+    os.makedirs(DRDir, exist_ok = True)
+    os.makedirs(DRImageDir, exist_ok = True)
+    os.makedirs(DRCatDir, exist_ok = True)
 
-    qualZeroOne = parentImagesTab[((parentImagesTab['quality'] == 0) |
-                                   (parentImagesTab['quality'] == 1)) &     # quality 0 or 1
-                                  (parentImagesTab['band'] == 'L')]         # only L band in EDR
+    filteredRows = []
 
-    edrImages = qualZeroOne
-    nEDR = len(edrImages)
+    for band in includeBands:
+        for q in includeQuality:
+            rows = parentImagesTab[(parentImagesTab['band'] == band) & 
+                                (parentImagesTab['quality'] == q)]
+            filteredRows.append(rows)
 
-    for row in edrImages:
+    if filteredRows:
+        filteredTable = atpy.vstack(filteredRows)
+    else:
+        filteredTable = atpy.Table()  # empty table
+
+    nFiltered = len(filteredTable)
+
+    # Remove duplicate sky positions by retaining the best observation per location:
+    # prioritise lower quality flag, then lower RMS, then higher source count;
+    # if all equal, select one randomly.
+
+    if removeDuplicates is True:
+
+        uniqueIdx = []
+
+        raFilt = filteredTable["centre_RADeg"] 
+        decFilt = filteredTable["centre_decDeg"] 
+        coordsFilt = SkyCoord(ra=raFilt*u.deg, dec=decFilt*u.deg)
+
+        for i in range(nFiltered):
+
+            candidateIdx = i
+            coordi = coordsFilt[i]
+
+            matchedIndices = []
+
+            for idx in uniqueIdx:
+
+                sep = coordi.separation(coordsFilt[idx])
+
+                if sep.arcsec < 1e-3:
+                    matchedIndices.append(idx)
+
+            if not matchedIndices:
+                uniqueIdx.append(candidateIdx)
+
+            else:
+                bestIdx = candidateIdx
+
+                for idx in matchedIndices:
+
+                    qi = filteredTable[bestIdx]['quality']
+                    qj = filteredTable[idx]['quality']
+
+                    if qi < qj:
+                        pass
+                    elif qi > qj:
+                        bestIdx = idx
+
+                    else:
+
+                        rmsi = filteredTable[bestIdx]['RMS_uJy/beam']
+                        rmsj = filteredTable[idx]['RMS_uJy/beam']
+
+                        if rmsi < rmsj:
+                            pass
+                        elif rmsi > rmsj:
+                            bestIdx = idx
+                        else:
+
+                            nRadioSourcesi = filteredTable[bestIdx]['nRadioSources']
+                            nRadioSourcesj = filteredTable[idx]['nRadioSources']
+                            
+                            if nRadioSourcesi > nRadioSourcesj:
+                                pass
+                            elif nRadioSourcesi < nRadioSourcesj:
+                                bestIdx = idx
+                            else:
+                                bestIdx = random.choice([bestIdx, idx])
+
+                uniqueIdx = [idx for idx in uniqueIdx if idx not in matchedIndices]
+
+                if bestIdx not in uniqueIdx:
+                    uniqueIdx.append(bestIdx)
+
+        DRImages = filteredTable[uniqueIdx]
+
+    else:
+        DRImages = filteredTable
+
+    nDR = len(DRImages)
+
+    print("\n%s has %d images.\n" % (dataRelease, nDR))
+
+    for row in DRImages:
 
         fitsFile = os.path.join(startup.config['productsDir'], row['path'])
         pngFile = fitsFile.replace('.fits','.png')
         catFile = os.path.join(startup.config['productsDir'], row['radioCatPath'].replace('_srl',''))
 
-        if os.path.exists(fitsFile) and not os.path.exists(os.path.join(edrDir, row['path'])):
-            os.system("rsync -avP %s %s" %(fitsFile, edrImageDir))
-            os.system("rsync -avP %s %s" %(pngFile, edrImageDir))
-        if os.path.exists(catFile) and not os.path.exists(os.path.join(edrDir, row['radioCatPath'].replace('_srl',''))):
-            os.system("rsync -avP %s %s" %(catFile, edrCatDir))
+        if os.path.exists(fitsFile) and not os.path.exists(os.path.join(DRDir, row['path'])):
+            os.system("rsync -avP %s %s" %(fitsFile, DRImageDir))
+            os.system("rsync -avP %s %s" %(pngFile, DRImageDir))
+        if os.path.exists(catFile) and not os.path.exists(os.path.join(DRDir, row['radioCatPath'].replace('_srl',''))):
+            os.system("rsync -avP %s %s" %(catFile, DRCatDir))
 
-    print("\nCopied %d L-band observations with qualityFlag=0 or 1 to %s" %(nEDR, edrDir))
+    DRImagesOutFileName = DRDir+os.path.sep+'images_%s.fits' %dataRelease
+    DRImages.write(DRImagesOutFileName, overwrite = True)
+    print("\nWrote %s" % (DRImagesOutFileName))
 
-    edrImagesOutFileName = edrDir+os.path.sep+'images_EDR.fits'
-    edrImages.write(edrImagesOutFileName, overwrite = True)
-    print("\nWrote %s" % (edrImagesOutFileName))
+    globalTabsDict = {band: None for band in includeBands}
 
-    # Generate survey catalogue for EDR
-
-    surveyTab = None
-
-    tabFilesList=sorted(glob.glob(edrCatDir+os.path.sep+'*_bdsfcat.fits'))
+    tabFilesList=sorted(glob.glob(DRCatDir+os.path.sep+'*_bdsfcat.fits'))
     for t in tabFilesList:
+
         tab=atpy.Table().read(t)
-        # Fixing RA
-        if any(tab['RA'] < 0.0):
-            # This pybdsf catalog has -180 to 180 wrapping. Need to change to 360 wrapping
-            tab = catalogs.fixRA(tab, raCol='RA', wrapAngle=360)
-        tab = tab[tab['Total_flux'] > 0.0] # ignoring negative flux entries
+
         freqGHz=tab.meta['FREQ0']/1e9
-        tab['freqGHz']=freqGHz # for scaling of the global catalog
         bandKey=getBandKey(freqGHz)
-        if surveyTab is None:
-            surveyTab=tab
+
+        if bandKey not in includeBands:
+            continue
+        
+        tab = tab[tab['Total_flux'] > 0.0] 
+        tab['freqGHz']=freqGHz 
+        tab.meta.clear() 
+        if globalTabsDict[bandKey] is None:
+            globalTabsDict[bandKey]=tab
         else:
-            surveyTab=atpy.vstack([surveyTab, tab])
+            globalTabsDict[bandKey]=atpy.vstack([globalTabsDict[bandKey], tab])
 
-    outFileName=os.path.join(edrDir, "EDR_survey_catalog_L.fits")
+    for bandKey in globalTabsDict.keys():
+        if globalTabsDict[bandKey] is not None:
+            outFileName=os.path.join(DRDir, "%s_survey_catalog_%s.fits" % (dataRelease, bandKey))
+            globalTabsDict[bandKey].sort('DEC')
+            globalTabsDict[bandKey].sort('RA')
+            globalTabsDict[bandKey].meta['DR']=dataRelease
+            globalTabsDict[bandKey].meta['BAND']=bandKey
+            globalTabsDict[bandKey].meta['QTYVALS'] = includeQuality
+            globalTabsDict[bandKey].meta['BERKVER']=__version__
+            globalTabsDict[bandKey].meta['DATEMADE']=datetime.date.today().isoformat()
+            globalTabsDict[bandKey].write(outFileName, overwrite = True)
+            catalogs.catalog2DS9(globalTabsDict[bandKey], outFileName.replace(".fits", ".reg"),
+                                 idKeyToUse = 'Source_name', RAKeyToUse = 'RA', decKeyToUse = 'DEC')
+            print("\nWrote %s" % (outFileName))
 
-    surveyTab.meta['BAND']='L'
-    surveyTab.meta['QUALITYFLAGS']='0 or 1'
-    surveyTab.meta['BERKVER']=__version__
-    surveyTab.meta['DATEMADE']=datetime.date.today().isoformat()
-    surveyTab.write(outFileName, overwrite = True)
-    catalogs.catalog2DS9(surveyTab, outFileName.replace(".fits", ".reg"),
-                         idKeyToUse = 'Source_name', RAKeyToUse = 'RA', decKeyToUse = 'DEC')
-    print("\nWrote %s" % (outFileName))
+    print("\n" + "═" * 40)
+    print("Successfully built %s ║" %dataRelease)
+    print("═" * 40 + "\n")
+
 
 
 #------------------------------------------------------------------------------------------------------------

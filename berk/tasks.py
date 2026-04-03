@@ -249,11 +249,12 @@ def builddr(dataRelease='EDR', includeBands=None, includeQuality=None, removeDup
         catFile = os.path.join(startup.config['productsDir'], row['radioCatPath'].replace('_srl',''))
 
         if os.path.exists(fitsFile) and not os.path.exists(os.path.join(DRDir, row['path'])):
-            os.system("rsync -avP %s %s" %(fitsFile, DRImageDir))
-            os.system("rsync -avP %s %s" %(pngFile, DRImageDir))
+            os.system("ln -s %s %s" %(fitsFile, DRImageDir))
+            os.system("ln -s %s %s" %(pngFile, DRImageDir))
         if os.path.exists(catFile) and not os.path.exists(os.path.join(DRDir, row['radioCatPath'].replace('_srl',''))):
-            os.system("rsync -avP %s %s" %(catFile, DRCatDir))
+            os.system("ln -s %s %s" %(catFile, DRCatDir))
 
+    DRImages.sort('path')
     DRImagesOutFileName = DRDir+os.path.sep+'images_%s.fits' %dataRelease
     DRImages.write(DRImagesOutFileName, overwrite = True)
     print("\nWrote %s" % (DRImagesOutFileName))
@@ -294,11 +295,45 @@ def builddr(dataRelease='EDR', includeBands=None, includeQuality=None, removeDup
                                  idKeyToUse = 'Source_name', RAKeyToUse = 'RA', decKeyToUse = 'DEC')
             print("\nWrote %s" % (outFileName))
 
+    # Building cross-matched table
+
+    #TODO: generalize this
+    parentXmatchFile = os.path.join(startup.config['productsDir'], 'xmatchCat_zphot_DECaLSDR10_r_4p0asec.fits')
+    noMatchesFile1 = os.path.join(startup.config['productsDir'], 'xmatches_DECaLSDR10', 'no_counterparts_DECaLSDR10_rband_4p0asec.txt')
+    noMatchesFile2 = os.path.join(startup.config['productsDir'], 'xmatches_DECaLSDR10', 'no_DECaLSDR10_sources.txt')
+    noMatchesList = []
+    for f in [noMatchesFile1, noMatchesFile2]:
+        with open(f, 'r') as file:
+            lines = [line.strip() for line in file.readlines()]
+            noMatchesList.extend(lines)
+
+    if os.path.exists(parentXmatchFile):  # Note: changed sys.path.exists to os.path.exists
+        parentXmatchTab = atpy.Table().read(parentXmatchFile)
+    else:
+        parentXmatchTab = None
+
+    DRXmatchTab = None
+    if parentXmatchTab is not None:
+        for row in DRImages:
+            mask = row['radioCatPath'] == parentXmatchTab['radCatPath']
+            if mask.any():
+                matchingRows = parentXmatchTab[mask]
+                if DRXmatchTab is None:
+                    DRXmatchTab = matchingRows
+                else:
+                    DRXmatchTab = atpy.vstack([DRXmatchTab, matchingRows])
+            else:
+                if os.path.basename(row['radioCatPath']) not in noMatchesList:
+                     print("\nNo cross-match found for image %s in parent xmatch table, and it is not listed in the no-matches files.\n" %os.path.basename(row['radioCatPath']))
+        
+        if DRXmatchTab is not None:
+            DRXmatchFile = os.path.join(DRDir, 'xmatchCat_%s.fits' % dataRelease)
+            DRXmatchTab.write(DRXmatchFile, overwrite=True)
+            print("\nWrote %s" % (DRXmatchFile))
+
     print("\n" + "═" * 40)
     print("Successfully built %s ║" %dataRelease)
     print("═" * 40 + "\n")
-
-
 
 #------------------------------------------------------------------------------------------------------------
 def builddb():

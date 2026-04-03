@@ -10,10 +10,9 @@ import subprocess
 import glob
 import datetime
 import astropy.table as atpy
+from astropy.table import Column
 from . import startup, jobs, catalogs, images,  __version__, crossmatch, summaryPlots
 import shlex
-import matplotlib.pyplot as plt
-import numpy as np
 from astropy.coordinates import SkyCoord
 import astropy.units as u
 import random
@@ -141,16 +140,21 @@ def listObservations():
         print("   %s    %s" % (captureBlockId, status))
 
 #------------------------------------------------------------------------------------------------------------
-def builddr(dataRelease='EDR', includeBands=['L'], includeQuality=[0,1], removeDuplicates=True):
+def builddr(dataRelease='EDR', includeBands=None, includeQuality=None, removeDuplicates=True):
     """Build Data Release...
 
     Args:
-        dataRelease (str): The name of the data release to build.
-        includeBands (list of str): List of bands to include.
-        includeQuality (list of int): List of quality flags to include.
-        removeDuplicates (bool): Whether to remove duplicate entries.
+        dataRelease (str): The name of the data release to build, default is 'EDR'.
+        includeBands (list of str): List of bands to include, default is ['L'].
+        includeQuality (list of int): List of quality flags to include, default is [0, 1].
+        removeDuplicates (bool): Whether to remove duplicate entries, default is True.
 
     """
+
+    if includeBands is None:
+        includeBands = ['L']
+    if includeQuality is None:
+        includeQuality = [0, 1]
 
     print("\n" + "═" * 40)
     print("║ Building %s ║" %dataRelease)
@@ -367,6 +371,14 @@ def builddb():
         processedImages = set()
 
     imgFilesList=sorted(glob.glob(startup.config['productsDir']+os.path.sep+"images"+os.path.sep+"pbcorr_*.fits"))
+
+    # Removing images from images.fits that no longer exist in the productsDir
+    if existingImgTab is not None:
+        currentImages = set(os.path.join("images", os.path.basename(p)) for p in imgFilesList)
+        mask = [p in currentImages for p in existingImgTab['path']]
+        existingImgTab = existingImgTab[mask]
+        processedImages = set(existingImgTab['path'])
+
     statsDictList=[]
 
     for imgFile in imgFilesList:
@@ -427,6 +439,7 @@ def builddb():
 
     # Update quality flag column - we only use quality column from qualTab
     imgTab['quality']=99
+    imgTab['comments']=Column(length=len(imgTab), dtype='U200')
     if qualTab is not None:
         for irow in imgTab:
             mask=irow['path'] == qualTab['path']
@@ -436,15 +449,22 @@ def builddb():
                     irow['quality']=qualTab[mask]['quality'][0]
                 else:
                     irow['quality'] = 99
+            if 'comments' in qualTab.keys():
+                if mask.any():
+                    irow['comments']=qualTab[mask]['comments'][0]
+                else:
+                    irow['comments'] = 'NA'
 
     # Output
 
     imgTab.sort('path')
     imgTab.meta['BERKVER']=__version__
     imgTab.meta['DATEMADE']=datetime.date.today().isoformat()
+    imgTab.write(qualFileName, overwrite = True)
+    print("\nWrote %s" % (qualFileName))
+    imgTab.remove_column('comments')
     imgTab.write(outFileName, overwrite = True)
     print("\nWrote %s" % (outFileName))
-    qualTab.write(qualFileName, overwrite = True)
 
     # Generate survey mask in some format - we'll use that to get total survey area
 

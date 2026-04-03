@@ -142,10 +142,12 @@ def computeSourceCount(fluxVals, fluxBins, rmsBinCentreJy=None, cumAreaSqDeg=Non
 
     return fluxBinCentre, fluxCounts, fluxCountsErr, sourceCountValues, sourceCountErr
 
-def plotSourceCounts(fluxCol='Total_flux', fluxMin=None, fluxMax=None, nFluxBins=50, bandColorDict=None, plotOutPath=None):
+def plotSourceCounts(surveyCatDir, catSubScript, fluxCol='Total_flux', fluxMin=None, fluxMax=None, nFluxBins=50, bandColorDict=None, plotOutPath=None):
     """Plot Euclidean-normalized source counts for each band using survey catalogs.
 
     Args:
+        surveyCatDir (:obj:`str`): Directory containing the survey catalog FITS files for each band.
+        catSubScript (:obj:`str`): Subscript for the catalog file names.
         fluxCol (:obj:`str`): Name of the flux column in the catalog table.
         fluxMin (:obj:`float`): Minimum flux to be considered.
         fluxMax (:obj:`float`): Maximum flux to be considered.
@@ -164,7 +166,7 @@ def plotSourceCounts(fluxCol='Total_flux', fluxMin=None, fluxMax=None, nFluxBins
 
     for band in orderedBands:
 
-        catFileName = startup.config['productsDir']+os.path.sep+"survey_catalog_%s.fits" %band
+        catFileName = surveyCatDir+os.path.sep+"survey_catalog_%s%s.fits" %(band, catSubScript)
         catalogTab = atpy.Table().read(catFileName)
 
         fluxVals = catalogTab[fluxCol].value
@@ -174,7 +176,7 @@ def plotSourceCounts(fluxCol='Total_flux', fluxMin=None, fluxMax=None, nFluxBins
         fluxMax = np.max(fluxVals) if fluxMax is None else fluxMax
         fluxBins = np.logspace(np.log10(fluxMin), np.log10(fluxMax), nFluxBins+1)
 
-        RMSAreaCoverageName = startup.config['productsDir']+os.path.sep+"MeerKAT_RMS_area_coverage_%s.txt" %band
+        RMSAreaCoverageName = surveyCatDir+os.path.sep+"MeerKAT_RMS_area_coverage%s_%s.txt" %(catSubScript, band)
 
         RMSAreaCoverage = np.loadtxt(RMSAreaCoverageName)
         rmsBinCentreJy = RMSAreaCoverage[:, 0]
@@ -230,7 +232,7 @@ def getRMSAreaCoverage(rmsFile, rmsBins):
     areaInBins = countsInBins * pixelAreaSqDeg
     return countsInBins, areaInBins
 
-def plotRMSAreaCoverageCumulative(areaCoveragePlotOutName, bandColorDict, nRMSBins=30):
+def plotRMSAreaCoverageCumulative(rmsDirPath, areaCoveragePlotOutName, bandColorDict, nRMSBins=30):
     """Plot cumulative sky area as a function of RMS noise for all bands.
 
     Args:
@@ -242,13 +244,13 @@ def plotRMSAreaCoverageCumulative(areaCoveragePlotOutName, bandColorDict, nRMSBi
         None. Saves the cumulative RMS area plot to the specified path.
     """
 
-    rmsDirPath = startup.config['productsDir'] + os.path.sep + 'rms'
     rmsFiles = sorted(glob.glob(rmsDirPath + os.path.sep + "*rms.fits"))
 
     rmsBins = np.logspace(-10, 0, nRMSBins)
     binCentres = 0.5 * (rmsBins[1:] + rmsBins[:-1])
 
     orderedBands = list(bandColorDict.keys())
+    numBands = len(orderedBands)
     globalRMSNPixelsInBinsDict = {band: np.zeros(len(binCentres)) for band in orderedBands}
     globalRMSCumulativeNPixelsInBinsDict = {band: np.zeros(len(binCentres)) for band in orderedBands}
     globalRMSAreaInBinsDict = {band: np.zeros(len(binCentres)) for band in orderedBands}
@@ -318,8 +320,11 @@ def plotRMSAreaCoverageCumulative(areaCoveragePlotOutName, bandColorDict, nRMSBi
 
     # Plot cumulative area
 
-    fig,ax=plt.subplots(nrows=1,ncols=3,sharex=True, sharey=False)
-    fig.set_size_inches(12,3)
+    figWidthPerPanel = 4
+    figHeight = 3
+    fig,ax=plt.subplots(nrows=1,ncols=numBands,sharex=True, sharey=False, squeeze=False)
+    fig.set_size_inches(figWidthPerPanel * numBands, figHeight)
+    ax = ax.flatten()
 
     for bandi, band in enumerate(orderedBands):
 

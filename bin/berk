@@ -47,9 +47,9 @@ def makeParser():
     parser.add_argument("-s", "--opticalsurvey", dest="optSurvey", default = 'decalsdr10', help="Name of optical survey to crossmatch (default: decalsdr10).\
                         Should be one of: decalsdr10 or rubindp1.",
                         choices=['decalsdr10', 'rubindp1'])
-    parser.add_argument("-d", "--dr", dest="dataRelease", default = 'edr', help="Name of data release to build (default: edr).\
+    parser.add_argument("-d", "--dr", dest="dataRelease", default=None, help="Name of data release to build or summarize.\
                         Should be one of: edr or dr1.",
-                        choices=['edr', 'dr1'])
+                        choices=['parent', 'edr', 'dr1'])
     parser.add_argument("-v", "--version", action = 'version', version = '%(prog)s' + ' %s' % (berk.__version__))
 
     return parser
@@ -95,13 +95,14 @@ if __name__ == '__main__':
         tasks.analyse(captureBlockId)
 
     elif args.task == 'builddr':
+        if dataRelease is None:
+            dataRelease = 'edr'
         if dataRelease == 'edr':
             tasks.builddr(dataRelease='EDR', includeBands=['L'], includeQuality=[0, 1], removeDuplicates=True)
         elif dataRelease == 'dr1':
             print("DR1 data release products are not yet available - stay tuned!")
         else:
             print("Invalid data release specified - should be one of: edr or dr1.")
-            sys.exit()
 
     elif args.task == 'builddb':
         tasks.builddb()
@@ -110,7 +111,14 @@ if __name__ == '__main__':
         tasks.report()
 
     elif args.task == 'summarize' or args.task == 'summarise':
-        tasks.summarize()
+        if dataRelease is None:
+            dataRelease = 'parent'
+        if dataRelease == 'parent':
+            tasks.summarize(dataBase='PARENT')
+        elif dataRelease == 'edr':
+            tasks.summarize(dataBase='EDR')
+        elif dataRelease == 'dr1':
+            print("DR1 data release products are not yet available - stay tuned!")
 
     elif args.task == 'xmatch':
         tasks.xmatch(optSurvey)

@@ -167,10 +167,12 @@ def builddr(dataRelease='EDR', includeBands=None, includeQuality=None, removeDup
     DRDir = os.path.join(startup.config['rootDir'], dataRelease)
     DRImageDir = os.path.join(DRDir, 'images')
     DRCatDir = os.path.join(DRDir, 'catalogs')
+    DRRmsDir = os.path.join(DRDir, 'rms')
 
     os.makedirs(DRDir, exist_ok = True)
     os.makedirs(DRImageDir, exist_ok = True)
     os.makedirs(DRCatDir, exist_ok = True)
+    os.makedirs(DRRmsDir, exist_ok = True)
 
     filteredRows = []
 
@@ -247,12 +249,17 @@ def builddr(dataRelease='EDR', includeBands=None, includeQuality=None, removeDup
         fitsFile = os.path.join(startup.config['productsDir'], row['path'])
         pngFile = fitsFile.replace('.fits','.png')
         catFile = os.path.join(startup.config['productsDir'], row['radioCatPath'].replace('_srl',''))
+        rmsFile = catFile.replace('catalogs', 'rms').replace('_bdsfcat.fits', '_rms.fits')
+        rmsHistFile = catFile.replace('catalogs', 'rms').replace('_bdsfcat.fits', '_rms_rmshist.txt')
 
         if os.path.exists(fitsFile) and not os.path.exists(os.path.join(DRDir, row['path'])):
             os.system("ln -s %s %s" %(fitsFile, DRImageDir))
             os.system("ln -s %s %s" %(pngFile, DRImageDir))
         if os.path.exists(catFile) and not os.path.exists(os.path.join(DRDir, row['radioCatPath'].replace('_srl',''))):
             os.system("ln -s %s %s" %(catFile, DRCatDir))
+        if os.path.exists(rmsFile) and not os.path.exists(os.path.join(DRRmsDir, os.path.basename(rmsFile))):
+            os.system("ln -s %s %s" %(rmsFile, DRRmsDir))
+            os.system("ln -s %s %s" %(rmsHistFile, DRRmsDir))
 
     DRImages.sort('path')
     DRImagesOutFileName = DRDir+os.path.sep+'images_%s.fits' %dataRelease
@@ -282,7 +289,7 @@ def builddr(dataRelease='EDR', includeBands=None, includeQuality=None, removeDup
 
     for bandKey in globalTabsDict.keys():
         if globalTabsDict[bandKey] is not None:
-            outFileName=os.path.join(DRDir, "%s_survey_catalog_%s.fits" % (dataRelease, bandKey))
+            outFileName=os.path.join(DRDir, "survey_catalog_%s_%s.fits" % (bandKey, dataRelease))
             globalTabsDict[bandKey].sort('DEC')
             globalTabsDict[bandKey].sort('RA')
             globalTabsDict[bandKey].meta['DR']=dataRelease
@@ -327,7 +334,7 @@ def builddr(dataRelease='EDR', includeBands=None, includeQuality=None, removeDup
                      print("\nNo cross-match found for image %s in parent xmatch table, and it is not listed in the no-matches files.\n" %os.path.basename(row['radioCatPath']))
         
         if DRXmatchTab is not None:
-            DRXmatchFile = os.path.join(DRDir, 'xmatchCat_%s.fits' % dataRelease)
+            DRXmatchFile = os.path.join(DRDir, 'xmatchCat_zphot_DECaLSDR10_r_4p0asec_%s.fits' % dataRelease)
             DRXmatchTab.write(DRXmatchFile, overwrite=True)
             print("\nWrote %s" % (DRXmatchFile))
 
@@ -777,7 +784,80 @@ def analyse(captureBlockId):
     sys.exit()
 
 #------------------------------------------------------------------------------------------------------------
-def summarize():
+def summarize(dataBase='PARENT'):
+    """Summarize the progress in berk processing.
+
+    Args:
+            dataRelease (str): The name of the data release to build, default is 'EDR'.
+
+    """
+
+    if dataBase == 'PARENT':
+        dataBaseDir = startup.config['productsDir']
+        subScript = ''
+    elif dataBase == 'EDR':
+        dataBaseDir = os.path.join(startup.config['rootDir'], dataBase)
+        subScript = '_EDR'
+
+    imagesFileName = dataBaseDir+os.path.sep+"images%s.fits" %subScript
+    xmatchFileName = dataBaseDir+os.path.sep+"xmatchCat_zphot_DECaLSDR10_r_4p0asec%s.fits" %subScript
+    rmsDirPath = dataBaseDir+os.path.sep+"rms"
+
+    imagesTab = atpy.Table().read(imagesFileName)
+    xmatchTab = atpy.Table().read(xmatchFileName)
+
+    allBandColors = {'L': '#e35c1e', 'UHF': '#1e21e3', 'S': '#145a32'}
+    bandsInDB = set(imagesTab['band'])
+    bandColorDict = {band: color for band, color in allBandColors.items() if band in bandsInDB}
+    orderedBands = list(bandColorDict.keys())
+    bandTotalAreaDict = {}
+
+    # Printing summary
+
+    print("\n" + "═" * 50)
+    print(("║ SUMMARY OF MEERKAT OBSERVATIONS IN %s DATABASE ║"%dataBase).center(50))
+    print("═" * 50 + "\n")
+
+    for band in orderedBands:
+        bandMaskImages = imagesTab['band'] == band
+        bandDataImages = imagesTab[bandMaskImages]
+        bandCountImages = len(bandDataImages)
+        bandTotalArea = bandDataImages['skyArea_sqDeg'].sum()
+        bandTotalAreaDict[band] = bandTotalArea
+
+        catFileName = startup.config['productsDir']+os.path.sep+"survey_catalog_%s.fits" %band
+        catalogTab = atpy.Table().read(catFileName)
+        nPybdsfSources = len(catalogTab)
+
+        bandMaskXmatches = xmatchTab['band'] == band
+        bandDataXmatches = xmatchTab[bandMaskXmatches]
+        bandCountXmatches = len(bandDataXmatches)
+
+        print("\n---------------- %s band --------------------" %band)
+        print("\nNumber of pointings: %d \
+                \nTotal area: %.3f sq. deg. \
+                \nNumber of PyBDSF sources: %d \
+              \nNumber of DECaLS cross-matches: %d\n" % (bandCountImages, bandTotalArea, nPybdsfSources, bandCountXmatches))
+
+    # Plotting sky coverage
+
+    skyPlotName = dataBaseDir+os.path.sep+'MeerKAT_pointings%s.png' %subScript
+
+    summaryPlots.plotSkyCoverage(imagesTab, bandColorDict=bandColorDict, plotOutPath=skyPlotName, plotProjection='aitoff')
+
+    # Plotting RMS area coverage
+
+    rmsAreaCoveragePlotName = dataBaseDir+os.path.sep+'MeerKAT_RMS_area_coverage%s.png' % subScript
+
+    summaryPlots.plotRMSAreaCoverageCumulative(rmsDirPath, rmsAreaCoveragePlotName, bandColorDict, nRMSBins=100)
+
+    # # Plotting sourcecount
+
+    sourceCountPlotName = dataBaseDir+os.path.sep+'MeerKAT_sourcecount%s.png' % subScript
+    summaryPlots.plotSourceCounts(dataBaseDir, catSubScript=subScript, fluxCol='Total_flux', fluxMin=1E-5, fluxMax=1.0, nFluxBins=39, bandColorDict=bandColorDict, plotOutPath=sourceCountPlotName)
+
+#------------------------------------------------------------------------------------------------------------
+def summarize_old():
     """Summarize the progress in berk processing.
 
     """

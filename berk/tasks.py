@@ -188,71 +188,49 @@ def builddr(dataRelease='EDR', includeBands=['L'], includeQuality=[0,1], removeD
     # if all equal, select one randomly.
 
     if removeDuplicates is True:
-
         uniqueIdx = []
-
         raFilt = filteredTable["centre_RADeg"] 
         decFilt = filteredTable["centre_decDeg"] 
         coordsFilt = SkyCoord(ra=raFilt*u.deg, dec=decFilt*u.deg)
-
         for i in range(nFiltered):
-
             candidateIdx = i
             coordi = coordsFilt[i]
-
             matchedIndices = []
-
             for idx in uniqueIdx:
-
                 sep = coordi.separation(coordsFilt[idx])
-
                 if sep.arcsec < 1e-3:
                     matchedIndices.append(idx)
-
             if not matchedIndices:
                 uniqueIdx.append(candidateIdx)
-
             else:
                 bestIdx = candidateIdx
-
                 for idx in matchedIndices:
-
                     qi = filteredTable[bestIdx]['quality']
                     qj = filteredTable[idx]['quality']
-
                     if qi < qj:
                         pass
                     elif qi > qj:
                         bestIdx = idx
-
                     else:
-
                         rmsi = filteredTable[bestIdx]['RMS_uJy/beam']
                         rmsj = filteredTable[idx]['RMS_uJy/beam']
-
                         if rmsi < rmsj:
                             pass
                         elif rmsi > rmsj:
                             bestIdx = idx
                         else:
-
                             nRadioSourcesi = filteredTable[bestIdx]['nRadioSources']
                             nRadioSourcesj = filteredTable[idx]['nRadioSources']
-                            
                             if nRadioSourcesi > nRadioSourcesj:
                                 pass
                             elif nRadioSourcesi < nRadioSourcesj:
                                 bestIdx = idx
                             else:
                                 bestIdx = random.choice([bestIdx, idx])
-
                 uniqueIdx = [idx for idx in uniqueIdx if idx not in matchedIndices]
-
                 if bestIdx not in uniqueIdx:
                     uniqueIdx.append(bestIdx)
-
         DRImages = filteredTable[uniqueIdx]
-
     else:
         DRImages = filteredTable
 
@@ -340,13 +318,13 @@ def builddb():
             if any(tab['RA'] < 0.0):
                 # This pybdsf catalog has -180 to 180 wrapping. Need to change to 360 wrapping
                 tab = catalogs.fixRA(tab, raCol='RA', wrapAngle=360)
-                catalogs.listCatalogInFile(t, catWrapIssueList)
+                catalogs.listCatalogInFile(t, catWrapIssueList) 
             tab = tab[tab['Total_flux'] > 0.0] # ignoring negative flux entries
             freqGHz=tab.meta['FREQ0']/1e9
             tab['freqGHz']=freqGHz # for scaling of the global catalog
             bandKey=getBandKey(freqGHz)
             #tab.meta=None # It'd be good to clear this... but the catalog matching stuff wants many things from here
-            #tab.meta.clear() #
+            tab.meta.clear() #
             if globalTabsDict[bandKey] is None:
                 globalTabsDict[bandKey]=tab
             else:
@@ -408,7 +386,7 @@ def builddb():
             radCatTab = atpy.Table.read(radCatPath)
             nPybdsfSources = len(radCatTab)
 
-        if (pathName in processedImages):
+        if pathName in processedImages:
             continue #avoiding recomputing statistics
 
         statDict=images.getImagesStats(imgFile)
@@ -460,6 +438,8 @@ def builddb():
                     irow['quality'] = 99
 
     # Output
+
+    imgTab.sort('path')
     imgTab.meta['BERKVER']=__version__
     imgTab.meta['DATEMADE']=datetime.date.today().isoformat()
     imgTab.write(outFileName, overwrite = True)

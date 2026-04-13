@@ -857,66 +857,6 @@ def summarize(dataBase='PARENT'):
     summaryPlots.plotSourceCounts(dataBaseDir, catSubScript=subScript, fluxCol='Total_flux', fluxMin=1E-5, fluxMax=1.0, nFluxBins=39, bandColorDict=bandColorDict, plotOutPath=sourceCountPlotName)
 
 #------------------------------------------------------------------------------------------------------------
-def summarize_old():
-    """Summarize the progress in berk processing.
-
-    """
-
-    imagesFileName = startup.config['productsDir']+os.path.sep+"images.fits"
-    xmatchFileName = startup.config['productsDir']+os.path.sep+"xmatchCat_zphot_DECaLSDR10_r_4p0asec.fits"
-
-    imagesTab = atpy.Table().read(imagesFileName)
-    xmatchTab = atpy.Table().read(xmatchFileName)
-
-    bandColorDict={'L': '#e35c1e', 'UHF': '#1e21e3', 'S': '#145a32'}
-    orderedBands = list(bandColorDict.keys())
-    bandTotalAreaDict = {}
-
-    # Printing summary
-
-    print("\n" + "═" * 50)
-    print("║ SUMMARY OF MEERKAT DATA PROCESSING ║".center(50))
-    print("═" * 50 + "\n")
-
-    for band in orderedBands:
-        bandMaskImages = imagesTab['band'] == band
-        bandDataImages = imagesTab[bandMaskImages]
-        bandCountImages = len(bandDataImages)
-        bandTotalArea = bandDataImages['skyArea_sqDeg'].sum()
-        bandTotalAreaDict[band] = bandTotalArea
-
-        catFileName = startup.config['productsDir']+os.path.sep+"survey_catalog_%s.fits" %band
-        catalogTab = atpy.Table().read(catFileName)
-        nPybdsfSources = len(catalogTab)
-
-        bandMaskXmatches = xmatchTab['band'] == band
-        bandDataXmatches = xmatchTab[bandMaskXmatches]
-        bandCountXmatches = len(bandDataXmatches)
-
-        print("\n---------------- %s band --------------------" %band)
-        print("\nNumber of pointings: %d \
-                \nTotal area: %.3f sq. deg. \
-                \nNumber of PyBDSF sources: %d \
-              \nNumber of DECaLS cross-matches: %d\n" % (bandCountImages, bandTotalArea, nPybdsfSources, bandCountXmatches))
-
-    # Plotting sky coverage
-
-    skyPlotName = startup.config['productsDir']+os.path.sep+'MeerKAT_pointings.png'
-
-    summaryPlots.plotSkyCoverage(imagesTab, bandColorDict=bandColorDict, plotOutPath=skyPlotName, plotProjection='aitoff')
-
-    # Plotting RMS area coverage
-
-    rmsAreaCoveragePlotName = startup.config['productsDir']+os.path.sep+'MeerKAT_RMS_area_coverage.png'
-
-    summaryPlots.plotRMSAreaCoverageCumulative(rmsAreaCoveragePlotName, bandColorDict, nRMSBins=100)
-
-    # Plotting sourcecount
-
-    sourceCountPlotName = startup.config['productsDir']+os.path.sep+'MeerKAT_sourcecount.png'
-    summaryPlots.plotSourceCounts(fluxCol='Total_flux', fluxMin=1E-5, fluxMax=1.0, nFluxBins=39, bandColorDict=bandColorDict, plotOutPath=sourceCountPlotName)
-
-#------------------------------------------------------------------------------------------------------------
 def report():
     """Report...
 

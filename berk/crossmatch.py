@@ -527,7 +527,7 @@ def retrieveDECaLSDR10(centerRA, centerDec, radiusDeg):
 
     print("\nRetrieving DECaLS DR10 sources with RA_central=%.2f deg, Dec_central=%.2f deg, and radius=%.2f deg" \
           % (centerRA, centerDec, radiusDeg))
-    zClusterCacheDir = os.environ['ZCLUSTER_CACHE']+os.path.sep+"zCluster"+os.path.sep+"cache"
+    zClusterCacheDir = os.path.join(os.environ['ZCLUSTER_CACHE'], "zCluster", "cache")
     resultRetrieve = retrievers.DL_DECaLSDR10RetrieverPhotoZ(centerRA, centerDec,
                                                              halfBoxSizeDeg = radiusDeg,
                                                              DR = None,

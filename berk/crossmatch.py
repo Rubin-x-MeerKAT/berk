@@ -236,13 +236,13 @@ def countBlanks(skyCatCoords1, skyCatCoords2, searchRadRsDeg):
     """
     Counts the number of sources in skyCatCoords1 that have no match within searchRadRsDeg in skyCatCoords2.
 
-    Parameters:
-    - skyCatCoords1 : SkyCoord of first catalogue.
-    - skyCatCoords2 : SkyCoord of second catalogue.
-    - searchRadRsDeg: search radius in degrees
+    Args:   
+        skyCatCoords1 : SkyCoord of first catalogue.
+        skyCatCoords2 : SkyCoord of second catalogue.
+        searchRadRsDeg: search radius in degrees
 
     Returns:
-    - nBlanks: number of skyCatCoords1 positions with no match in skyCatCoords2
+        nBlanks: number of skyCatCoords1 positions with no match in skyCatCoords2
     """
 
     idx2, sep2d, _ = skyCatCoords1.match_to_catalog_sky(skyCatCoords2)
@@ -388,21 +388,17 @@ def getValueFromMagBins(magnitude, magBins, binValues):
     """
     Returns the corresponding bin value for a given magnitude based on magnitude bins.
 
-    Parameters
-    ----------
-    magnitude : float
-        The magnitude value for which the bin value is to be returned.
-    magBins : array-like
-        The edges of the magnitude bins. Length must be N+1 for N binValues.
-    binValues : array-like
-        The value associated with each bin (e.g. q(m) or n(m)). Length must be N.
+    Args:
+        magnitude (float): The magnitude value for which the bin value is to be returned.
+        magBins (array-like): The edges of the magnitude bins. Length must be N+1
+        for N binValues.
+        binValues (array-like): The value associated with each bin (e.g. q(m) or n(m)). Length must be N.
 
-    Returns
-    -------
-    float
-        The value corresponding to the bin in which the magnitude falls.
+    Returns:
+        float: The value corresponding to the bin in which the magnitude falls.
         Returns np.nan if the value is outside the bin range or if inputs are inconsistent.
     """
+
     if len(binValues) != len(magBins) - 1:
         raise ValueError("Length of bin_values must be one less than length of bin_edges.")
 

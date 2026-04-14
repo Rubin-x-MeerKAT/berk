@@ -149,12 +149,31 @@ def getNM(optMag, nBins, areaSqDeg):
     distNm = optMagHist / (areaSqDeg * binWidth)
     return distNm
 
-def randomPointsInCircleExactNPoints(centerRA, centerDec, radiusDeg, nPoints):
+def randomPointsInCircleExactNPoints(centerRA, centerDec, radiusDeg, nPoints, rng=None):
+    """
+    Generate uniformly distributed random points within a circular area on the sky.
+
+    Args:
+        centerRA (:obj:`float`): Right Ascension of the circle's center (degrees).
+        centerDec (:obj:`float`): Declination of the circle's center (degrees).
+        radiusDeg (:obj:`float`): Radius of the circular area (degrees).
+        nPoints (:obj:`int`): Number of random points to generate.
+        rng (:obj:`numpy.random.Generator`, optional): A NumPy random number generator instance for reproducibility. 
+
+    Returns:
+        tuple:
+            - randRA (array): Array of RA values (degrees) for the random points.
+            - randDec (array): Array of Dec values (degrees) for the random points.
+    """
+
+    if rng is None:
+        rng = np.random.default_rng()
+
     center = SkyCoord(centerRA*u.deg, centerDec*u.deg, frame='icrs')
 
     # Proper spherical random distribution
-    randR = radiusDeg * np.sqrt(np.random.uniform(0, 1, nPoints))
-    randTheta = np.random.uniform(0, 2*np.pi, nPoints)
+    randR = radiusDeg * np.sqrt(rng.uniform(0, 1, nPoints))
+    randTheta = rng.uniform(0, 2*np.pi, nPoints)
 
     # Offset using spherical geometry
     coords = center.directional_offset_by(randTheta * u.rad,

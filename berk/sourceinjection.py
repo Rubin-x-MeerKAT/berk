@@ -17,10 +17,8 @@ from astropy.table import Table, hstack
 from astropy.coordinates import SkyCoord
 import astropy.units as u
 from astropy.modeling.models import Gaussian2D
-
 from multiprocessing import Pool
-
-from berk import catalogs, crossmatch
+from berk import catalogs, crossmatch, startup
 import bdsf
 
 # ---------------------------------------------------------------------------
@@ -57,7 +55,7 @@ pybdsfArgs = {
 }
 
 def sourceExtract(imageFile, pybdsfBaseName, saveRMSMeanResidualMaps=False, 
-                  outDir=os.getcwd(), rmsFileName=None, meanFileName=None):
+                  outDir=None, rmsFileName=None, meanFileName=None):
     """
     Extracts sources from the given image using PyBDSF and saves the catalogue and optionally the RMS, mean and residual maps.
      Args:
@@ -71,6 +69,8 @@ def sourceExtract(imageFile, pybdsfBaseName, saveRMSMeanResidualMaps=False,
 
     if 'image.fits' not in imageFile: # Avoding any table fits coming in
         return
+    if outDir is None:
+        outDir = os.getcwd()
 
     outCatalog = os.path.join(outDir, pybdsfBaseName+'_srl_bdsfcat.fits')
 
@@ -97,8 +97,8 @@ def sourceExtract(imageFile, pybdsfBaseName, saveRMSMeanResidualMaps=False,
 
     try:
         img = bdsf.process_image(imageFile, **pybdsfArgsCopy['process_image'])
-        for imgType in pybdsfArgs['export_image']:
-            if pybdsfArgs['export_image'][imgType] is True:
+        for imgType in pybdsfArgsCopy['export_image']:
+            if pybdsfArgsCopy['export_image'][imgType] is True:
                 img.export_image(outfile=os.path.join(outDir, pybdsfBaseName+'_'+imgType+'.fits'), clobber=True, img_type=imgType)
 
         img.write_catalog(outfile=outCatalog, format='fits', 
@@ -283,19 +283,22 @@ def injectImage(imageToInjectFileName, fieldRACentre, fieldDecCentre, injectRadi
 
     print("\nAll injections done. Results in %s\n" %sinjectDir)
 
-def matchFakeToRecovered(fakeTab, recovTab, matchRadDeg):
+def matchFakeToRecovered(fakeTab, recovTab, matchRadDeg, fluxTolerance=0.5):
     """
     Matches the injected fake sources to the recovered sources based on their sky positions. A fake source is considered recovered if there is a recovered source within matchRadDeg degrees.
      Args:
         fakeTab: Table containing the injected fake sources with columns "RADeg_injected" and "decDeg_injected".
         recovTab: Table containing the recovered sources with columns "RA" and "DEC".
         matchRadDeg: Matching radius in degrees to consider a fake source as recovered.
+        fluxTolerance: Fractional tolerance for flux matching. Default is 0.5
 
      Returns:
         injectedRecoveredMask: Boolean array indicating which injected fake sources were recovered.
         matchedFakeTab: Table of the injected fake sources that were matched to recovered sources.
         matchedRecovTab: Table of the recovered sources that were matched to injected fake sources.
     """
+
+    #TODO: fluxTolerance criteria is something to play around.
 
     catFake  = SkyCoord(ra=fakeTab["RADeg_injected"].value * u.deg,
                       dec=fakeTab["decDeg_injected"].value * u.deg)
@@ -305,13 +308,23 @@ def matchFakeToRecovered(fakeTab, recovTab, matchRadDeg):
     # For each fake source, find nearest recovered source
     idx, sep2d, _ = catFake.match_to_catalog_sky(catRecov)
 
+    # Position match
     matchRadiusAngle = matchRadDeg * u.deg
     withinRadius = sep2d < matchRadiusAngle
 
-    injectedRecoveredMask = withinRadius
+    # Flux match
+    if fluxTolerance is not None:
+        recoveredFlux = np.array(recovTab["Total_flux"][idx])
+        injectedFlux = np.array(fakeTab["fluxJy_injected"])
+        fractionalDiff = np.abs(recoveredFlux - injectedFlux) / injectedFlux
+        fluxMatch = fractionalDiff < fluxTolerance
+    else:
+        fluxMatch = np.ones(len(fakeTab), dtype=bool)
 
-    matchedFakeTab  = fakeTab[withinRadius]
-    matchedRecovTab = recovTab[idx[withinRadius]]
+    injectedRecoveredMask = withinRadius & fluxMatch
+
+    matchedFakeTab  = fakeTab[injectedRecoveredMask]
+    matchedRecovTab = recovTab[idx[injectedRecoveredMask]]
 
     return injectedRecoveredMask, matchedFakeTab, matchedRecovTab
 
@@ -370,7 +383,6 @@ def calculateCompleteness(sInjectedCatList, pybdsfCat, imageName, sinjectDir,
     
 
     allFractionRecovered = []
-    allFluxRatios        = []  
     allBinCentres        = None
 
     fluxBins    = np.logspace(np.log10(minFluxJyInj), np.log10(maxFluxJyInj), nJyBins + 1)
@@ -414,12 +426,6 @@ def calculateCompleteness(sInjectedCatList, pybdsfCat, imageName, sinjectDir,
 
         nRecovered = injectedRecoveredMask.sum()
         print("%d / %d injected fake sources recovered" % (nRecovered, len(fakeTab)))
-
-        # --- Flux recovery ratio ---
-        if "Total_flux" in matchedRecovTab.colnames and nRecovered > 0:
-            fluxRatio = (matchedRecovTab["Total_flux"] /
-                         matchedFakeTab["fluxJy_injected"])
-            allFluxRatios.append(fluxRatio)
 
         # --- Sky plot: injected but NOT recovered ---
         brightMask = fakeTab["fluxJy_injected"] > 1e-2   # Jy
@@ -468,8 +474,6 @@ def calculateCompleteness(sInjectedCatList, pybdsfCat, imageName, sinjectDir,
     meanFraction = np.nanmean(allFractionRecovered, axis=0)
     stdFraction  = np.nanstd(allFractionRecovered, axis=0)
 
-    print(meanFraction, stdFraction, allBinCentres)
-
     fig, ax = plt.subplots(figsize=(8, 6))
     ax.plot(allBinCentres, meanFraction, color="steelblue", lw=2)
     ax.fill_between(allBinCentres,
@@ -490,22 +494,7 @@ def calculateCompleteness(sInjectedCatList, pybdsfCat, imageName, sinjectDir,
     plt.close(fig)
     print("\nCompleteness plot saved to %s" % plotName)
 
-    if len(allFluxRatios) > 0:
-        allFluxRatiosConcat = np.concatenate([r.data if hasattr(r, 'data') else np.array(r)
-                                              for r in allFluxRatios])
-        fig, ax = plt.subplots(figsize=(7, 5))
-        ax.hist(allFluxRatiosConcat, bins=50, range=(0, 3), color="steelblue",
-                edgecolor="white", lw=0.4)
-        ax.axvline(1.0, color="red", linestyle="--", label="Perfect recovery")
-        ax.set_xlabel("Recovered flux / Injected flux", fontsize=13)
-        ax.set_ylabel("Count", fontsize=13)
-        ax.set_title("Flux recovery ratio", fontsize=12)
-        ax.legend()
-        fluxPlotName = os.path.join(dirName, sinjectDir, "fluxRecovery_%s.png" % imageName)
-        fig.savefig(fluxPlotName, dpi=150, bbox_inches="tight")
-        plt.close(fig)
-        print("\nFlux recovery plot saved to %s" % fluxPlotName)
-
+    
     return meanFraction, stdFraction, allBinCentres
 
 def _execute_single(imageName, pybdsfCatFilePath=None, rmsFilePath=None, meanFilePath=None, residualFilePath=None, 
@@ -530,7 +519,7 @@ def _execute_single(imageName, pybdsfCatFilePath=None, rmsFilePath=None, meanFil
     imageBaseName = os.path.basename(imageName).split(".fits")[0]
     catBaseName = os.path.basename(imageName).split(".")[0]
 
-    localProdDir  = os.path.join(os.environ["BERK_ROOT"], "products")
+    localProdDir  = startup.config['productsDir']
 
     if pybdsfCatFilePath is None:
         pybdsfCatFileName = "%s_srl_bdsfcat.fits" %catBaseName
@@ -680,7 +669,7 @@ def execute(imageName=None, pybdsfCatFilePath=None, rmsFilePath=None, meanFilePa
     
     print("\nFound %d image files:\n" % len(imageFilesInCwd))
 
-    for idx, imageFile in enumerate(imageFilesInCwd):
+    for imageFile in enumerate(imageFilesInCwd):
         print("=" * 60)
         print("Working on %s" % imageFile)
 

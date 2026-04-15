@@ -160,6 +160,9 @@ def _runSingleInjectionToResidual(args):
     logMin = np.log10(minFluxJyInj)
     logMax = np.log10(maxFluxJyInj)
 
+    # to keep track of previously injected sources to avoid crowding
+    injectedCoords = []
+
     nSourcesInjected = 0
 
     randomRAInjected = []
@@ -170,8 +173,16 @@ def _runSingleInjectionToResidual(args):
 
         randomRA, randomDec = crossmatch.randomPointsInCircleExactNPoints(fieldRACentre, fieldDecCentre, injectRadius, 1, rng=rng)
 
-        #randomLogFlux = np.random.uniform(logMin, logMax, 1)[0]
-        #randomFlux = 10**randomLogFlux
+        randPostCoord = SkyCoord(ra=randomRA[0]*u.deg, dec=randomDec[0]*u.deg)
+        if len(injectedCoords) > 0:
+            prevCoords = SkyCoord(ra=np.array(injectedCoords)[:,0]*u.deg, dec=np.array(injectedCoords)[:,1]*u.deg)
+            seps = randPostCoord.separation(prevCoords)
+            # #TODO: harcoded 5 times the the beam size
+            if seps.min() < (5 * 6.0 * u.arcsec):
+                continue
+
+        injectedCoords.append([randomRA[0], randomDec[0]])
+
         randomFlux = 10 ** rng.uniform(logMin, logMax)
 
         xPix, yPix = wcsObj.wcs_world2pix(randomRA, randomDec, 0)
@@ -285,7 +296,9 @@ def injectImage(imageToInjectFileName, fieldRACentre, fieldDecCentre, injectRadi
 
 def matchFakeToRecovered(fakeTab, recovTab, matchRadDeg, fluxTolerance=0.5):
     """
-    Matches the injected fake sources to the recovered sources based on their sky positions. A fake source is considered recovered if there is a recovered source within matchRadDeg degrees.
+    Matches the injected fake sources to the recovered sources based on their sky positions. 
+    A fake source is considered recovered if there is a recovered source within matchRadDeg degrees.
+    
      Args:
         fakeTab: Table containing the injected fake sources with columns "RADeg_injected" and "decDeg_injected".
         recovTab: Table containing the recovered sources with columns "RA" and "DEC".
@@ -295,7 +308,6 @@ def matchFakeToRecovered(fakeTab, recovTab, matchRadDeg, fluxTolerance=0.5):
      Returns:
         injectedRecoveredMask: Boolean array indicating which injected fake sources were recovered.
         matchedFakeTab: Table of the injected fake sources that were matched to recovered sources.
-        matchedRecovTab: Table of the recovered sources that were matched to injected fake sources.
     """
 
     #TODO: fluxTolerance criteria is something to play around.
@@ -324,9 +336,8 @@ def matchFakeToRecovered(fakeTab, recovTab, matchRadDeg, fluxTolerance=0.5):
     injectedRecoveredMask = withinRadius & fluxMatch
 
     matchedFakeTab  = fakeTab[injectedRecoveredMask]
-    matchedRecovTab = recovTab[idx[injectedRecoveredMask]]
 
-    return injectedRecoveredMask, matchedFakeTab, matchedRecovTab
+    return injectedRecoveredMask, matchedFakeTab
 
 def getBeamParamsFromFits(fitsFile):
     """
@@ -389,8 +400,6 @@ def calculateCompleteness(sInjectedCatList, pybdsfCat, imageName, sinjectDir,
     binCentres  = np.sqrt(fluxBins[:-1] * fluxBins[1:])
     allBinCentres = binCentres
 
-    dirName = os.getcwd()
-
     for catIdx, sInjectedCatFile in enumerate(sInjectedCatList):
 
         print("\nProcessing %s (%d/%d)" % (sInjectedCatFile, catIdx+1, len(sInjectedCatList)))
@@ -420,14 +429,14 @@ def calculateCompleteness(sInjectedCatList, pybdsfCat, imageName, sinjectDir,
         # in case we want to inject sources to an inner area of the image
         matchRadDeg = max(beamMajor, beamMinor)
 
-        injectedRecoveredMask, matchedFakeTab, matchedRecovTab = matchFakeToRecovered(
-            fakeTab, recovTab, matchRadDeg
-        )
+        # injectedRecoveredMask : boolean mask for the injected source table that were recovered by PyBDSF
+        # matchedFakeTab : subset of the injected source table that were recovered by PyBDSF
+        injectedRecoveredMask, matchedFakeTab = matchFakeToRecovered(fakeTab, recovTab, matchRadDeg, fluxTolerance=None)
 
         nRecovered = injectedRecoveredMask.sum()
         print("%d / %d injected fake sources recovered" % (nRecovered, len(fakeTab)))
 
-        # --- Sky plot: injected but NOT recovered ---
+        # Sky plot: injected but NOT recovered
         brightMask = fakeTab["fluxJy_injected"] > 1e-2   # Jy
         brightNotRecovered = fakeTab[brightMask & ~injectedRecoveredMask]
 
@@ -442,21 +451,21 @@ def calculateCompleteness(sInjectedCatList, pybdsfCat, imageName, sinjectDir,
         ax.invert_xaxis()
         ax.set_xlabel("RA (deg)")
         ax.set_ylabel("Dec (deg)")
-        ax.set_title("%s\nNot recovered (flux > 10 mJy) — run %d" % (imageName, catIdx))
+        ax.set_title("%s\nNot recovered (flux > 10 mJy) — run %d" % (os.path.basename(imageName), catIdx))
         ax.legend(markerscale=3)
-        plotFile = os.path.join(dirName, sinjectDir, "notRecovered_bright_%03d.png" % catIdx)
+        plotFile = os.path.join(sinjectDir, sinjectDir, "notRecovered_bright_%03d.png" % catIdx)
         fig.savefig(plotFile, dpi=150, bbox_inches="tight")
         plt.close(fig)
 
-        # --- Completeness per flux bin ---
+        # Completeness per flux bin 
         recoveredCounts, _ = np.histogram(
             matchedFakeTab["fluxJy_injected"], bins=fluxBins
         )
+
         injectedCounts, _ = np.histogram(
             fakeTab["fluxJy_injected"], bins=fluxBins
         )
 
-        # Guard against empty bins
         with np.errstate(invalid="ignore", divide="ignore"):
             fractionRecovered = np.where(
                 injectedCounts > 0,
@@ -477,19 +486,18 @@ def calculateCompleteness(sInjectedCatList, pybdsfCat, imageName, sinjectDir,
     fig, ax = plt.subplots(figsize=(8, 6))
     ax.plot(allBinCentres, meanFraction, color="steelblue", lw=2)
     ax.fill_between(allBinCentres,
-                    np.clip(meanFraction - stdFraction, 0, 1),
-                    np.clip(meanFraction + stdFraction, 0, 1),
-                    alpha=0.3, color="steelblue", label=r"$\pm 1\sigma$")
+                    meanFraction - stdFraction,
+                    meanFraction + stdFraction,
+                    alpha=0.3, color="steelblue")
     ax.axhline(1.0, linestyle="--", color="k", lw=1)
-    ax.axhline(0.5, linestyle=":",  color="gray", lw=1, label="50% completeness")
     ax.set_xscale("log")
     ax.set_ylim(-0.05, 1.15)
     ax.set_xlabel("Flux density S / Jy", fontsize=13)
     ax.set_ylabel("Completeness  (recovered / injected)", fontsize=13)
-    ax.set_title(imageName, fontsize=10)
-    ax.legend()
+    ax.set_title(os.path.basename(imageName), fontsize=10)
     ax.xaxis.set_major_formatter(ticker.LogFormatterSciNotation())
-    plotName = os.path.join(dirName, sinjectDir, "complPlot_%s.png" % imageName)
+    plotName = os.path.join(sinjectDir, "complPlot_%s.png" %os.path.basename(imageName))
+    print(plotName)
     fig.savefig(plotName, dpi=150, bbox_inches="tight")
     plt.close(fig)
     print("\nCompleteness plot saved to %s" % plotName)
@@ -497,8 +505,8 @@ def calculateCompleteness(sInjectedCatList, pybdsfCat, imageName, sinjectDir,
     
     return meanFraction, stdFraction, allBinCentres
 
-def _execute_single(imageName, pybdsfCatFilePath=None, rmsFilePath=None, meanFilePath=None, residualFilePath=None, 
-            nInjectionSources=10000, nRepetitions=100, minFluxJyInj=1e-5, maxFluxJyInj=1.0, radiusFactorToInject=1.0):
+def executeSingle(imageName, pybdsfCatFilePath=None, rmsFilePath=None, meanFilePath=None, residualFilePath=None, 
+            nInjectionSources=10000, nRepetitions=100, minFluxJyInj=1e-5, maxFluxJyInj=1.0, radiusFactorToInject=1.0, outDir=None):
     """
     Executes the source injection and completeness analysis for a single image.
     
@@ -513,6 +521,7 @@ def _execute_single(imageName, pybdsfCatFilePath=None, rmsFilePath=None, meanFil
     - minFluxJyInj: Minimum flux density of injected sources in Jy (default: 1e-5).
     - maxFluxJyInj: Maximum flux density of injected sources in Jy (default: 1.0).
     - radiusFactorToInject: Factor to multiply the band radius for defining the injection area (default: 1.0).
+    - outDir: Path to the directory to save source injection files. Default: current working directory
     """
     
     currentDir = os.getcwd()
@@ -566,7 +575,9 @@ def _execute_single(imageName, pybdsfCatFilePath=None, rmsFilePath=None, meanFil
     if any(pybdsfCat['RA'] < 0.0):
         pybdsfCat = catalogs.fixRA(pybdsfCat, raCol='RA', wrapAngle=360)
 
-    sinjectDir = "sinjected_%s_%dsources_%dreps" %(imageBaseName, nInjectionSources, nRepetitions)
+    if outDir is None:
+        outDir = os.getcwd()
+    sinjectDir = os.path.join(outDir, "sinjected_%s_%dsources_%dreps" %(imageBaseName, nInjectionSources, nRepetitions))
 
     os.makedirs(sinjectDir, exist_ok=True)
 
@@ -654,7 +665,7 @@ def execute(imageName=None, pybdsfCatFilePath=None, rmsFilePath=None, meanFilePa
     """
     
     if imageName is not None:
-        _execute_single(imageName, pybdsfCatFilePath, rmsFilePath, meanFilePath, residualFilePath, 
+        executeSingle(imageName, pybdsfCatFilePath, rmsFilePath, meanFilePath, residualFilePath, 
                 nInjectionSources, nRepetitions, minFluxJyInj, maxFluxJyInj, radiusFactorToInject)
         return
     
@@ -669,12 +680,12 @@ def execute(imageName=None, pybdsfCatFilePath=None, rmsFilePath=None, meanFilePa
     
     print("\nFound %d image files:\n" % len(imageFilesInCwd))
 
-    for imageFile in enumerate(imageFilesInCwd):
+    for imageFile in imageFilesInCwd:
         print("=" * 60)
         print("Working on %s" % imageFile)
 
         try:
-            _execute_single(imageFile, pybdsfCatFilePath, rmsFilePath, meanFilePath, residualFilePath, 
+            executeSingle(imageFile, pybdsfCatFilePath, rmsFilePath, meanFilePath, residualFilePath, 
                     nInjectionSources, nRepetitions, minFluxJyInj, maxFluxJyInj, radiusFactorToInject)
         except Exception as e:
             print("Error processing %s: %s" % (imageFile, e))

@@ -11,7 +11,7 @@ import glob
 import datetime
 import astropy.table as atpy
 from astropy.table import Column
-from . import startup, jobs, catalogs, images,  __version__, crossmatch, summaryPlots
+from . import startup, jobs, catalogs, images,  __version__, crossmatch, summaryPlots, sourceinjection
 import shlex
 from astropy.coordinates import SkyCoord
 import astropy.units as u
@@ -887,3 +887,22 @@ def report():
     import IPython
     IPython.embed()
     sys.exit()
+
+#------------------------------------------------------------------------------------------------------------
+def estimateCompleteness():
+    """Estimate completeness...
+
+    """
+
+    tabFilesList=sorted(glob.glob(os.path.join(startup.config['rootDir'], 'EDR', 'catalogs', '*_bdsfcat.fits')))
+
+    sinjectDirPath = os.path.join(startup.config['rootDir'], 'EDR', 'sinjection')
+    os.makedirs(sinjectDirPath, exist_ok = True)
+
+    for tab in tabFilesList[0:2]:
+        print("\n" + "═" * 50)
+        baseName = tab.split('_bdsfcat.fits')[0]
+        sourceinjection.executeSingle(imageName=baseName, pybdsfCatFilePath=None, rmsFilePath=None, meanFilePath=None, residualFilePath=None, 
+            nInjectionSources=10000, nRepetitions=100, minFluxJyInj=1e-5, maxFluxJyInj=1e-1, radiusFactorToInject=0.95, 
+            outDir=sinjectDirPath)
+

@@ -889,7 +889,7 @@ def report():
     sys.exit()
 
 #------------------------------------------------------------------------------------------------------------
-def estimateCompleteness():
+def estimateCompleteness(beginImage=0, endImage=None, nInjectionSources=5000, nRepetitions=50, minFluxJyInj=1e-5, maxFluxJyInj=1.0, radiusFactorToInject=0.95):
     """Estimate completeness...
 
     """
@@ -899,10 +899,19 @@ def estimateCompleteness():
     sinjectDirPath = os.path.join(startup.config['rootDir'], 'EDR', 'sinjection')
     os.makedirs(sinjectDirPath, exist_ok = True)
 
-    for tab in tabFilesList[0:2]:
+    if endImage is None:
+        selectedTabs = tabFilesList[beginImage:]
+    else:
+        selectedTabs = tabFilesList[beginImage:endImage]
+
+    for tab in selectedTabs:
         print("\n" + "═" * 50)
         baseName = tab.split('_bdsfcat.fits')[0]
         sourceinjection.executeSingle(imageName=baseName, pybdsfCatFilePath=None, rmsFilePath=None, meanFilePath=None, residualFilePath=None, 
-            nInjectionSources=10000, nRepetitions=100, minFluxJyInj=1e-5, maxFluxJyInj=1e-1, radiusFactorToInject=0.95, 
+            nInjectionSources=nInjectionSources, 
+            nRepetitions=nRepetitions, 
+            minFluxJyInj=minFluxJyInj, 
+            maxFluxJyInj=maxFluxJyInj, 
+            radiusFactorToInject=radiusFactorToInject, 
             outDir=sinjectDirPath)
 

@@ -288,7 +288,7 @@ def injectImage(imageToInjectFileName, fieldRACentre, fieldDecCentre, injectRadi
         for rep in range(nRepetitions)
     ]
 
-    nProcesses = int(0.8 * os.cpu_count())
+    nProcesses = int(os.cpu_count())
     with Pool(processes=nProcesses) as pool:
         pool.map(_runSingleInjectionToResidual, argsList)
 
@@ -502,11 +502,18 @@ def calculateCompleteness(sInjectedCatList, pybdsfCat, imageName, sinjectDir,
     plt.close(fig)
     print("\nCompleteness plot saved to %s" % plotName)
 
+    # Saving the completeness data to a text file
+    completenessDataFile = os.path.join(sinjectDir, "completeness_%s.txt" %os.path.basename(imageName))
+    with open(completenessDataFile, "w") as f:
+        f.write("# FluxBinCentre_Jy  MeanCompleteness  StdDevCompleteness\n")
+        for centre, mean, std in zip(allBinCentres, meanFraction, stdFraction):
+            f.write(f"{centre:.6e} {mean:.6f} {std:.6f}\n")
+    print("\nCompleteness data saved to %s" % completenessDataFile)
     
     return meanFraction, stdFraction, allBinCentres
 
 def executeSingle(imageName, pybdsfCatFilePath=None, rmsFilePath=None, meanFilePath=None, residualFilePath=None, 
-            nInjectionSources=10000, nRepetitions=100, minFluxJyInj=1e-5, maxFluxJyInj=1.0, radiusFactorToInject=1.0, outDir=None):
+            nInjectionSources=5000, nRepetitions=1, minFluxJyInj=1e-5, maxFluxJyInj=1.0, radiusFactorToInject=1.0, outDir=None):
     """
     Executes the source injection and completeness analysis for a single image.
     
@@ -523,7 +530,7 @@ def executeSingle(imageName, pybdsfCatFilePath=None, rmsFilePath=None, meanFileP
     - radiusFactorToInject: Factor to multiply the band radius for defining the injection area (default: 1.0).
     - outDir: Path to the directory to save source injection files. Default: current working directory
     """
-    
+
     currentDir = os.getcwd()
     imageBaseName = os.path.basename(imageName).split(".fits")[0]
     catBaseName = os.path.basename(imageName).split(".")[0]
@@ -642,12 +649,12 @@ def executeSingle(imageName, pybdsfCatFilePath=None, rmsFilePath=None, meanFileP
         sinjectDir,
         minFluxJyInj,
         maxFluxJyInj,
-        nJyBins=30,
+        nJyBins=100,
     )
 
 
 def execute(imageName=None, pybdsfCatFilePath=None, rmsFilePath=None, meanFilePath=None, residualFilePath=None, 
-            nInjectionSources=10000, nRepetitions=100, minFluxJyInj=1e-5, maxFluxJyInj=1.0, radiusFactorToInject=1.0):
+            nInjectionSources=5000, nRepetitions=1, minFluxJyInj=1e-5, maxFluxJyInj=1.0, radiusFactorToInject=1.0):
     """
     Main function to execute the source injection and completeness analysis.
     

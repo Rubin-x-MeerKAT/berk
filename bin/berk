@@ -53,6 +53,13 @@ def makeParser():
                         Should be one of: edr or dr1.",
                         choices=['parent', 'edr', 'dr1'])
     parser.add_argument("-v", "--version", action = 'version', version = '%(prog)s' + ' %s' % (berk.__version__))
+    parser.add_argument("--begin", dest="beginImage", help="begin", default=0, type=int)
+    parser.add_argument("--end", dest="endImage", help="end", default=None, type=int)
+    parser.add_argument("--nsources", dest="nInjectionSources", help="Number of sources to inject. Default is 10000.", default=5000, type=int)
+    parser.add_argument("--nrep", dest="nRepetitions", help="Number of repetitions to perform the injection. Default is 100.", default=50, type=int)
+    parser.add_argument("--minflux", dest="minFluxJyInj", help="Minimum flux density (in Jy) of the sources to be injected. Default is 1e-5 Jy.", default=1e-5, type=float)
+    parser.add_argument("--maxflux", dest="maxFluxJyInj", help="Maximum flux density (in Jy) of the sources to be injected. Default is 1.0 Jy.", default=1.0, type=float)
+    parser.add_argument("--rad", dest="radiusFactorToInject", help="Radius factor to inject sources within (0 to 1). Default is 0.95, which means sources will be injected within the radius of the image.", default=0.95, type=float)
 
     return parser
 
@@ -64,6 +71,15 @@ if __name__ == '__main__':
     captureBlockId=args.captureBlockId
     optSurvey=args.optSurvey
     dataRelease=args.dataRelease
+    nInjectionSources = args.nInjectionSources
+    nRepetitions = args.nRepetitions
+    minFluxJyInj = args.minFluxJyInj
+    maxFluxJyInj = args.maxFluxJyInj
+    radiusFactorToInject = args.radiusFactorToInject
+    if radiusFactorToInject > 1:
+        radiusFactorToInject = 1.0
+    beginImage = args.beginImage
+    endImage = args.endImage
 
     topDir=os.getcwd()
 
@@ -126,4 +142,4 @@ if __name__ == '__main__':
         tasks.xmatch(optSurvey)
 
     elif args.task == 'inject':
-        tasks.estimateCompleteness()
+        tasks.estimateCompleteness(beginImage, endImage, nInjectionSources, nRepetitions, minFluxJyInj, maxFluxJyInj, radiusFactorToInject)

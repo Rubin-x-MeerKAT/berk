@@ -139,94 +139,100 @@ def _runSingleInjectionToResidual(args):
     
     rng = np.random.default_rng(seed=rep)
 
-    sInjectOutFile = os.path.join(
-        sinjectDir, "%s_sinjected_%dsources_%d_image.fits" %(imageBaseName, 
-                                                             nInjectionSources, 
-                                                             rep)
-    )
+    try:
 
-    if os.path.exists(sInjectOutFile):
-        print("\n%s file already exists. Skipping this injection\n" %sInjectOutFile)
-        return
+        sInjectOutFile = os.path.join(
+            sinjectDir, "%s_sinjected_%dsources_%d_image.fits" %(imageBaseName, 
+                                                                nInjectionSources, 
+                                                                rep)
+        )
 
-    wcsObj = WCS(hdr, naxis=2)
-    updatedHeader = hdr.copy()
+        if os.path.exists(sInjectOutFile):
+            print("\n%s file already exists. Skipping this injection\n" %sInjectOutFile)
+            return
 
-    print("\nInjecting %d sources on repetition %d ...\n" %(nInjectionSources, rep+1))
-    copyImg = img.copy()
+        wcsObj = WCS(hdr, naxis=2)
+        updatedHeader = hdr.copy()
 
-    ny, nx = copyImg.shape
-    
-    logMin = np.log10(minFluxJyInj)
-    logMax = np.log10(maxFluxJyInj)
+        print("\nInjecting %d sources on repetition %d ...\n" %(nInjectionSources, rep+1))
+        copyImg = img.copy()
 
-    # to keep track of previously injected sources to avoid crowding
-    injectedCoords = []
-
-    nSourcesInjected = 0
-
-    randomRAInjected = []
-    randomDecInjected = []
-    randomFluxInjected= []
-
-    while nSourcesInjected < nInjectionSources:
-
-        randomRA, randomDec = crossmatch.randomPointsInCircleExactNPoints(fieldRACentre, fieldDecCentre, injectRadius, 1, rng=rng)
-
-        randPostCoord = SkyCoord(ra=randomRA[0]*u.deg, dec=randomDec[0]*u.deg)
-        if len(injectedCoords) > 0:
-            prevCoords = SkyCoord(ra=np.array(injectedCoords)[:,0]*u.deg, dec=np.array(injectedCoords)[:,1]*u.deg)
-            seps = randPostCoord.separation(prevCoords)
-            # #TODO: harcoded 5 times the the beam size
-            if seps.min() < (5 * 6.0 * u.arcsec):
-                continue
-
-        injectedCoords.append([randomRA[0], randomDec[0]])
-
-        randomFlux = 10 ** rng.uniform(logMin, logMax)
-
-        xPix, yPix = wcsObj.wcs_world2pix(randomRA, randomDec, 0)
-        x0 = xPix[0]
-        y0 = yPix[0]
-
-        xMin = max(0, int(np.floor(x0 - rCutOff)))
-        xMax = min(nx, int(np.ceil(x0 + rCutOff)))
-        yMin = max(0, int(np.floor(y0 - rCutOff)))
-        yMax = min(ny, int(np.ceil(y0 + rCutOff)))
-
-        if xMax <= xMin or yMax <= yMin:
-            continue # source fell outside the image
-
-        localY, localX = np.mgrid[yMin:yMax, xMin:xMax]
-
-        psfStamp = beam(localX - x0, localY - y0)
-
-        copyImg[yMin:yMax, xMin:xMax] += randomFlux * psfStamp
-
-        nSourcesInjected += 1
-        randomRAInjected.append(float(randomRA[0]))
-        randomDecInjected.append(float(randomDec[0]))
-        randomFluxInjected.append(float(randomFlux))
+        ny, nx = copyImg.shape
         
-    # Save the injected image
+        logMin = np.log10(minFluxJyInj)
+        logMax = np.log10(maxFluxJyInj)
 
-    updatedHeader.update(wcsObj.to_header())
-    updatedHeader['BUNIT']='JY/BEAM'
-    hdu = fits.PrimaryHDU(data=copyImg, header=updatedHeader)
-    hdu.writeto(sInjectOutFile, overwrite=True)
+        # to keep track of previously injected sources to avoid crowding
+        injectedCoords = []
 
-    # Save the fake source catalogue
+        nSourcesInjected = 0
 
-    fakeSourcesTab = Table({
-        "RADeg_injected":  randomRAInjected,
-        "decDeg_injected": randomDecInjected,
-        "fluxJy_injected": randomFluxInjected,
-    })
-    fakeSourcesOutFile = os.path.join(sinjectDir, "%s_sinjected_%dsources_%d_fakesources.fits" %(imageBaseName, nInjectionSources, rep))
-    fakeSourcesTab.write(fakeSourcesOutFile, overwrite=True)
+        randomRAInjected = []
+        randomDecInjected = []
+        randomFluxInjected= []
 
-    print("%d sources injected to %s\n" %(nSourcesInjected, sInjectOutFile))
+        while nSourcesInjected < nInjectionSources:
 
+            randomRA, randomDec = crossmatch.randomPointsInCircleExactNPoints(fieldRACentre, fieldDecCentre, injectRadius, 1, rng=rng)
+
+            randPostCoord = SkyCoord(ra=randomRA[0]*u.deg, dec=randomDec[0]*u.deg)
+            if len(injectedCoords) > 0:
+                prevCoords = SkyCoord(ra=np.array(injectedCoords)[:,0]*u.deg, dec=np.array(injectedCoords)[:,1]*u.deg)
+                seps = randPostCoord.separation(prevCoords)
+                # #TODO: harcoded 5 times the the beam size
+                if seps.min() < (5 * 6.0 * u.arcsec):
+                    continue
+
+            injectedCoords.append([randomRA[0], randomDec[0]])
+
+            randomFlux = 10 ** rng.uniform(logMin, logMax)
+
+            xPix, yPix = wcsObj.wcs_world2pix(randomRA, randomDec, 0)
+            x0 = xPix[0]
+            y0 = yPix[0]
+
+            xMin = max(0, int(np.floor(x0 - rCutOff)))
+            xMax = min(nx, int(np.ceil(x0 + rCutOff)))
+            yMin = max(0, int(np.floor(y0 - rCutOff)))
+            yMax = min(ny, int(np.ceil(y0 + rCutOff)))
+
+            if xMax <= xMin or yMax <= yMin:
+                continue # source fell outside the image
+
+            localY, localX = np.mgrid[yMin:yMax, xMin:xMax]
+
+            psfStamp = beam(localX - x0, localY - y0)
+
+            copyImg[yMin:yMax, xMin:xMax] += randomFlux * psfStamp
+
+            nSourcesInjected += 1
+            randomRAInjected.append(float(randomRA[0]))
+            randomDecInjected.append(float(randomDec[0]))
+            randomFluxInjected.append(float(randomFlux))
+            
+        # Save the injected image
+
+        updatedHeader.update(wcsObj.to_header())
+        updatedHeader['BUNIT']='JY/BEAM'
+        hdu = fits.PrimaryHDU(data=copyImg, header=updatedHeader)
+        hdu.writeto(sInjectOutFile, overwrite=True)
+
+        # Save the fake source catalogue
+
+        fakeSourcesTab = Table({
+            "RADeg_injected":  randomRAInjected,
+            "decDeg_injected": randomDecInjected,
+            "fluxJy_injected": randomFluxInjected,
+        })
+        fakeSourcesOutFile = os.path.join(sinjectDir, "%s_sinjected_%dsources_%d_fakesources.fits" %(imageBaseName, nInjectionSources, rep))
+        fakeSourcesTab.write(fakeSourcesOutFile, overwrite=True)
+
+        print("%d sources injected to %s\n" %(nSourcesInjected, sInjectOutFile))
+
+    except Exception as e:
+        print("Error during injection of %s: %s" % (sInjectOutFile, e))
+        print("Skipping this injection and moving on...")
+        return None
 
 def injectImage(imageToInjectFileName, fieldRACentre, fieldDecCentre, injectRadius, 
                 sinjectDir, imageBaseName, nInjectionSources=100, 

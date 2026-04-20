@@ -67,8 +67,6 @@ def sourceExtract(imageFile, pybdsfBaseName, saveRMSMeanResidualMaps=False,
         meanFileName: Optional path to the mean map file to be used by PyBDSF. If None, it will not be used.
     """
 
-    if 'image.fits' not in imageFile: # Avoding any table fits coming in
-        return
     if outDir is None:
         outDir = os.getcwd()
 
@@ -518,17 +516,12 @@ def calculateCompleteness(sInjectedCatList, pybdsfCat, imageName, sinjectDir,
     
     return meanFraction, stdFraction, allBinCentres
 
-def executeSingle(imageName, pybdsfCatFilePath=None, rmsFilePath=None, meanFilePath=None, residualFilePath=None, 
-            nInjectionSources=5000, nRepetitions=1, minFluxJyInj=1e-5, maxFluxJyInj=1.0, radiusFactorToInject=1.0, outDir=None):
+def executeSingle(imageName, nInjectionSources=5000, nRepetitions=1, minFluxJyInj=1e-5, maxFluxJyInj=1.0, radiusFactorToInject=1.0, outDir=None):
     """
     Executes the source injection and completeness analysis for a single image.
     
     Args:       
     - imageName: Name of the image file to process.
-    - pybdsfCatFilePath: Path to the PyBDSF catalogue file. If None, it will be searched in the current directory and then in the local products directory.
-    - rmsFilePath: Path to the RMS map file. If None, it will be searched in the current directory and then in the local products directory.
-    - meanFilePath: Path to the mean map file. If None, it will be searched in the current directory and then in the local products directory.
-    - residualFilePath: Path to the residual image file. If None, it will be searched in the current directory and then in the local products directory.
     - nInjectionSources: Number of sources to inject (default: 10000).
     - nRepetitions: Number of repetitions for the injection (default: 100).
     - minFluxJyInj: Minimum flux density of injected sources in Jy (default: 1e-5).
@@ -543,47 +536,71 @@ def executeSingle(imageName, pybdsfCatFilePath=None, rmsFilePath=None, meanFileP
 
     localProdDir  = startup.config['productsDir']
 
-    if pybdsfCatFilePath is None:
-        pybdsfCatFileName = "%s_srl_bdsfcat.fits" %catBaseName
-        if os.path.exists(os.path.join(currentDir, pybdsfCatFileName)):
+    needExtraction = False
+
+    pybdsfCatFileName = "%s_srl_bdsfcat.fits" %catBaseName
+    residualFileName = "%s_gaus_resid.fits" %catBaseName
+    rmsFileName  = "%s_rms.fits" %catBaseName
+    meanFileName = "%s_mean.fits" %catBaseName
+
+    pybdsfCatFilePath = None
+
+    if os.path.exists(os.path.join(currentDir, pybdsfCatFileName)):
+        pybdsfCatFilePath = os.path.join(currentDir, pybdsfCatFileName)
+        print("\nUsing existing PyBDSF catalogue from current directory: %s\n" % pybdsfCatFilePath)
+    elif os.path.exists(os.path.join(localProdDir, "catalogs", pybdsfCatFileName)):
+        pybdsfCatFilePath = os.path.join(localProdDir, "catalogs", pybdsfCatFileName)
+        print("\nUsing existing PyBDSF catalogue from berk products directory: %s\n" % pybdsfCatFilePath)
+    else:
+        needExtraction = True
+
+    if os.path.exists(os.path.join(currentDir, residualFileName)):
+        residualFilePath = os.path.join(currentDir, residualFileName)
+        print("\nUsing existing residual image from current directory: %s\n" % residualFilePath)
+    elif os.path.exists(os.path.join(localProdDir, "residual", residualFileName)):
+        residualFilePath = os.path.join(localProdDir, "residual", residualFileName)
+        print("\nUsing existing residual image from berk products directory: %s\n" % residualFilePath)
+    else:
+        needExtraction = True
+            
+    if os.path.exists(os.path.join(currentDir, rmsFileName)):
+        rmsFilePath = os.path.join(currentDir, rmsFileName)
+        print("\nUsing existing RMS map from current directory: %s\n" % rmsFilePath)
+    elif os.path.exists(os.path.join(localProdDir, "rms",  rmsFileName)):
+        rmsFilePath  = os.path.join(localProdDir, "rms",  rmsFileName)
+        print("\nUsing existing RMS map from berk products directory: %s\n" % rmsFilePath)
+    else:
+        needExtraction = True
+
+    if os.path.exists(os.path.join(currentDir, meanFileName)):
+        meanFilePath = os.path.join(currentDir, meanFileName)
+        print("\nUsing existing mean map from current directory: %s\n" % meanFilePath)
+    elif os.path.exists(os.path.join(localProdDir, "mean", meanFileName)):
+        meanFilePath = os.path.join(localProdDir, "mean", meanFileName)
+        print("\nUsing existing mean map from berk products directory: %s\n" % meanFilePath)
+    else:
+        needExtraction = True
+
+    if needExtraction is True:
+        try:
+            sourceExtract(imageFile=imageName, pybdsfBaseName=imageBaseName, saveRMSMeanResidualMaps=True, outDir=currentDir, rmsFileName=None, meanFileName=None)
             pybdsfCatFilePath = os.path.join(currentDir, pybdsfCatFileName)
-        elif os.path.exists(localProdDir):
-            pybdsfCatFilePath = os.path.join(localProdDir, "catalogs", pybdsfCatFileName)
-        else:
-            print("PyBDSF catalogue file not found for %s - skipping" % imageName)
+            residualFilePath = os.path.join(currentDir, residualFileName)
+            rmsFilePath = os.path.join(currentDir, rmsFileName)
+            meanFilePath = os.path.join(currentDir, meanFileName)
+        except Exception as e:
+            print("Error during source extraction of %s: %s" % (imageName, e))
+            print("Skipping this file and moving on...")
             return
         
-    if residualFilePath is None:
-        residualFileName = "%s_gaus_resid.fits" %catBaseName
-        if os.path.exists(os.path.join(currentDir, residualFileName)):
-            residualFilePath = os.path.join(currentDir, residualFileName)
-        elif os.path.exists(localProdDir):
-            residualFilePath = os.path.join(localProdDir, "residual", residualFileName)
-        else:
-            print("Residual image file not found for %s - skipping" % imageName)
-            return
-
-    if rmsFilePath is None:
-        rmsFileName  = "%s_rms.fits" %catBaseName
-        if os.path.exists(os.path.join(currentDir, rmsFileName)):
-            rmsFilePath = os.path.join(currentDir, rmsFileName)
-        elif os.path.exists(localProdDir):
-            rmsFilePath  = os.path.join(localProdDir, "rms",  rmsFileName)
-        else:
-            print("RMS map file not found for %s - skipping" % imageName)
-            return
-
-    if meanFilePath is None:
-        meanFileName = "%s_mean.fits" %catBaseName
-        if os.path.exists(os.path.join(currentDir, meanFileName)):
-            meanFilePath = os.path.join(currentDir, meanFileName)
-        elif os.path.exists(localProdDir):
-            meanFilePath = os.path.join(localProdDir, "mean", meanFileName)
-        else:
-            print("Mean map file not found for %s - skipping" % imageName)
-            return
-
-    pybdsfCat = Table.read(pybdsfCatFilePath, format='fits')
+    else:
+        print("\nAll necessary files found. Proceeding with injection and completeness analysis...\n")
+    
+    if pybdsfCatFilePath is not None:
+        pybdsfCat = Table.read(pybdsfCatFilePath, format='fits')
+    else:
+        print("Error: PyBDSF catalogue file not found. Cannot proceed.")
+        return
 
     if any(pybdsfCat['RA'] < 0.0):
         pybdsfCat = catalogs.fixRA(pybdsfCat, raCol='RA', wrapAngle=360)
@@ -659,8 +676,7 @@ def executeSingle(imageName, pybdsfCatFilePath=None, rmsFilePath=None, meanFileP
     )
 
 
-def execute(imageName=None, pybdsfCatFilePath=None, rmsFilePath=None, meanFilePath=None, residualFilePath=None, 
-            nInjectionSources=5000, nRepetitions=1, minFluxJyInj=1e-5, maxFluxJyInj=1.0, radiusFactorToInject=1.0):
+def execute(imageName=None, nInjectionSources=5000, nRepetitions=1, minFluxJyInj=1e-5, maxFluxJyInj=1.0, radiusFactorToInject=1.0):
     """
     Main function to execute the source injection and completeness analysis.
     
@@ -678,8 +694,7 @@ def execute(imageName=None, pybdsfCatFilePath=None, rmsFilePath=None, meanFilePa
     """
     
     if imageName is not None:
-        executeSingle(imageName, pybdsfCatFilePath, rmsFilePath, meanFilePath, residualFilePath, 
-                nInjectionSources, nRepetitions, minFluxJyInj, maxFluxJyInj, radiusFactorToInject)
+        executeSingle(imageName, nInjectionSources, nRepetitions, minFluxJyInj, maxFluxJyInj, radiusFactorToInject)
         return
     
     print("No imageName provided. Searching for FITS images in current directory...\n")
@@ -698,8 +713,7 @@ def execute(imageName=None, pybdsfCatFilePath=None, rmsFilePath=None, meanFilePa
         print("Working on %s" % imageFile)
 
         try:
-            executeSingle(imageFile, pybdsfCatFilePath, rmsFilePath, meanFilePath, residualFilePath, 
-                    nInjectionSources, nRepetitions, minFluxJyInj, maxFluxJyInj, radiusFactorToInject)
+            executeSingle(imageFile, nInjectionSources, nRepetitions, minFluxJyInj, maxFluxJyInj, radiusFactorToInject)
         except Exception as e:
             print("Error processing %s: %s" % (imageFile, e))
             print("Skipping this file and moving on...\n")

@@ -89,17 +89,13 @@ def getEffectiveAreaInFluxBinsfromRMS(fluxBinCentres, rmsBinsCentres, cumArea, s
         :obj:`np.ndarray`: Effective survey area corresponding to each flux bin.
     """
 
-    effArea = np.zeros(len(fluxBinCentres))
+    # Ensure rmsBinsCentres is ascending
+    if not np.all(np.diff(rmsBinsCentres) > 0):
+        sortIdx = np.argsort(rmsBinsCentres)
+        rmsBinsCentres = rmsBinsCentres[sortIdx]
+        cumArea = cumArea[sortIdx]
 
-    for i, fluxMean in enumerate(fluxBinCentres):
-
-        rmsMax = fluxMean / sigmaDetection
-
-        # find which RMS-bin it falls in
-        idx = np.digitize([rmsMax], rmsBinsCentres) - 1
-        idx = np.clip(idx[0], 0, len(rmsBinsCentres)-1)
-
-        effArea[i] = cumArea[idx]
+    effArea = np.interp(fluxBinCentres / sigmaDetection, rmsBinsCentres, cumArea)
 
     return effArea
 
@@ -130,12 +126,11 @@ def computeSourceCount(fluxVals, fluxBins, rmsBinCentreJy=None, cumAreaSqDeg=Non
         effAreaInFluxBins = getEffectiveAreaInFluxBinsfromRMS(fluxBinCentre, rmsBinCentreJy, cumAreaSqDeg, sigmaDetection=5.0)
     else:
         if cumAreaSqDeg is not None:
-            effAreaInFluxBins = [cumAreaSqDeg[-1] for i in range(len(fluxBinCentre))]
+            effAreaInFluxBins = [np.max(cumAreaSqDeg) for i in range(len(fluxBinCentre))]
         elif commonAreaSqDeg is not None:
             effAreaInFluxBins = [commonAreaSqDeg for i in range(len(fluxBinCentre))]
         else:
-            print("Either cumAreaSqDeg or commonAreaSqDeg must be provided when corrRMSCoverage=False.")
-            return
+            raise ValueError("Either cumAreaSqDeg or commonAreaSqDeg must be provided when corrRMSCoverage=False.")
 
     sourceCountValues = getS2p5dNdS(fluxBinCentre, fluxCounts, fluxBinWidths, effAreaInFluxBins)
     sourceCountErr = getS2p5dNdS(fluxBinCentre, fluxCountsErr, fluxBinWidths, effAreaInFluxBins)

@@ -923,7 +923,7 @@ def estimateCompleteness(beginImage=0, endImage=None, nInjectionSources=5000, nR
     for tab in selectedTabs:
         print("\n" + "═" * 50)
         baseName = tab.split('_bdsfcat.fits')[0]
-        sourceinjection.executeSingle(imageName=baseName, pybdsfCatFilePath=None, rmsFilePath=None, meanFilePath=None, residualFilePath=None, 
+        sourceinjection.executeSingle(imageName=baseName, 
             nInjectionSources=nInjectionSources, 
             nRepetitions=nRepetitions, 
             minFluxJyInj=minFluxJyInj, 

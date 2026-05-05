@@ -49,7 +49,8 @@ def plotSkyCoverage(fullImagesTab, bandColorDict, plotOutPath, plotProjection='a
 
     ax.set_xlabel("RA (deg)")
     ax.set_ylabel("Dec (deg)")
-    plt.legend(loc="upper right")
+    if len(orderedBands) > 1:
+        plt.legend(loc="upper right")
     plt.savefig(plotOutPath, dpi=700, bbox_inches='tight')
     plt.close()
     print("\nMeerKAT processed pointings plotted!\n")
@@ -99,12 +100,13 @@ def getEffectiveAreaInFluxBinsfromRMS(fluxBinCentres, rmsBinsCentres, cumArea, s
 
     return effArea
 
-def computeSourceCount(fluxVals, fluxBins, rmsBinCentreJy=None, cumAreaSqDeg=None, corrRMSCoverage=True, commonAreaSqDeg=None):
+def computeSourceCount(fluxVals, fluxBins, fluxCompleteness, rmsBinCentreJy=None, cumAreaSqDeg=None, corrRMSCoverage=True, commonAreaSqDeg=None, corrCompleteness=True):
     """Compute source counts normalized by S^2.5 for log-spaced flux bins.
 
     Args:
         fluxVals (:obj:`np.ndarray`): Array of source flux densities (Jy).
         fluxBins (:obj:`np.ndarray`): Array of flux-bin edges (Jy). Must be monotonic.
+        fluxCompleteness (:obj:`np.ndarray`): Array of completeness values corresponding to each source in fluxVals.
         rmsBinCentreJy (:obj:`np.ndarray`, optional): Array of RMS-bin centres (Jy). Required only if corrRMSCoverage=True.
         cumAreaSqDeg (:obj:`np.ndarray`, optional): Cumulative survey area (sq.deg.) corresponding to each RMS bin.
             Required if corrRMSCoverage=True OR if corrRMSCoverage=False and
@@ -118,8 +120,19 @@ def computeSourceCount(fluxVals, fluxBins, rmsBinCentreJy=None, cumAreaSqDeg=Non
     """
 
     fluxBinCentre = np.sqrt(fluxBins[:-1] * fluxBins[1:])
-    fluxCounts, binEdges = np.histogram(fluxVals, bins=fluxBins)
-    fluxCountsErr = np.sqrt(fluxCounts) # Poissor error
+
+    if corrCompleteness is True:
+        fluxVals = fluxVals[fluxCompleteness > 0.0] # to avoid division by zero
+        fluxCompleteness = fluxCompleteness[fluxCompleteness > 0.0]
+        weights = 1.0/fluxCompleteness
+
+        fluxCounts, binEdges = np.histogram(fluxVals, bins=fluxBins, weights=weights)
+        fluxCountsErr = np.sqrt(np.histogram(fluxVals, bins=fluxBins, weights=weights**2)[0])
+
+    else:
+        fluxCounts, binEdges = np.histogram(fluxVals, bins=fluxBins)
+        fluxCountsErr = np.sqrt(fluxCounts) # Poisson error
+
     fluxBinWidths = np.diff(binEdges)
 
     if corrRMSCoverage is True:
@@ -166,6 +179,7 @@ def plotSourceCounts(surveyCatDir, catSubScript, fluxCol='Total_flux', fluxMin=N
 
         fluxVals = catalogTab[fluxCol].value
         fluxUnitLabel = catalogTab[fluxCol].unit
+        completeness = catalogTab['completeness'] if 'completeness' in catalogTab.colnames else np.ones_like(fluxVals)
 
         fluxMin = np.min(fluxVals) if fluxMin is None else fluxMin
         fluxMax = np.max(fluxVals) if fluxMax is None else fluxMax
@@ -177,11 +191,10 @@ def plotSourceCounts(surveyCatDir, catSubScript, fluxCol='Total_flux', fluxMin=N
         rmsBinCentreJy = RMSAreaCoverage[:, 0]
         cumAreaSqDeg = RMSAreaCoverage[:, 4]
 
-        fluxBinCentre, rowCount, rawCountErr, sourceCountUncorr, sourceCountErrUncorr = computeSourceCount(fluxVals, fluxBins, rmsBinCentreJy, cumAreaSqDeg, corrRMSCoverage=False)
-        fluxBinCentre, rowCount, rawCountErr, sourceCountCorr, sourceCountErrCorr = computeSourceCount(fluxVals, fluxBins, rmsBinCentreJy, cumAreaSqDeg, corrRMSCoverage=True)
+        fluxBinCentre, rowCount, rawCountErr, sourceCountUncorr, sourceCountErrUncorr = computeSourceCount(fluxVals, fluxBins, completeness, rmsBinCentreJy, cumAreaSqDeg, corrRMSCoverage=False, corrCompleteness=True)
+        fluxBinCentre, rowCount, rawCountErr, sourceCountCorr, sourceCountErrCorr = computeSourceCount(fluxVals, fluxBins, completeness, rmsBinCentreJy, cumAreaSqDeg, corrRMSCoverage=True, corrCompleteness=True)
 
-        ax.errorbar(fluxBinCentre, sourceCountUncorr, sourceCountErrUncorr, mec=bandColorDict[band], mfc='white', ecolor=bandColorDict[band], marker='o', ms=7, alpha=1, ls='None', label="%s (RMS Uncor.)" %band)
-        ax.errorbar(fluxBinCentre, sourceCountCorr, sourceCountErrCorr, mec='k', mew=0.5, mfc=bandColorDict[band], ecolor=bandColorDict[band], marker='o', ms=4, alpha=1, ls='None', label="%s (RMS Cor.)" %band)
+        ax.errorbar(fluxBinCentre, sourceCountCorr, sourceCountErrCorr, mec='k', mew=0.5, mfc=bandColorDict[band], ecolor=bandColorDict[band], marker='o', ms=6, alpha=1, ls='None', label="%s-band" %band)
 
         textFileName = plotOutPath.split('.png')[0]+'_%s.txt' %band
         np.savetxt(textFileName,
@@ -198,8 +211,8 @@ def plotSourceCounts(surveyCatDir, catSubScript, fluxCol='Total_flux', fluxMin=N
 
     ax.set_xscale('log')
     ax.set_yscale('log')
-
-    plt.legend(loc="lower right")
+    if len(orderedBands) > 1:
+        plt.legend(loc="lower right")
     plt.savefig(plotOutPath, dpi=700, bbox_inches='tight')
     plt.close()
     print("\nSourcecounts plotted!\n")

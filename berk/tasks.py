@@ -16,6 +16,7 @@ import shlex
 from astropy.coordinates import SkyCoord
 import astropy.units as u
 import random
+import numpy as np
 
 #------------------------------------------------------------------------------------------------------------
 def fetch(captureBlockId):
@@ -281,6 +282,21 @@ def builddr(dataRelease='EDR', includeBands=None, includeQuality=None, removeDup
         
         tab = tab[tab['Total_flux'] > 0.0] 
         tab['freqGHz']=freqGHz 
+        tab['radCatPath'] = "catalogs"+os.path.sep+os.path.basename(t)
+
+        # assigning completeness
+        tabFlux = tab['Total_flux'] # in Jy
+        tabBaseName = os.path.basename(t).split('_bdsfcat.fits')[0]
+        completenessFilePath = os.path.join(DRDir, 'completeness', 'completeness_%s.txt' %(tabBaseName))
+        if os.path.exists(completenessFilePath):
+            completenessTab = atpy.Table.read(completenessFilePath, format='ascii')
+            completenessFluxJy = completenessTab['FluxBinCentre_Jy']
+            completenessVal = completenessTab['MeanCompleteness']
+            completenessSources = np.interp(tabFlux, completenessFluxJy, completenessVal)
+            tab['completeness'] = completenessSources
+        else:
+            tab['completeness'] = 1.0
+
         tab.meta.clear() 
         if globalTabsDict[bandKey] is None:
             globalTabsDict[bandKey]=tab

@@ -178,7 +178,8 @@ def _runSingleInjectionToResidual(args):
                 prevCoords = SkyCoord(ra=np.array(injectedCoords)[:,0]*u.deg, dec=np.array(injectedCoords)[:,1]*u.deg)
                 seps = randPostCoord.separation(prevCoords)
                 # #TODO: harcoded 5 times the the beam size
-                if seps.min() < (5 * 6.0 * u.arcsec):
+                if seps.min() < (2 * 6.0 * u.arcsec):
+                    #print("Source at RA=%.4f, Dec=%.4f is too close to a previously injected source. Skipping." % (randomRA[0], randomDec[0]))
                     continue
 
             xPix, yPix = wcsObj.wcs_world2pix(randomRA, randomDec, 0) 
@@ -626,10 +627,10 @@ def executeSingle(imageName, nInjectionSources=5000, nRepetitions=1, minFluxJyIn
                 print("Symlink warning: %s" % e)
 
     # Inject fake sources into the residual image
-    # fieldRACentre, fieldDecCentre, bandRadius = crossmatch.getCentreRadiusFromCatalog(
-    #     pybdsfCat, radRACol="RA", radDecCol="DEC"
-    # )
-    fieldRACentre, fieldDecCentre, bandRadius = crossmatch.getCentreRadiusFromImagesTab(pybdsfCatFilePath)
+    fieldRACentre, fieldDecCentre, bandRadius = crossmatch.getCentreRadiusFromCatalog(
+        pybdsfCat, radRACol="RA", radDecCol="DEC"
+    )
+    #fieldRACentre, fieldDecCentre, bandRadius = crossmatch.getCentreRadiusFromImagesTab(pybdsfCatFilePath)
 
     # Inject within certain % of the band radius to avoid edge effects
     radiusToInject = bandRadius * radiusFactorToInject

@@ -17,6 +17,8 @@ from astropy.coordinates import SkyCoord
 import astropy.units as u
 import random
 import numpy as np
+from astropy.cosmology import FlatLambdaCDM
+from multiprocessing import Pool
 
 #------------------------------------------------------------------------------------------------------------
 def fetch(captureBlockId):
@@ -141,6 +143,95 @@ def listObservations():
         print("   %s    %s" % (captureBlockId, status))
 
 #------------------------------------------------------------------------------------------------------------
+def _processVmaxForXmatchFile(args):
+    """
+    Computes Vmax for all sources in a single cross-match catalogue file.
+
+    Args:
+        args (tuple): A tuple containing the following elements:
+            - xmatchFile (str): Full path to the cross-match FITS file.
+            - DRImages (astropy.table.Table): Table of DR images with RMS and sky area info.
+            - DRDir (str): Path to the data release directory.
+            - cosmologyDR (astropy.cosmology instance): Cosmology to use for calculations.
+
+    Returns:
+        tuple: A pair (xmatchTab, zmaxTab) as astropy Tables, or (None, None) if the
+            zmax file already exists or the image row is not found.
+    """
+    xmatchFile, DRImages, DRDir, cosmologyDR = args
+
+    xmatchTab = atpy.Table().read(xmatchFile)
+
+    zMaxDirName = os.path.join(DRDir, 'zmax')
+    os.makedirs(zMaxDirName, exist_ok = True)
+    
+    radCatName = os.path.basename(xmatchFile).split('xmatchtable_bestmatches_')[1].split('_DECaLSDR10_rband_4p0asec')[0]+'.fits'
+    zmaxFilePath = os.path.join(zMaxDirName, 'zmax_%s.fits' %radCatName.split('_srl_bdsfcat')[0])
+
+    if os.path.exists(zmaxFilePath):
+        zmaxTab = atpy.Table().read(zmaxFilePath)
+        return xmatchTab, zmaxTab
+    
+    print("\nProcessing Vmax for %s..." % xmatchFile)
+    
+    xmatchTab['radCatName'] = 'catalogs'+os.path.sep+radCatName
+
+    xmatchTab['zphot_ifnot_spec_opt'] = np.where(np.isfinite(xmatchTab['zspec_opt']) & 
+                                                 (xmatchTab['zspec_opt'] != -99), 
+                                                 xmatchTab['zspec_opt'], 
+                                                 xmatchTab['zphoto_opt'])
+    
+    zmaxTab = xmatchTab[xmatchTab['zphot_ifnot_spec_opt'] != -99]
+
+    maxRedshift = np.max(zmaxTab['zphot_ifnot_spec_opt'])
+    minRedshift = np.min(zmaxTab['zphot_ifnot_spec_opt'])
+
+    zmaxTab['LuminosityWHz_rad'] = catalogs.calculateRadioLum(zmaxTab['Total_flux_rad'].value, zmaxTab['zphot_ifnot_spec_opt'].value, 
+                                                              spectralIndex=0.7, cosmology=cosmologyDR)
+
+    DRImageRow = DRImages[DRImages['radioCatPath'] == 'catalogs/'+radCatName]
+
+    if len(DRImageRow) == 0:
+        return None, None
+    
+    completenessFilePath = os.path.join(DRDir, 'completeness', 'completeness_%s.txt' %(radCatName.split('_srl_bdsfcat')[0]))
+    if os.path.exists(completenessFilePath):
+        completenessTab = atpy.Table.read(completenessFilePath, format='ascii')
+        completenessFluxJy = completenessTab['FluxBinCentre_Jy']
+        completenessVal = completenessTab['MeanCompleteness']
+        completenessSources = np.interp(zmaxTab['Total_flux_rad'], completenessFluxJy, completenessVal)
+        zmaxTab['completeness'] = completenessSources
+    else:
+        zmaxTab['completeness'] = -99 # undefined completeness
+
+    RMS_uJypbeam = DRImageRow['RMS_uJy/beam'][0]
+    skyArea_sqDeg = DRImageRow['skyArea_sqDeg'][0]
+
+    sigmaTimes = 5 # 5 sigma detection limit
+
+    Slim_Jypbeam = sigmaTimes*RMS_uJypbeam*1e-6 # flux limit in Jy/beam
+
+    zMaxList = []
+    VMaxList = []
+
+    for galNow in zmaxTab:
+        galRedshift = galNow['zphot_ifnot_spec_opt']
+        galLum_WHz = galNow['LuminosityWHz_rad']
+        Slim_uJypbeam = Slim_Jypbeam*1E6
+
+        zMax = catalogs.calculateZmax(galRedshift, galLum_WHz, Slim_uJypbeam, alpha=0.7, zmaxLimit=10.0, step=0.001, cosmology=cosmologyDR)
+        VMax_h3Mpc3 = catalogs.calculateComovingVolBetweenZ_h3Mpc3(skyArea_sqDeg, zMin=0.0, zMax=zMax, cosmology=cosmologyDR)
+
+        zMaxList.append(zMax)
+        VMaxList.append(VMax_h3Mpc3)
+
+    zmaxTab['zmax_rad'] = zMaxList
+    zmaxTab['Vmax_rad_h3Mpc3'] = VMaxList
+    zmaxTab.write(zmaxFilePath, overwrite=True)
+
+    return xmatchTab, zmaxTab
+
+#------------------------------------------------------------------------------------------------------------
 def builddr(dataRelease='EDR', includeBands=None, includeQuality=None, removeDuplicates=True):
     """Build Data Release...
 
@@ -169,11 +260,13 @@ def builddr(dataRelease='EDR', includeBands=None, includeQuality=None, removeDup
     DRImageDir = os.path.join(DRDir, 'images')
     DRCatDir = os.path.join(DRDir, 'catalogs')
     DRRmsDir = os.path.join(DRDir, 'rms')
+    DRXmatchDir = os.path.join(DRDir, 'xmatches_DECaLSDR10')
 
     os.makedirs(DRDir, exist_ok = True)
     os.makedirs(DRImageDir, exist_ok = True)
     os.makedirs(DRCatDir, exist_ok = True)
     os.makedirs(DRRmsDir, exist_ok = True)
+    os.makedirs(DRXmatchDir, exist_ok = True)
 
     filteredRows = []
 
@@ -249,18 +342,30 @@ def builddr(dataRelease='EDR', includeBands=None, includeQuality=None, removeDup
 
         fitsFile = os.path.join(startup.config['productsDir'], row['path'])
         pngFile = fitsFile.replace('.fits','.png')
-        catFile = os.path.join(startup.config['productsDir'], row['radioCatPath'].replace('_srl',''))
-        rmsFile = catFile.replace('catalogs', 'rms').replace('_bdsfcat.fits', '_rms.fits')
-        rmsHistFile = catFile.replace('catalogs', 'rms').replace('_bdsfcat.fits', '_rms_rmshist.txt')
+
+
+        pybdsfCommonName = os.path.basename(row['radioCatPath']).split('_srl_bdsfcat')[0]
+
+        catFile = os.path.join(startup.config['productsDir'], 'catalogs', pybdsfCommonName+'_bdsfcat.fits')
+        srlCatFile = os.path.join(startup.config['productsDir'], 'catalogs', pybdsfCommonName+'_srl_bdsfcat.fits')
+        rmsFile = os.path.join(startup.config['productsDir'], 'rms', pybdsfCommonName+'_rms.fits')
+        rmsHistFile = os.path.join(startup.config['productsDir'], 'rms', pybdsfCommonName+'_rms_rmshist.txt')
+
+        xmatchDir = os.path.join(startup.config['productsDir'], 
+                                 'xmatches_DECaLSDR10', 
+                                 'xmatch_%s_srl_bdsfcat_DECaLSDR10_rband_4p0asec' %pybdsfCommonName)
 
         if os.path.exists(fitsFile) and not os.path.exists(os.path.join(DRDir, row['path'])):
             os.system("ln -s %s %s" %(fitsFile, DRImageDir))
             os.system("ln -s %s %s" %(pngFile, DRImageDir))
         if os.path.exists(catFile) and not os.path.exists(os.path.join(DRDir, row['radioCatPath'].replace('_srl',''))):
             os.system("ln -s %s %s" %(catFile, DRCatDir))
+            os.system("ln -s %s %s" %(srlCatFile, DRCatDir))
         if os.path.exists(rmsFile) and not os.path.exists(os.path.join(DRRmsDir, os.path.basename(rmsFile))):
             os.system("ln -s %s %s" %(rmsFile, DRRmsDir))
             os.system("ln -s %s %s" %(rmsHistFile, DRRmsDir))
+        if os.path.exists(xmatchDir) and not os.path.exists(os.path.join(DRXmatchDir, os.path.basename(xmatchDir))):
+            os.system("ln -s %s %s" %(xmatchDir, DRXmatchDir))
 
     DRImages.sort('path')
     DRImagesOutFileName = DRDir+os.path.sep+'images_%s.fits' %dataRelease
@@ -269,39 +374,46 @@ def builddr(dataRelease='EDR', includeBands=None, includeQuality=None, removeDup
 
     globalTabsDict = {band: None for band in includeBands}
 
+    completenessDone = False
     tabFilesList=sorted(glob.glob(DRCatDir+os.path.sep+'*_bdsfcat.fits'))
     for t in tabFilesList:
 
-        tab=atpy.Table().read(t)
+        if t.find("srl_bdsfcat") == -1:
+            tab=atpy.Table().read(t)
+            freqGHz=tab.meta['FREQ0']/1e9
+            bandKey=getBandKey(freqGHz)
 
-        freqGHz=tab.meta['FREQ0']/1e9
-        bandKey=getBandKey(freqGHz)
+            if bandKey not in includeBands:
+                continue
+            
+            tab = tab[tab['Total_flux'] > 0.0] 
+            tab['freqGHz']=freqGHz 
+            tab['radCatPath'] = os.path.join("catalogs", os.path.basename(t))
 
-        if bandKey not in includeBands:
-            continue
-        
-        tab = tab[tab['Total_flux'] > 0.0] 
-        tab['freqGHz']=freqGHz 
-        tab['radCatPath'] = "catalogs"+os.path.sep+os.path.basename(t)
+            # assigning completeness
+            tabFlux = tab['Total_flux'] # in Jy
+            tabBaseName = os.path.basename(t).split('_bdsfcat.fits')[0]
+            completenessFilePath = os.path.join(DRDir, 'completeness', 'completeness_%s.txt' %(tabBaseName))
+            if os.path.exists(completenessFilePath):
+                completenessTab = atpy.Table.read(completenessFilePath, format='ascii')
+                completenessFluxJy = completenessTab['FluxBinCentre_Jy']
+                completenessVal = completenessTab['MeanCompleteness']
+                completenessSources = np.interp(tabFlux, completenessFluxJy, completenessVal)
+                tab['completeness'] = completenessSources
+                completenessDone = True
+            else:
+                tab['completeness'] = -99 # undefined completeness
 
-        # assigning completeness
-        tabFlux = tab['Total_flux'] # in Jy
-        tabBaseName = os.path.basename(t).split('_bdsfcat.fits')[0]
-        completenessFilePath = os.path.join(DRDir, 'completeness', 'completeness_%s.txt' %(tabBaseName))
-        if os.path.exists(completenessFilePath):
-            completenessTab = atpy.Table.read(completenessFilePath, format='ascii')
-            completenessFluxJy = completenessTab['FluxBinCentre_Jy']
-            completenessVal = completenessTab['MeanCompleteness']
-            completenessSources = np.interp(tabFlux, completenessFluxJy, completenessVal)
-            tab['completeness'] = completenessSources
-        else:
-            tab['completeness'] = 1.0
+            tab.meta.clear() 
+            if globalTabsDict[bandKey] is None:
+                globalTabsDict[bandKey]=tab
+            else:
+                globalTabsDict[bandKey]=atpy.vstack([globalTabsDict[bandKey], tab])
 
-        tab.meta.clear() 
-        if globalTabsDict[bandKey] is None:
-            globalTabsDict[bandKey]=tab
-        else:
-            globalTabsDict[bandKey]=atpy.vstack([globalTabsDict[bandKey], tab])
+    if completenessDone is False:
+        print("\nCompleteness information is not available for some catalogues in this data release."
+              " Consider running the source injection task to compute completeness,"
+               " and rerun builddr.")
 
     for bandKey in globalTabsDict.keys():
         if globalTabsDict[bandKey] is not None:
@@ -318,42 +430,54 @@ def builddr(dataRelease='EDR', includeBands=None, includeQuality=None, removeDup
                                  idKeyToUse = 'Source_name', RAKeyToUse = 'RA', decKeyToUse = 'DEC')
             print("\nWrote %s" % (outFileName))
 
-    # Building cross-matched table
+    # Building cross-matched table and Luminosity table
 
-    #TODO: generalize this
-    parentXmatchFile = os.path.join(startup.config['productsDir'], 'xmatchCat_zphot_DECaLSDR10_r_4p0asec.fits')
-    noMatchesFile1 = os.path.join(startup.config['productsDir'], 'xmatches_DECaLSDR10', 'no_counterparts_DECaLSDR10_rband_4p0asec.txt')
-    noMatchesFile2 = os.path.join(startup.config['productsDir'], 'xmatches_DECaLSDR10', 'no_DECaLSDR10_sources.txt')
-    noMatchesList = []
-    for f in [noMatchesFile1, noMatchesFile2]:
-        with open(f, 'r') as file:
-            lines = [line.strip() for line in file.readlines()]
-            noMatchesList.extend(lines)
-
-    if os.path.exists(parentXmatchFile):  # Note: changed sys.path.exists to os.path.exists
-        parentXmatchTab = atpy.Table().read(parentXmatchFile)
-    else:
-        parentXmatchTab = None
+    # cosmology for distance calculations
+    cosmologyDR = FlatLambdaCDM(H0=70 * u.km / u.s / u.Mpc, Om0=0.3)
 
     DRXmatchTab = None
-    if parentXmatchTab is not None:
-        for row in DRImages:
-            mask = row['radioCatPath'] == parentXmatchTab['radCatPath']
-            if mask.any():
-                matchingRows = parentXmatchTab[mask]
-                if DRXmatchTab is None:
-                    DRXmatchTab = matchingRows
-                else:
-                    DRXmatchTab = atpy.vstack([DRXmatchTab, matchingRows])
-            else:
-                if os.path.basename(row['radioCatPath']) not in noMatchesList:
-                     print("\nNo cross-match found for image %s in parent xmatch table, and it is not listed in the no-matches files.\n" %os.path.basename(row['radioCatPath']))
-        
-        if DRXmatchTab is not None:
-            DRXmatchFile = os.path.join(DRDir, 'xmatchCat_zphot_DECaLSDR10_r_4p0asec_%s.fits' % dataRelease)
-            DRXmatchTab.write(DRXmatchFile, overwrite=True)
-            print("\nWrote %s" % (DRXmatchFile))
+    DRzmaxTab = None
+    xmatchFilesList = sorted(glob.glob(DRXmatchDir+os.path.sep+'xmatch_*'+os.path.sep+'xmatchtable_bestmatches_*.fits'))
 
+    filesToProcess = xmatchFilesList
+    args = [(f, DRImages, DRDir, cosmologyDR) for f in filesToProcess]
+
+    doParallel = True
+    
+    if doParallel is True:
+        nProcess = max(1, int(os.cpu_count()-1))
+        with Pool(processes=nProcess) as pool:
+            results = pool.map(_processVmaxForXmatchFile, args)
+    else:
+        results = []
+        for arg in args:
+            result = _processVmaxForXmatchFile(arg)
+            results.append(result)
+
+    DRXmatchTab = None
+    DRzmaxTab = None
+    for xmatchTab, zmaxTab in results:
+        if xmatchTab is None:
+            continue
+        DRXmatchTab = xmatchTab if DRXmatchTab is None else atpy.vstack([DRXmatchTab, xmatchTab])
+        DRzmaxTab   = zmaxTab if DRzmaxTab is None else atpy.vstack([DRzmaxTab, zmaxTab])
+
+    if DRXmatchTab is not None:
+        DRXmatchFile = os.path.join(DRDir, 'xmatchCat_DECaLSDR10_r_4p0asec_%s.fits' % dataRelease)
+        DRXmatchTab.write(DRXmatchFile, overwrite=True)
+        print("\nWrote %s" % (DRXmatchFile))
+
+    if DRzmaxTab is not None:
+        DRzmaxFile = os.path.join(DRDir, 'zmaxCat_%s.fits' % dataRelease)
+        DRzmaxTab.write(DRzmaxFile, overwrite=True)
+        print("\nWrote %s" % (DRzmaxFile))
+
+    # Removing source-level duplicates (due to overlapping pointings)
+
+    DRzmaxTabUnique = catalogs.removeDuplicateSources(DRzmaxTab, DRImages, matchRadius_arcsec=6.0)
+    DRzmaxUniqueFile = os.path.join(DRDir, 'zmaxCatUnique_%s.fits' % dataRelease)
+    DRzmaxTabUnique.write(DRzmaxUniqueFile, overwrite=True)
+   
     print("\n" + "═" * 40)
     print("Successfully built %s ║" %dataRelease)
     print("═" * 40 + "\n")
@@ -545,7 +669,7 @@ def xmatch(optSurveyInput='decalsdr10'):
     print("║ Cross-matching with %s ║" %optSurvey)
     print("═" * 40 + "\n")
 
-    globalBestXmatchTabName=startup.config['productsDir']+os.path.sep+"xmatchCat_zphot_%s_%s_%sasec.fits" %(optSurvey,
+    globalBestXmatchTabName=startup.config['productsDir']+os.path.sep+"xmatchCat_%s_%s_%sasec.fits" %(optSurvey,
                                                                                                     optBandToMatch,
                                                                                                     str(searchRadiusArcsec).replace('.', 'p'))
 
@@ -816,7 +940,7 @@ def summarize(dataBase='PARENT'):
         subScript = '_EDR'
 
     imagesFileName = dataBaseDir+os.path.sep+"images%s.fits" %subScript
-    xmatchFileName = dataBaseDir+os.path.sep+"xmatchCat_zphot_DECaLSDR10_r_4p0asec%s.fits" %subScript
+    xmatchFileName = dataBaseDir+os.path.sep+"xmatchCat_DECaLSDR10_r_4p0asec%s.fits" %subScript
     rmsDirPath = dataBaseDir+os.path.sep+"rms"
 
     imagesTab = atpy.Table().read(imagesFileName)

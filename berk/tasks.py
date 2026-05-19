@@ -174,12 +174,14 @@ def _processVmaxForXmatchFile(args):
     
     print("\nProcessing Vmax for %s..." % xmatchFile)
     
-    xmatchTab['radCatName'] = 'catalogs'+os.path.sep+radCatName
+    if 'radCatName' not in xmatchTab.colnames:
+        xmatchTab['radCatName'] = 'catalogs'+os.path.sep+radCatName
 
-    xmatchTab['zphot_ifnot_spec_opt'] = np.where(np.isfinite(xmatchTab['zspec_opt']) & 
-                                                 (xmatchTab['zspec_opt'] != -99), 
-                                                 xmatchTab['zspec_opt'], 
-                                                 xmatchTab['zphoto_opt'])
+    if 'zphot_ifnot_spec_opt' not in xmatchTab.colnames:
+        xmatchTab['zphot_ifnot_spec_opt'] = np.where(np.isfinite(xmatchTab['zspec_opt']) & 
+                                                    (xmatchTab['zspec_opt'] != -99), 
+                                                    xmatchTab['zspec_opt'], 
+                                                    xmatchTab['zphoto_opt'])
     
     zmaxTab = xmatchTab[xmatchTab['zphot_ifnot_spec_opt'] != -99]
 

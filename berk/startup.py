@@ -12,7 +12,7 @@ if on_rtd is not None:
     os.environ['BERK_MSCACHE']='MSCache'
     os.environ['BERK_PLATFORM']='chpc'
 
-# Settings are hard-coded for now, but could be put into a YAML config file later ---------------------------
+# Some settings are hard-coded for now, but could be put into a YAML config file later
 config={}
 
 if "BERK_ROOT" not in os.environ.keys():
@@ -31,13 +31,13 @@ else:
 
 # We can't just make this about the workload manager as it affects what we feed into oxkat
 if 'BERK_PLATFORM' not in os.environ.keys():
-    raise Exception("Set BERK_PLATFORM environment variable to either 'hippo' or 'chpc'")
+    raise Exception("Set BERK_PLATFORM environment variable to either 'hippo', 'ilifu', or 'chpc'")
 if os.environ['BERK_PLATFORM'] == 'chpc':
     config['workloadManager']='pbs'
-elif os.environ['BERK_PLATFORM'] == 'hippo':
+elif os.environ['BERK_PLATFORM'] == 'hippo' or os.environ['BERK_PLATFORM'] == 'ilifu':
     config['workloadManager']='slurm'
 else:
-    raise Exception("Environment variable BERK_PLATFORM is not set to 'hippo' or 'chpc'")
+    raise Exception("Environment variable BERK_PLATFORM is not set to 'hippo', 'ilifu', 'chpc'")
 
 # Processing and data products will be written in sub-dirs here
 config['rootDir']=os.environ["BERK_ROOT"]
@@ -61,8 +61,13 @@ config['cacheDir']=config['rootDir']+os.path.sep+"cache"
 # config['oxkatDir']=config['cacheDir']+os.path.sep+"oxkat-%s" % (config['oxkatVersion'])
 # config['oxkatURL']="https://github.com/IanHeywood/oxkat/archive/refs/tags/v%s.tar.gz" % (config['oxkatVersion'])
 # CURRENT: From Matt's git fork
-config['oxkatVersion']="git"
-config['oxkatDir']=config['cacheDir']+os.path.sep+"oxkat-%s" % (config['oxkatVersion'])
+config['oxkatVersion']=os.environ['BERK_OXKAT_VERSION'] #"git"
+
+if config['oxkatVersion'] == "krishna":
+    config['cacheDir']=os.environ["BERK_CACHE"]
+    config['oxkatDir']=config['cacheDir']+os.path.sep+"oxkat-%s" % (config['oxkatVersion'])
+else:
+    config['oxkatDir']=config['cacheDir']+os.path.sep+"oxkat-%s" % (config['oxkatVersion'])
 config['oxkatURL']="https://github.com/mattyowl/oxkat.git"
 
 # Image-processing (source finding scripts from Jonah)

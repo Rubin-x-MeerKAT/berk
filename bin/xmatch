@@ -1,0 +1,75 @@
+#!/usr/bin/env python
+
+"""
+
+Crossmatch radio sources with optical survey data.
+
+"""
+
+import os
+import argparse
+from berk import crossmatch
+
+#--------------------------------------------------------------------------------------------------
+def make_parser():
+    parser=argparse.ArgumentParser("xmatch")
+
+    parser.add_argument("catalog", help="A .fits table to crossmatch")
+    parser.add_argument("-s", "--survey", help="The optical survey to be crossmatched with",
+                        default='DECaLS', type=str)
+    parser.add_argument("--surveydr", help="The optical survey data release",
+                        default='DR10', type=str)
+    parser.add_argument("--radioband", help="The frequency band of radio data",
+                        default='L', type=str)
+    parser.add_argument("--opticalband", help="The optical band to be used for LR calculation",
+                        default='r', type=str)
+    parser.add_argument("-r", "--radius", help="The search radius in arcsec", default=4.0,
+                        type=float)
+    parser.add_argument("-o", "--output", help="Output directory", default=os.getcwd(),
+                        type=str)
+    parser.add_argument("--radracol", help="RA column of radio catalog", default='RA',
+                        type=str)
+    parser.add_argument("--raddeccol", help="Dec column of radio catalog", default='DEC',
+                        type=str)
+    parser.add_argument("--raderacol", help="Error RA column of radio catalog",
+                        default='E_RA', type=str)
+    parser.add_argument("--radedeccol", help="Error Dec column of radio catalog",
+                        default='E_DEC', type=str)
+    parser.add_argument("--rademajcol", help="Error major axis column of radio catalog",
+                        default='E_Maj', type=str)
+    parser.add_argument("--rademincol", help="Error minor axis column of radio catalog",
+                        default='E_Min', type=str)
+    parser.add_argument("--radpacol", help="Error position angle column of radio catalog",
+                        default='PA', type=str)
+
+    return parser
+
+#--------------------------------------------------------------------------------------------------
+if __name__ == '__main__':
+
+    parser=make_parser()
+    args=parser.parse_args()
+
+    radioCat = args.catalog
+    optSurvey = args.survey
+    optSurveyDR = args.surveydr
+    radioBand = args.radioband
+    optMagCol = args.opticalband
+    searchRadiusAsec = args.radius
+    makePlots=True
+    outPath = args.output
+    radRACol = args.radracol
+    radDecCol = args.raddeccol
+    radERACol = args.raderacol
+    radEDecCol = args.radedeccol
+    radEMajCol = args.rademajcol
+    radEMinCol = args.rademincol
+    radPACol = args.radpacol
+
+    radioCatFilePath = os.path.abspath(radioCat)
+
+    outSubscript = '%s_%s%s_%sband_%sasec' %(radioCat.replace('.fits',''), optSurvey, optSurveyDR, optMagCol, str(searchRadiusAsec).replace(".","p"))
+
+    outFile = outPath+os.path.sep+'xmatchTable_%s.fits' %outSubscript
+
+    xmatchTab = crossmatch.xmatchRadioOptical(radioCatFilePath, radioBand, outPath, outFile, optSurvey, optSurveyDR, optMagCol, searchRadiusAsec, makePlots, radRACol, radDecCol, radERACol, radEDecCol, radEMajCol, radEMinCol, radPACol, outSubscript, optPosErrAsecValue=0.2, nMagBins=15, beamSizeArcsecValue=6.0, saveFiles = True)

@@ -6,8 +6,9 @@ import versioneer
 
 setup(name='berk',
       version=versioneer.get_version(),
-      author='Matt Hilton',
+      cmdclass=versioneer.get_cmdclass(),
+      author='Matt Hilton, Unnikrishnan Sureshkumar',
       author_email='matt.hilton@wits.ac.za',
       packages=['berk'],
-      scripts=['bin/berk', 'bin/berk_chain', 'bin/mkat_primary_beam_correct'],
+      scripts=['bin/berk', 'bin/berk_chain', 'bin/mkat_primary_beam_correct', 'bin/xmatch', 'bin/plot_image', 'bin/sinject'],
 )

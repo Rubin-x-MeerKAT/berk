@@ -1,0 +1,41 @@
+#!/usr/bin/env python
+
+"""
+
+Plot the radio image.
+
+"""
+
+import os
+import argparse
+from berk import sourceinjection
+
+#--------------------------------------------------------------------------------------------------
+def make_parser():
+    parser=argparse.ArgumentParser("sinject")
+
+    parser.add_argument("imageFileName", nargs='?', default=None, help="Name of the image file. If not provided, all FITS files in current directory will be processed.")
+    parser.add_argument("--nsources", dest="nInjectionSources", help="Number of sources to inject. Default is 10000.", default=5000, type=int)
+    parser.add_argument("--nrep", dest="nRepetitions", help="Number of repetitions to perform the injection. Default is 100.", default=50, type=int)
+    parser.add_argument("--minflux", dest="minFluxJyInj", help="Minimum flux density (in Jy) of the sources to be injected. Default is 1e-5 Jy.", default=1e-5, type=float)
+    parser.add_argument("--maxflux", dest="maxFluxJyInj", help="Maximum flux density (in Jy) of the sources to be injected. Default is 1.0 Jy.", default=1.0, type=float)
+    parser.add_argument("--rad", dest="radiusFactorToInject", help="Radius factor to inject sources within (0 to 1). Default is 1.0, which means sources will be injected within the radius of the image.", default=1.0, type=float)
+
+    return parser
+
+#--------------------------------------------------------------------------------------------------
+if __name__ == '__main__':
+
+    parser=make_parser()
+    args=parser.parse_args()
+
+    imagePath = args.imageFileName
+    nInjectionSources = args.nInjectionSources
+    nRepetitions = args.nRepetitions
+    minFluxJyInj = args.minFluxJyInj
+    maxFluxJyInj = args.maxFluxJyInj
+    radiusFactorToInject = args.radiusFactorToInject
+    if radiusFactorToInject > 1:
+        radiusFactorToInject = 1.0
+
+    sourceinjection.execute(imageName=imagePath, nInjectionSources=nInjectionSources, nRepetitions=nRepetitions, minFluxJyInj=minFluxJyInj, maxFluxJyInj=maxFluxJyInj, radiusFactorToInject=radiusFactorToInject)

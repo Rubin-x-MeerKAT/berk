@@ -4,8 +4,11 @@ Tools for running jobs via a workload manager (Slurm or PBS).
 
 """
 
-import subprocess, os, sys
+import os
+import subprocess
 
+
+# Taken out: #SBATCH --cpus-per-task=$CPUSPERTASK
 SLURM_TEMPLATE="""#!/bin/sh
 #SBATCH --nodes=$NODES
 #SBATCH --ntasks=$TASKS
@@ -23,8 +26,8 @@ PBS_TEMPLATE="""#!/bin/sh
 #PBS -P $PBS_PROJECT
 #PBS -q $PBS_QUEUE
 #PBS -l walltime=$TIME
+#PBS -j oe
 #PBS -o $JOBNAME.log
-#PBS -e $JOBNAME.err
 #PBS -m abe
 #PBS -M $PBS_EMAIL
 ulimit -s unlimited
@@ -53,7 +56,8 @@ def writeJobScript(cmd, jobName, nodes = 1, tasks = 1, mem = 8000, time = "12:00
         The file name for the batch file.
 
     Note:
-        This doesn't submit jobs... see ``submitJob`` for a routine that does (it uses this routine).
+        This doesn't submit jobs... see ``submitJob`` for a routine that does
+        (it uses this routine).
 
     """
 
@@ -79,7 +83,7 @@ def writeJobScript(cmd, jobName, nodes = 1, tasks = 1, mem = 8000, time = "12:00
         script=script.replace("$CWD", os.path.abspath(os.path.curdir))
 
     fileName=jobName+"."+workloadManager
-    with open(fileName, "w") as outFile:
+    with open(fileName, "w", encoding = 'utf8') as outFile:
         outFile.write(script)
 
     return fileName
@@ -92,8 +96,8 @@ def submitJob(cmd, jobName, dependentJobIDs = None, nodes = 1, tasks = 1, mem = 
     Args:
         cmd (str): The command to run.
         jobName (str): Name of the job (used for e.g. log files).
-        dependentJobIDs (list): If this job depends on a previous job completing sucessfully, give the
-            job ID numbers here, as a list.
+        dependentJobIDs (list): If this job depends on a previous job completing sucessfully,
+            give the job ID numbers here, as a list.
         nodes (int): Number of nodes on which the job will run.
         tasks (int): Number of tasks to run per node.
         mem (int): Requested memory (KB) for the job.
@@ -111,16 +115,16 @@ def submitJob(cmd, jobName, dependentJobIDs = None, nodes = 1, tasks = 1, mem = 
 
     """
 
-    if cmdIsBatchScript == True:
+    if cmdIsBatchScript is True:
         fileName=cmd
     else:
-        fileName=writeJobScript(cmd, jobName, nodes = nodes, tasks = tasks, mem = mem, time = time,
-                                workloadManager = workloadManager)
+        fileName=writeJobScript(cmd, jobName, nodes = nodes, tasks = tasks, mem = mem,
+                                  time = time, workloadManager = workloadManager)
 
     if workloadManager == 'slurm':
         args=['sbatch']
         if dependentJobIDs is not None:
-            if type(dependentJobIDs) != list:
+            if isinstance(dependentJobIDs, list) is False:
                 raise Exception("dependentJobIDs must be given as a list")
             dependStr="afterok"
             for dependentJobID in dependentJobIDs:
@@ -130,7 +134,7 @@ def submitJob(cmd, jobName, dependentJobIDs = None, nodes = 1, tasks = 1, mem = 
     elif workloadManager == 'pbs':
         args=['qsub']
         if dependentJobIDs is not None:
-            if type(dependentJobIDs) != list:
+            if isinstance(dependentJobIDs, list) is False:
                 raise Exception("dependentJobIDs must be given as a list")
             dependStr="afterok"
             for dependentJobID in dependentJobIDs:
@@ -145,10 +149,52 @@ def submitJob(cmd, jobName, dependentJobIDs = None, nodes = 1, tasks = 1, mem = 
     if process.returncode != 0:
         raise Exception("Non-zero return code when submitting job %s" % (jobName))
     if workloadManager == 'slurm':
-        assert(process.stdout[:19] == "Submitted batch job")
+        assert process.stdout[:19] == "Submitted batch job"
         jobID=int(process.stdout.split("Submitted batch job")[-1])
     elif workloadManager == 'pbs':
         jobID=int(process.stdout.split(".")[0])
+    else:
+        raise Exception("workloadManager should be either 'slurm' or 'pbs'")
 
     return jobID
 
+
+def extractJobsFromScript(scriptFilename, workloadManager):
+    """Extract commands from a job script.
+
+    Args:
+        scriptFilename (str): Path to the script file to extract jobs from.
+        workloadManager (str): Either 'slurm' or 'pbs'.
+
+    Returns:
+        List of job commands
+
+    """
+
+    assert(workloadManager in ['slurm', 'pbs'])
+    with open(scriptFilename, encoding = 'utf8') as inFile:
+        lines=lines+inFile.readlines()
+
+    jobCmds=[]
+    dependent=[] # This isn't that useful - can assume each job in a script is dependent
+    for line in lines:
+        if line.find("sbatch") != -1 and workloadManager == 'slurm':
+            sbatchCmd=line[line.find("sbatch") :].split(" |")[0]
+            if sbatchCmd.find("-d afterok:") != -1:
+                sbatchCmd=sbatchCmd.split("}")[-1].strip()
+                dependent.append(True)
+            else:
+                sbatchCmd=sbatchCmd.split("sbatch")[-1].strip()
+                dependent.append(False)
+            jobCmds.append(sbatchCmd)
+        elif line.find("qsub") != -1 and workloadManager == 'pbs':
+            qsubCmd=line[line.find("qsub") :].split(" |")[0]
+            if qsubCmd.find("-W depend=afterok") != -1:
+                qsubCmd=qsubCmd.split("}")[-1].strip()
+                dependent.append(True)
+            else:
+                qsubCmd=qsubCmd.split("qsub")[-1].strip()
+                dependent.append(False)
+            jobCmds.append(qsubCmd)
+
+    return jobCmds

@@ -17,7 +17,9 @@ from collections import defaultdict
 from astropy.units import Quantity
 import requests
 import pyvo as vo
-from dl import authClient as ac
+on_rtd=os.environ.get('READTHEDOCS', None)
+if on_rtd is None:
+    from dl import authClient as ac
 from getpass import getpass
 from astropy_healpix import HEALPix
 

@@ -8,10 +8,11 @@ from astLib import astWCS, astCoords
 import numpy as np
 import astropy.table as atpy
 from astropy.coordinates import SkyCoord, Longitude
-from astropy.coordinates import match_coordinates_sky
+from astropy.coordinates import match_coordinates_sky, search_around_sky
 from astropy import units as u
 from . import __version__
 import os
+from astropy.cosmology import FlatLambdaCDM
 
 # For adding meta data to output
 import datetime
@@ -537,3 +538,192 @@ def addFootprintColumnToCatalog(tab, label, areaMask, wcs):
     tab['footprint_%s' % (label)]=inMask
 
     return tab
+
+#------------------------------------------------------------------------------------------------------------
+def calculateRadioLum(fluxJy, redshift, spectralIndex=0.7, cosmology=None):
+    """
+    Computes the radio luminosity of a source from its observed flux density and redshift,
+    applying a K-correction assuming a power-law spectrum.
+
+    Args:
+        fluxJy (float or np.ndarray): Observed flux density in Jansky (Jy).
+        redshift (float or np.ndarray): Redshift of the source.
+        spectralIndex (float): Spectral index alpha, defined such that S_nu ~ nu^{-alpha}.
+            Default is 0.7.
+        cosmology (astropy.cosmology instance, optional): Cosmology to use for luminosity
+            distance calculation. If None, defaults to FlatLambdaCDM with H0=70 km/s/Mpc
+            and Om0=0.3.
+
+    Returns:
+        float or np.ndarray: Radio luminosity in W/Hz.
+
+    Notes:
+        The K-correction applied is (1+z)^{alpha-1}, appropriate for a power-law spectrum
+        S_nu ~ nu^{-alpha} observed at a fixed frequency.
+    """
+
+    if cosmology is None:
+        cosmo = FlatLambdaCDM(H0=70 * u.km / u.s / u.Mpc, Om0=0.3)
+    else:
+        cosmo = cosmology
+
+    z = redshift
+    alpha = spectralIndex
+
+    # Convert flux to W/m^2/Hz
+    S_Wm2Hz = (fluxJy * u.Jy).to(u.W / u.m**2 / u.Hz)
+
+    # Luminosity distance
+    DL = cosmo.luminosity_distance(z)      # in Mpc
+    DL_si = DL.to(u.m)                     # convert to metres
+
+    # Compute luminosity (with K-correction)
+    L = 4 * np.pi * DL_si**2 * S_Wm2Hz * (1 + z)**(alpha - 1)
+
+    # Convert to W/Hz
+    L_WHz = L.to(u.W / u.Hz).value
+
+    return L_WHz
+
+#------------------------------------------------------------------------------------------------------------
+def fluxDensityAtRedshift_uJy(z, Lrest_WHz, alpha=0.7, cosmology=None):
+    """
+    Computes the expected observed flux density of a source at a given redshift,
+    assuming a power-law spectrum and applying a K-correction.
+
+    Args:
+        z (float or np.ndarray): Redshift at which to evaluate the flux density.
+        Lrest_WHz (float or np.ndarray): Rest-frame radio luminosity in W/Hz.
+        alpha (float): Spectral index, defined such that S_nu ~ nu^{-alpha}.
+            Default is 0.7.
+        cosmology (astropy.cosmology instance, optional): Cosmology to use for
+            luminosity distance. If None, defaults to FlatLambdaCDM with
+            H0=70 km/s/Mpc and Om0=0.3.
+
+    Returns:
+        float or np.ndarray: Expected flux density in microjansky (uJy).
+    """
+
+    if cosmology is None:
+        cosmology = FlatLambdaCDM(H0=70 * u.km / u.s / u.Mpc, Om0=0.3)
+
+    DL = cosmology.luminosity_distance(z)      # in Mpc
+    DL_si = DL.to(u.m)                     # convert to metres
+
+    S_Wm2Hz = Lrest_WHz / (4 * np.pi * DL_si**2 * (1 + z)**(alpha - 1))
+    S_Jy = S_Wm2Hz * (u.W / u.m**2 / u.Hz).to(u.Jy)
+    S_uJy = S_Jy.value*1E6
+
+    return S_uJy
+
+#------------------------------------------------------------------------------------------------------------
+def calculateZmax(galRedshift, galLum_WHz, Slim_uJy, alpha=0.7, zmaxLimit=10.0, step=0.001, cosmology=None):
+    """
+    Finds the maximum redshift at which a source of given luminosity would remain
+    detectable above a survey flux limit, using Brent's root-finding method.
+
+    Args:
+        galRedshift (float): Observed redshift of the source. Search begins here
+            since zmax >= galRedshift by definition.
+        galLum_WHz (float): Rest-frame radio luminosity of the source in W/Hz.
+        Slim_uJy (float): Survey flux density limit in microjansky (uJy),
+            typically N-sigma * RMS of the image.
+        alpha (float): Spectral index, defined such that S_nu ~ nu^{-alpha}.
+            Default is 0.7.
+        zmax_limit (float): Hard upper bound on redshift to search. If the source
+            remains detectable at this redshift, zmax_limit is returned.
+            Default is 10.0.
+        step (float): Step size in redshift for the iterative search. Default is 0.001.
+        cosmology (astropy.cosmology instance, optional): Cosmology to use. If None,
+            defaults to FlatLambdaCDM with H0=70 km/s/Mpc and Om0=0.3.
+
+    Returns:
+        float: Maximum redshift zmax at which the source flux equals Slim_uJy.
+            Returns zmax_limit if the source is detectable across the full search range.
+    """
+
+    if cosmology is None:
+        cosmology = FlatLambdaCDM(H0=70 * u.km / u.s / u.Mpc, Om0=0.3)
+
+    zIter = galRedshift
+    SIter = fluxDensityAtRedshift_uJy(zIter, galLum_WHz, alpha=alpha, cosmology=cosmology)
+
+    while SIter >= Slim_uJy and zIter < zmaxLimit:
+        zIter += step
+        SIter = fluxDensityAtRedshift_uJy(zIter, galLum_WHz, alpha=alpha, cosmology=cosmology)
+
+    return zIter
+
+#------------------------------------------------------------------------------------------------------------
+def calculateComovingVolBetweenZ_h3Mpc3(skyArea, zMin, zMax, cosmology=None):
+    """
+    Computes the comoving volume of a spherical shell between two redshifts,
+    scaled to the solid angle subtended by a survey field.
+
+    Args:
+        skyArea (float): Sky area of the survey field in square degrees.
+        zMin (float): Minimum redshift of the shell.
+        zMax (float): Maximum redshift of the shell.
+        cosmology (astropy.cosmology instance, optional): Cosmology to use for
+            comoving volume calculation. If None, defaults to FlatLambdaCDM
+            with H0=70 km/s/Mpc and Om0=0.3.
+
+    Returns:
+        float: Comoving volume of the shell subtended by the survey field,
+            in units of h^-3 Mpc^3.
+    """
+    if cosmology is None:
+        cosmology = FlatLambdaCDM(H0=70 * u.km / u.s / u.Mpc, Om0=0.3)
+
+    totalSkyArea = (4 * np.pi * u.sr).to(u.deg**2).value # (~ 41252.96 deg^2); full sky = 4pi steradians
+
+    vmax = cosmology.comoving_volume(zMax).value  # Mpc^3
+    vmin = cosmology.comoving_volume(zMin).value  # Mpc^3
+
+    volume = (vmax - vmin) * skyArea / totalSkyArea
+
+    volume_h3Mpc3 = volume * (cosmology.h**3)  # Convert to h^-3 Mpc^3
+
+    return volume_h3Mpc3
+
+#------------------------------------------------------------------------------------------------------------
+def removeDuplicateSources(tab, DRImages, matchRadius_arcsec=6.0):
+    """
+    Removes duplicate sources from a merged catalogue arising from overlapping
+    image footprints. For each pair of sources within matchRadius_arcsec,
+    retains the detection from the deeper image (lower RMS).
+
+    Args:
+        tab (astropy.table.Table): Merged source catalogue with 'RA', 'DEC',
+            and 'radCatPath' columns.
+        DRImages (astropy.table.Table): Images table with 'radioCatPath' and
+            'RMS_uJy/beam' columns.
+        matchRadius_arcsec (float): Matching radius in arcseconds. Should be
+            approximately one beam FWHM. Default is 6.0.
+
+    Returns:
+        astropy.table.Table: Deduplicated catalogue.
+    """
+    rmsLookup = {row['radioCatPath']: row['RMS_uJy/beam'] for row in DRImages}
+    sourceRMS = np.array([rmsLookup.get(p, np.inf) for p in tab['radCatName']])
+
+    coords = SkyCoord(ra=tab['RA_rad']*u.deg, dec=tab['DEC_rad']*u.deg)
+    idx1, idx2, sep, _ = search_around_sky(coords, coords, matchRadius_arcsec*u.arcsec)
+
+    remove = np.zeros(len(tab), dtype=bool)
+    processed = set()
+    for i, j in zip(idx1, idx2):
+        if i == j:
+            continue
+        pair = frozenset([i, j])
+        if pair in processed:
+            continue
+        processed.add(pair)
+        if sourceRMS[i] <= sourceRMS[j]:
+            remove[j] = True
+        else:
+            remove[i] = True
+
+    n_dupes = remove.sum()
+    print("Removed %d duplicates out of %d within %0.2f arcsec" % (n_dupes, len(tab), matchRadius_arcsec))
+    return tab[~remove]

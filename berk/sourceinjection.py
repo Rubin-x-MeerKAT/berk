@@ -178,14 +178,12 @@ def _runSingleInjectionToResidual(args):
                 prevCoords = SkyCoord(ra=np.array(injectedCoords)[:,0]*u.deg, dec=np.array(injectedCoords)[:,1]*u.deg)
                 seps = randPostCoord.separation(prevCoords)
                 # #TODO: harcoded 5 times the the beam size
-                if seps.min() < (5 * 6.0 * u.arcsec):
+                if seps.min() < (2 * 6.0 * u.arcsec):
+                    #print("Source at RA=%.4f, Dec=%.4f is too close to a previously injected source. Skipping." % (randomRA[0], randomDec[0]))
                     continue
 
-            injectedCoords.append([randomRA[0], randomDec[0]])
+            xPix, yPix = wcsObj.wcs_world2pix(randomRA, randomDec, 0) 
 
-            randomFlux = 10 ** rng.uniform(logMin, logMax)
-
-            xPix, yPix = wcsObj.wcs_world2pix(randomRA, randomDec, 0)
             x0 = xPix[0]
             y0 = yPix[0]
 
@@ -196,6 +194,10 @@ def _runSingleInjectionToResidual(args):
 
             if xMax <= xMin or yMax <= yMin:
                 continue # source fell outside the image
+
+            injectedCoords.append([randomRA[0], randomDec[0]])
+
+            randomFlux = 10 ** rng.uniform(logMin, logMax)
 
             localY, localX = np.mgrid[yMin:yMax, xMin:xMax]
 
@@ -430,7 +432,7 @@ def calculateCompleteness(sInjectedCatList, pybdsfCat, imageName, sinjectDir,
             print("Error: %s - skipping." % e)
             continue
 
-        # in case we want to inject sources to an inner area of the image
+        # in case we want to inject sources to an inner area of the image #TODO
         matchRadDeg = max(beamMajor, beamMinor)
 
         # injectedRecoveredMask : boolean mask for the injected source table that were recovered by PyBDSF
@@ -628,6 +630,7 @@ def executeSingle(imageName, nInjectionSources=5000, nRepetitions=1, minFluxJyIn
     fieldRACentre, fieldDecCentre, bandRadius = crossmatch.getCentreRadiusFromCatalog(
         pybdsfCat, radRACol="RA", radDecCol="DEC"
     )
+    #fieldRACentre, fieldDecCentre, bandRadius = crossmatch.getCentreRadiusFromImagesTab(pybdsfCatFilePath)
 
     # Inject within certain % of the band radius to avoid edge effects
     radiusToInject = bandRadius * radiusFactorToInject

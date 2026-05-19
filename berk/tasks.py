@@ -965,7 +965,7 @@ def summarize(dataBase='PARENT'):
         bandTotalArea = bandDataImages['skyArea_sqDeg'].sum()
         bandTotalAreaDict[band] = bandTotalArea
 
-        catFileName = startup.config['productsDir']+os.path.sep+"survey_catalog_%s.fits" %band
+        catFileName = os.path.join(dataBaseDir, "survey_catalog_%s%s.fits" % (band, subScript))
         catalogTab = atpy.Table().read(catFileName)
         nPybdsfSources = len(catalogTab)
 

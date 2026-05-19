@@ -11,6 +11,7 @@ if on_rtd is not None:
     os.environ['BERK_ROOT']='.'
     os.environ['BERK_MSCACHE']='MSCache'
     os.environ['BERK_PLATFORM']='chpc'
+    os.environ['BERK_OXKAT_VERSION']='git'
 
 # Some settings are hard-coded for now, but could be put into a YAML config file later
 config={}

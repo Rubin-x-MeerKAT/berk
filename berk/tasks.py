@@ -358,16 +358,23 @@ def builddr(dataRelease='EDR', includeBands=None, includeQuality=None, removeDup
                                  'xmatch_%s_srl_bdsfcat_DECaLSDR10_rband_4p0asec' %pybdsfCommonName)
 
         if os.path.exists(fitsFile) and not os.path.exists(os.path.join(DRDir, row['path'])):
-            os.system("ln -s %s %s" %(fitsFile, DRImageDir))
-            os.system("ln -s %s %s" %(pngFile, DRImageDir))
+            fitsFileRelPath = os.path.relpath(fitsFile, start=DRImageDir)
+            pngFileRelPath = os.path.relpath(pngFile, start=DRImageDir)
+            os.system("ln -s %s %s" %(fitsFileRelPath, DRImageDir))
+            os.system("ln -s %s %s" %(pngFileRelPath, DRImageDir))
         if os.path.exists(catFile) and not os.path.exists(os.path.join(DRDir, row['radioCatPath'].replace('_srl',''))):
-            os.system("ln -s %s %s" %(catFile, DRCatDir))
-            os.system("ln -s %s %s" %(srlCatFile, DRCatDir))
+            catFileRelPath = os.path.relpath(catFile, start=DRCatDir)
+            srlCatFileRelPath = os.path.relpath(srlCatFile, start=DRCatDir)
+            os.system("ln -s %s %s" %(catFileRelPath, DRCatDir))
+            os.system("ln -s %s %s" %(srlCatFileRelPath, DRCatDir))
         if os.path.exists(rmsFile) and not os.path.exists(os.path.join(DRRmsDir, os.path.basename(rmsFile))):
-            os.system("ln -s %s %s" %(rmsFile, DRRmsDir))
-            os.system("ln -s %s %s" %(rmsHistFile, DRRmsDir))
+            rmsFileRelPath = os.path.relpath(rmsFile, start=DRRmsDir)
+            rmsHistFileRelPath = os.path.relpath(rmsHistFile, start=DRRmsDir)
+            os.system("ln -s %s %s" %(rmsFileRelPath, DRRmsDir))
+            os.system("ln -s %s %s" %(rmsHistFileRelPath, DRRmsDir))
         if os.path.exists(xmatchDir) and not os.path.exists(os.path.join(DRXmatchDir, os.path.basename(xmatchDir))):
-            os.system("ln -s %s %s" %(xmatchDir, DRXmatchDir))
+            xmatchDirRelPath = os.path.relpath(xmatchDir, start=DRXmatchDir)
+            os.system("ln -s %s %s" %(xmatchDirRelPath, DRXmatchDir))
 
     DRImages.sort('path')
     DRImagesOutFileName = DRDir+os.path.sep+'images_%s.fits' %dataRelease

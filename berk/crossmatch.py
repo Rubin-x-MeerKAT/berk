@@ -280,6 +280,7 @@ def getQ0FitForRs(radCatCoords, randRadCatCoords, optCatCoords, searchRadiusDeg,
 
     UobsByUrandArray = []
     FrsArray = []
+    validRadiiDeg = []
 
     for rs in radiiDeg:
 
@@ -287,11 +288,12 @@ def getQ0FitForRs(radCatCoords, randRadCatCoords, optCatCoords, searchRadiusDeg,
         nBlankRand = countBlanks(randRadCatCoords, optCatCoords, rs)
 
         if nBlankRand == 0:
-            print("nBlankRand is zero — cannot divide by zero when computing Q0. Setting Q0 = 1.0")
+            print("nBlankRand is zero — cannot divide by zero when computing Q0.")
             continue
 
         Frs = 1 - np.exp( -0.5 * (rs**2 / sigmaRadDeg**2))
 
+        validRadiiDeg.append(rs)
         UobsByUrandArray.append(nBlankReal / nBlankRand)
         FrsArray.append(Frs)
 
@@ -301,7 +303,7 @@ def getQ0FitForRs(radCatCoords, randRadCatCoords, optCatCoords, searchRadiusDeg,
     # Fit: Y = 1 - Q0 * X => (1 - Y) = Q0 * X
     Q0, _ = np.polyfit(FrsArray, 1 - UobsByUrandArray, 1)
 
-    return Q0, radiiDeg, UobsByUrandArray, FrsArray
+    return Q0, np.array(validRadiiDeg), np.array(UobsByUrandArray), np.array(FrsArray)
 
 def getQ0SingleRs(radCatCoords, randRadCatCoords, optCatCoords, searchRadRsDeg, sigmaRadDeg):
     """
@@ -460,20 +462,6 @@ def getCentreRadiusFromCatalog(radioCat, radRACol, radDecCol):
             - center_dec (:obj:`float`): Dec of the bounding-box center (degrees).
     """
 
-    raColEntries = radioCat[radRACol]
-    decColEntries = radioCat[radDecCol]
-
-    # Check if RA and Dec has units; if yes, extract raw values
-    if isinstance(raColEntries, Quantity):
-        raList = raColEntries.value
-    else:
-        raList = raColEntries
-
-    if isinstance(decColEntries, Quantity):
-        decList = decColEntries.value
-    else:
-        decList = decColEntries
-
     raList = _getUnitlessValues(radioCat[radRACol])
     decList = _getUnitlessValues(radioCat[radDecCol])
     catCoords = SkyCoord(ra=raList * u.deg, dec=decList * u.deg, frame='icrs')
@@ -540,7 +528,7 @@ def retrieveDECaLSDR10(centerRA, centerDec, radiusDeg):
         :obj:`Exception`: If a data release other than 'DR10' is requested.
     """
 
-    token = DLLogin()
+    DL_token = DLLogin()
 
     print("\nRetrieving DECaLS DR10 sources with RA_central=%.2f deg, Dec_central=%.2f deg, and radius=%.2f deg" \
           % (centerRA, centerDec, radiusDeg))
@@ -549,7 +537,7 @@ def retrieveDECaLSDR10(centerRA, centerDec, radiusDeg):
                                                              halfBoxSizeDeg = radiusDeg,
                                                              DR = None,
                                                              optionsDict={'altCacheDir': zClusterCacheDir,
-                                                                          'token': token})
+                                                                          'token': DL_token})
 
     if resultRetrieve is not None:
         decalsCat = Table(resultRetrieve)
@@ -796,7 +784,6 @@ def computeRelCompl(LRTab, Q0, NRadio, LRThreshold):
             - reliability (:obj:`float`): Fraction of accepted identifications that are correct.
     """
 
-
     LRVals = LRTab['LR'].value
 
     # Completeness: sum over LR_i < L_thr
@@ -929,14 +916,15 @@ def computeLR(radioCat, opticalCat, searchRadiusDegVal, optMagCol, magBins, qMLi
 
     radOptMergedTab['rad_opt_sep_deg'] = radOptSeparationDeg
     radOptMergedTab['f_r'] = fRVals
-    radOptMergedTab['f_r'] = fRVals
     radOptMergedTab['q_m'] = qMVals
     radOptMergedTab['n_m'] = nMVals
     radOptMergedTab['LR'] = LRVals
 
     return radOptMergedTab
 
-def xmatchRadioOptical(radioCatFilePath, radioBand, xmatchDirPath, optSurvey, optMagCol, searchRadiusArcsec, radRACol, radDecCol, radERACol, radEDecCol, radEMajCol, radEMinCol, radPACol, outSubscript, optPosErrAsecValue, nMagBins=15, beamSizeArcsecValue=6.0, nAreaTimeOptFetch=2.0, skipIfExists=True, dofRSymErr=True):
+def xmatchRadioOptical(radioCatFilePath, radioBand, xmatchDirPath, optSurvey, optMagCol, searchRadiusArcsec, radRACol, radDecCol, 
+                       radERACol, radEDecCol, radEMajCol, radEMinCol, radPACol, outSubscript, optPosErrAsecValue, nMagBins=15, 
+                       beamSizeArcsecValue=6.0, nAreaTimeOptFetch=2.0, skipIfExists=True, dofRSymErr=True):
     """
     Perform likelihood ratio crossmatching between a radio source catalog and an optical survey.
 
@@ -966,7 +954,7 @@ def xmatchRadioOptical(radioCatFilePath, radioBand, xmatchDirPath, optSurvey, op
         optPosErrAsecValue (:obj:`float`, optional): Assumed optical positional error in arcseconds. Default is 0.2.
         nMagBins (:obj:`int`, optional): Number of magnitude bins used for magnitude distribution estimation. Default is 15.
         beamSizeArcsecValue (:obj:`float`, optional): Radio beam size in arcseconds. Default is 6.0.
-        nAreaTimeOptFetch (:obj:`float`, optional): Factor of extra optical area to be fetched. Default is 3.0.
+        nAreaTimeOptFetch (:obj:`float`, optional): Factor of extra optical area to be fetched. Default is 2.0.
         skipIfExists (:obj:`bool`, optional): Skip processing if output files exist. Default is True.
         dofRSymErr (:obj:`bool`, optional): Uses symmetric error approach to calculate f(r). Default is True.
 
@@ -1118,8 +1106,9 @@ def xmatchRadioOptical(radioCatFilePath, radioBand, xmatchDirPath, optSurvey, op
 
     #Q0 = getQ0SingleRs(radCatCoords=radioSourcesCoords, randRadCatCoords=randomRadioSourcesCoords, optCatCoords=optSourcesCoords, #searchRadRsDeg=beamSizeDegValue, sigmaRadDeg=sigmaRadPosMeanDeg)
 
-    Q0, radiiDeg, UobsByUrandArray, FrsArray = getQ0FitForRs(radCatCoords=radioSourcesCoords, randRadCatCoords=randomRadioSourcesCoords, optCatCoords=optSourcesCoords,
-                       searchRadiusDeg=searchRadiusDegVal, sigmaRadDeg=sigmaRadPosMeanDeg)
+    Q0, radiiDeg, UobsByUrandArray, FrsArray = getQ0FitForRs(radCatCoords=radioSourcesCoords, randRadCatCoords=randomRadioSourcesCoords, 
+                                                             optCatCoords=optSourcesCoords, 
+                                                             searchRadiusDeg=searchRadiusDegVal, sigmaRadDeg=sigmaRadPosMeanDeg)
     np.savetxt(xmatchIndividualDirPath+os.path.sep+'Q0_%s.txt' %outSubscript, [Q0], fmt='%f')
 
     # Finding n(m)
@@ -1128,7 +1117,11 @@ def xmatchRadioOptical(radioCatFilePath, radioBand, xmatchDirPath, optSurvey, op
 
     # Finding q(m)
 
-    qM = getQM(radCatCoords=radioSourcesCoords, nRadio=nRadio, optCatCoords=optSourcesCoords, optMagList=optMagList, searchRadRmaxDegVal=beamSizeDegValue, nM=nM, Q0=Q0)
+    # qM = getQM(radCatCoords=radioSourcesCoords, nRadio=nRadio, optCatCoords=optSourcesCoords, optMagList=optMagList, 
+    #           searchRadRmaxDegVal=beamSizeDegValue, nM=nM, Q0=Q0) 
+    qM = getQM(radCatCoords=radioSourcesCoords, nRadio=nRadio, optCatCoords=optSourcesCoords, optMagList=optMagList, 
+               searchRadRmaxDegVal=searchRadiusDegVal, nM=nM, Q0=Q0) 
+    
     if qM is None:
         catalogs.listCatalogInFile(radCatName, noOptCounterpartsFilename)
         return None
@@ -1222,9 +1215,9 @@ def xmatchRadioOptical(radioCatFilePath, radioBand, xmatchDirPath, optSurvey, op
     if os.path.exists(Q0RsplotOutName):
         os.remove(Q0RsplotOutName)
     plt.figure(figsize=(6, 6))
-    plt.scatter(radiiDeg*3600, UobsByUrandArray)
+    plt.scatter(radiiDeg*3600., UobsByUrandArray)
     yFit = 1 - Q0 * FrsArray
-    plt.plot(radiiDeg*3600, yFit, label='Fit: $1 - Q_0 F(r)$')
+    plt.plot(radiiDeg*3600., yFit, label='Fit: $1 - Q_0 F(r)$')
     plt.xlabel("radius (arcsec)")
     plt.ylabel(r"$1-Q_0 F(r)$")
     plt.legend(loc="lower left", scatterpoints=1, fontsize=10)
@@ -1235,7 +1228,6 @@ def xmatchRadioOptical(radioCatFilePath, radioBand, xmatchDirPath, optSurvey, op
     # Plotting q(m)/n(m) and n(m) as a function of magnitude
 
     qmNmPlotOutName = "%s/QmNmPlot_%s.png" % (xmatchIndividualDirPath, outSubscript)
-    plt.figure(figsize=(8, 5))
 
     # Avoid division by zero
     qMnMRatio = np.full_like(qM, np.nan, dtype=float)

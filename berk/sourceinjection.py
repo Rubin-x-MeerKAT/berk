@@ -418,8 +418,8 @@ def calculateCompleteness(sInjectedCatList, pybdsfCat, imageName, sinjectDir,
         recovTab    = Table.read(sInjectedCatFile)
         fakeTab     = Table.read(fakeSourceFile)
 
-        if any(recovTab['RA'] < 0.0):
-            recovTab = catalogs.fixRA(recovTab, raCol='RA', wrapAngle=360)
+        tabWrapAngle = catalogs.detectWrapAngle(recovTab['RA'])
+        recovTab = catalogs.fixRA(recovTab, raCol='RA', wrapAngle=tabWrapAngle)
 
         if len(recovTab) == 0:
             print("No sources recovered by PyBDSF - skipping.")
@@ -597,15 +597,15 @@ def executeSingle(imageName, nInjectionSources=5000, nRepetitions=1, minFluxJyIn
         
     else:
         print("\nAll necessary files found. Proceeding with injection and completeness analysis...\n")
-    
+
     if pybdsfCatFilePath is not None:
         pybdsfCat = Table.read(pybdsfCatFilePath, format='fits')
     else:
         print("Error: PyBDSF catalogue file not found. Cannot proceed.")
         return
 
-    if any(pybdsfCat['RA'] < 0.0):
-        pybdsfCat = catalogs.fixRA(pybdsfCat, raCol='RA', wrapAngle=360)
+    tabWrapAngle = catalogs.detectWrapAngle(pybdsfCat['RA'])
+    pybdsfCat = catalogs.fixRA(pybdsfCat, raCol='RA', wrapAngle=tabWrapAngle)
 
     if outDir is None:
         outDir = os.getcwd()

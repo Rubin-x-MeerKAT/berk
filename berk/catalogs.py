@@ -56,20 +56,40 @@ def IsFieldContinuous(RAValues):
         return False
     else:
         return True
+    
+#------------------------------------------------------------------------------------------------------------
+def detectWrapAngle(ra_values):
+    """
+    If the RA range spans the 0/360 boundary, wrap at 180.
+    Detection: min < threshold_low AND max > threshold_high.
+    """
+    ra = np.asarray(ra_values)
+    ra = ra % 360
+    ra_min, ra_max = ra.min(), ra.max()
+
+    if ra_min < 10 and ra_max > 350:
+        return 180.0  # field straddles 0/360 → centre around 0
+    else:
+        return 360.0  # normal case
 
 #------------------------------------------------------------------------------------------------------------
-def fixRA(table, raCol='RA', wrapAngle=360):
+def fixRA(table, raCol='RA', wrapAngle=None):
     """Returns table with corrected RA wrap.
 
     Args:
         table (:obj:`~astropy.table.Table`): Input table with RA values.
         raCol (:obj:`str`, optional): Name of the RA column. Default is 'RA'.
-        wrapAngle (:obj:`float`, optional): Angle at which to wrap RA in degrees. Default is 360.
+        wrapAngle (:obj:`float`, optional): Angle at which to wrap RA in degrees. If None, it is auto-detected from the data. 
 
     Returns:
         :obj:`~astropy.table.Table`: Table with RA values wrapped to [0, 360) range.
     """
     fixTable = table.copy()
+
+    if wrapAngle is None:
+        wrapAngle = detectWrapAngle(table[raCol])
+        print(f"Auto-detected wrap angle: {wrapAngle} degrees based on RA distribution.")
+        
     fixTable[raCol] = Longitude(table[raCol], unit=u.deg, wrap_angle=wrapAngle * u.deg).value
     if IsFieldContinuous(fixTable[raCol]) is False:
         newWrapAngle = 180.0 if wrapAngle == 360 else 360

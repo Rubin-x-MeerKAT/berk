@@ -1014,9 +1014,8 @@ def xmatchRadioOptical(radioCatFilePath, radioBand, xmatchDirPath, optSurvey, op
         print("\nERROR: Required columns of radio catalogue is not well set!")
         return None
 
-    if any(radioSources[radRACol] < 0.0):
-        # This pybdsf catalog has -180 to 180 wrapping. Need to change to 360 wrapping
-        radioSources = catalogs.fixRA(radioSources, raCol=radRACol, wrapAngle=360)
+    radioWrapAngle = catalogs.detectWrapAngle(radioSources[radRACol])
+    radioSources = catalogs.fixRA(radioSources, raCol=radRACol, wrapAngle=radioWrapAngle)
 
     radRAValDegList = _getUnitlessValues(radioSources[radRACol])
     radDecValDegList = _getUnitlessValues(radioSources[radDecCol])

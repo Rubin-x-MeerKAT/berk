@@ -82,16 +82,7 @@ def filterBadRows(table, columnsToCheck, badValues=[99., 999., -99., -999.]):
 
     return table[mask]
 
-def _getUnitlessValues(col):
-    """
-    Returns unitless numeric values from an astropy Table Column.
-    If the column has a unit (not None), returns .value.
-    Otherwise, returns the column as-is.
-    """
-    if hasattr(col, 'unit') and col.unit is not None:
-        return col.value
-    else:
-        return col
+
 
 def makeMagBins(magnitudes, nBins):
     """ Compute custom magnitude bin edges for a given array of magnitudes.
@@ -462,8 +453,8 @@ def getCentreRadiusFromCatalog(radioCat, radRACol, radDecCol):
             - center_dec (:obj:`float`): Dec of the bounding-box center (degrees).
     """
 
-    raList = _getUnitlessValues(radioCat[radRACol])
-    decList = _getUnitlessValues(radioCat[radDecCol])
+    raList = catalogs.getUnitlessValues(radioCat[radRACol])
+    decList = catalogs.getUnitlessValues(radioCat[radDecCol])
     catCoords = SkyCoord(ra=raList * u.deg, dec=decList * u.deg, frame='icrs')
 
     # Centre from bounding box
@@ -839,11 +830,11 @@ def computeLR(radioCat, opticalCat, searchRadiusDegVal, optMagCol, magBins, qMLi
         from both input tables (optical and radio columns postfixed with '_opt' and '_rad' resp.) and columns 'f_r', 'q_m', 'n_m', and 'LR'.
     """
 
-    radRAList = _getUnitlessValues(radioCat[radRACol])
-    radDecList = _getUnitlessValues(radioCat[radDecCol])
+    radRAList = catalogs.getUnitlessValues(radioCat[radRACol])
+    radDecList = catalogs.getUnitlessValues(radioCat[radDecCol])
 
-    optRAList = _getUnitlessValues(opticalCat[optRACol])
-    optDecList = _getUnitlessValues(opticalCat[optDecCol])
+    optRAList = catalogs.getUnitlessValues(opticalCat[optRACol])
+    optDecList = catalogs.getUnitlessValues(opticalCat[optDecCol])
 
     radCatCoords = SkyCoord(ra= radRAList * u.deg,
                                dec=radDecList * u.deg)
@@ -990,8 +981,8 @@ def xmatchRadioOptical(radioCatFilePath, radioBand, xmatchDirPath, optSurvey, op
             return None
 
     # checking if this catalog is listed as having no optical counterparts in the optical
-    noOptCounterpartsFilename = xmatchDirPath+os.path.sep+'no_counterparts_%s_%sband_%sasec.txt' \
-                           %(optSurvey, optMagCol, str(searchRadiusArcsec).replace(".","p"))
+    noOptCounterpartsFilename = xmatchDirPath+os.path.sep+'no_counterparts_%s_%sband.txt' \
+                           %(optSurvey, optMagCol)
 
     if os.path.exists(noOptCounterpartsFilename):
         with open(noOptCounterpartsFilename, 'r', encoding="utf-8") as infile:
@@ -1017,8 +1008,8 @@ def xmatchRadioOptical(radioCatFilePath, radioBand, xmatchDirPath, optSurvey, op
     radioWrapAngle = catalogs.detectWrapAngle(radioSources[radRACol])
     radioSources = catalogs.fixRA(radioSources, raCol=radRACol, wrapAngle=radioWrapAngle)
 
-    radRAValDegList = _getUnitlessValues(radioSources[radRACol])
-    radDecValDegList = _getUnitlessValues(radioSources[radDecCol])
+    radRAValDegList = catalogs.getUnitlessValues(radioSources[radRACol])
+    radDecValDegList = catalogs.getUnitlessValues(radioSources[radDecCol])
 
     radioSourcesCoords = SkyCoord(ra=radRAValDegList * u.deg, dec=radDecValDegList * u.deg, frame='icrs')
 
@@ -1031,42 +1022,48 @@ def xmatchRadioOptical(radioCatFilePath, radioBand, xmatchDirPath, optSurvey, op
     optRACol, optDecCol = 'RADeg', 'decDeg'
     optPosErrCol = 'pos_err_deg'
 
-    optCatFileName = xmatchIndividualDirPath+os.path.sep+'%s_sources_%s.fits' %(optSurvey, outSubscript)
+    optCatFileName = xmatchIndividualDirPath+os.path.sep+'%s_sources_%s.fits' %(optSurvey, radCatName.replace(".fits", ""))
 
-    # Radius for which optical catalogue is to be fetched
-    radiusDegOptFetch = radiusDeg*nAreaTimeOptFetch
-
-    if optSurvey == 'DECaLSDR10':
-        opticalSourcesRaw = retrieveDECaLSDR10(centerRA, centerDec, radiusDegOptFetch)
-    elif optSurvey == 'RubinDP1':
-        opticalSourcesRaw = retrieveRubinDP1(centerRA, centerDec, radiusDegOptFetch)
+    if os.path.exists(optCatFileName):
+        opticalSources = Table.read(optCatFileName, format='fits')
+        # getting sky area covered by the optical catalogue (DECaLS for now!) #TODO
+        opticalSkyAreaSqDeg = getDECaLSSkyAreaSqDeg(opticalSources, healPixNSide=4096, healPixCountCol='nest4096')
     else:
-        print("\nERROR: Berk is currently setup for DECaLSDR10 and RubinDP1 only.")
-        return None
+        # Radius for which optical catalogue is to be fetched
+        radiusDegOptFetch = radiusDeg*nAreaTimeOptFetch
 
-    if opticalSourcesRaw is None:
-        print("\nRetrieval process unsuccessfull.")
-        catalogs.listCatalogInFile(radCatName, noOptSourcesFilename)
-        return None
+        if optSurvey == 'DECaLSDR10':
+            opticalSourcesRaw = retrieveDECaLSDR10(centerRA, centerDec, radiusDegOptFetch)
+        elif optSurvey == 'RubinDP1':
+            opticalSourcesRaw = retrieveRubinDP1(centerRA, centerDec, radiusDegOptFetch)
+        else:
+            print("\nERROR: Berk is currently setup for DECaLSDR10 and RubinDP1 only.")
+            return None
 
-    # filtering optical catalogue
-    opticalSources = filterBadRows(opticalSourcesRaw, [optMagCol])
+        if opticalSourcesRaw is None:
+            print("\nRetrieval process unsuccessfull.")
+            catalogs.listCatalogInFile(radCatName, noOptSourcesFilename)
+            return None
 
-    if len(opticalSources) == 0:
-        print("\n%s: No optical sources with reliable %s-magnitude found in %s database...!" %(radCatName, optMagCol, optSurvey))
-        catalogs.listCatalogInFile(radCatName, noOptSourcesFilename)
-        return None
+        # filtering optical catalogue
+        opticalSources = filterBadRows(opticalSourcesRaw, [optMagCol])
 
-    # getting sky area covered by the optical catalogue (DECaLS for now!) #TODO
+        if len(opticalSources) == 0:
+            print("\n%s: No optical sources with reliable %s-magnitude found in %s database...!" %(radCatName, optMagCol, optSurvey))
+            catalogs.listCatalogInFile(radCatName, noOptSourcesFilename)
+            return None
+        
+        os.makedirs(xmatchIndividualDirPath, exist_ok = True)
 
-    opticalSkyAreaSqDeg = getDECaLSSkyAreaSqDeg(opticalSources, healPixNSide=4096, healPixCountCol='nest4096')
+        # getting sky area covered by the optical catalogue (DECaLS for now!) #TODO
+        opticalSkyAreaSqDeg = getDECaLSSkyAreaSqDeg(opticalSources, healPixNSide=4096, healPixCountCol='nest4096')
 
-    # writing and plotting the optical sources in the field
-    os.makedirs(xmatchIndividualDirPath, exist_ok = True)
+        opticalSources.meta['AREASQDEG'] = opticalSkyAreaSqDeg
+        opticalSources.write(optCatFileName, format='fits', overwrite=True)
+
+    opticalSources = catalogs.fixRA(opticalSources, raCol=optRACol, wrapAngle=radioWrapAngle)
+
     print("\nNumber of %s sources with reliable %s-magnitude in the sky region: %d" % (optSurvey, optMagCol, len(opticalSources)))
-
-    opticalSources.meta['AREASQDEG'] = opticalSkyAreaSqDeg
-    opticalSources.write(optCatFileName, format='fits', overwrite=True)
 
     RADecplotOutName = "%s/RadOptSkyPlot_%s.png" %(xmatchIndividualDirPath, outSubscript)
 
@@ -1089,8 +1086,8 @@ def xmatchRadioOptical(radioCatFilePath, radioBand, xmatchDirPath, optSurvey, op
     optMagBins = makeMagBins(optMagList, nMagBins)
     optMagBinCenters = 0.5 * (optMagBins[1:] + optMagBins[:-1])
 
-    optRAValDegList = _getUnitlessValues(opticalSources[optRACol])
-    optDecValDegList = _getUnitlessValues(opticalSources[optDecCol])
+    optRAValDegList = catalogs.getUnitlessValues(opticalSources[optRACol])
+    optDecValDegList = catalogs.getUnitlessValues(opticalSources[optDecCol])
 
     optSourcesCoords = SkyCoord(ra=optRAValDegList * u.deg, dec= optDecValDegList * u.deg, frame='icrs')
 
@@ -1098,8 +1095,8 @@ def xmatchRadioOptical(radioCatFilePath, radioBand, xmatchDirPath, optSurvey, op
     randomRadioSources=makeRandomCat(centerRA, centerDec, radiusDeg, nRandomRadSources, radRACol, radDecCol)
     randomRadioSources.write(xmatchIndividualDirPath+os.path.sep+'Randoms_%s.fits' %outSubscript, format='fits', overwrite=True)
 
-    randRadRAValDegList = _getUnitlessValues(randomRadioSources[radRACol])
-    randRadDecValDegList = _getUnitlessValues(randomRadioSources[radDecCol])
+    randRadRAValDegList = catalogs.getUnitlessValues(randomRadioSources[radRACol])
+    randRadDecValDegList = catalogs.getUnitlessValues(randomRadioSources[radDecCol])
 
     randomRadioSourcesCoords = SkyCoord(ra= randRadRAValDegList * u.deg, dec= randRadDecValDegList * u.deg, frame='icrs')
 
@@ -1208,6 +1205,23 @@ def xmatchRadioOptical(radioCatFilePath, radioBand, xmatchDirPath, optSurvey, op
     plt.savefig(RADecplotOutName, dpi=300, bbox_inches = 'tight')
     plt.close()
     print("\nPlotted sky coverage of radio and optical sources!")
+
+    # Plotting optical and radio sources
+    magDistplotOutName = "%s/magDistPlot_%s.png" %(xmatchIndividualDirPath, outSubscript)
+    if os.path.exists(magDistplotOutName):
+        os.remove(magDistplotOutName)
+    plt.figure(figsize=(6, 6))
+    plt.hist(xmatchBestMatchTable[optMagCol+'_opt'],
+                bins=15, histtype='step', linewidth=0.5, 
+                edgecolor='#06471D',
+                label='MeerKATx%s (Best matches; N=%d)' %(optSurvey, len(xmatchBestMatchTable)))
+    plt.title("%s\nSearch radius = %0.1f asec, %s band, Q0=%0.2f" \
+                % (radCatName, searchRadiusArcsec, optMagCol, Q0))
+    plt.xlabel("%s-band magnitude" %optMagCol)
+    plt.legend(loc="lower left", scatterpoints=1, fontsize=10)
+    plt.savefig(magDistplotOutName, dpi=300, bbox_inches = 'tight')
+    plt.close()
+    print("\nPlotted magnitude distribution!")
 
     # Plotting optical and radio sources
     Q0RsplotOutName = "%s/Q0_rs_%s.png" %(xmatchIndividualDirPath, outSubscript)

@@ -178,10 +178,11 @@ def _runSingleInjectionToResidual(args):
                 prevCoords = SkyCoord(ra=np.array(injectedCoords)[:,0]*u.deg, dec=np.array(injectedCoords)[:,1]*u.deg)
                 seps = randPostCoord.separation(prevCoords)
                 # #TODO: harcoded 5 times the the beam size
-                if seps.min() < (2 * 6.0 * u.arcsec):
+                if seps.min() < (5 * 6.0 * u.arcsec):
                     #print("Source at RA=%.4f, Dec=%.4f is too close to a previously injected source. Skipping." % (randomRA[0], randomDec[0]))
                     continue
 
+            
             xPix, yPix = wcsObj.wcs_world2pix(randomRA, randomDec, 0) 
 
             x0 = xPix[0]
@@ -518,7 +519,7 @@ def calculateCompleteness(sInjectedCatList, pybdsfCat, imageName, sinjectDir,
     
     return meanFraction, stdFraction, allBinCentres
 
-def executeSingle(imageName, nInjectionSources=5000, nRepetitions=1, minFluxJyInj=1e-5, maxFluxJyInj=1.0, radiusFactorToInject=1.0, outDir=None):
+def executeSingle(imageName, nInjectionSources=5000, nRepetitions=1, minFluxJyInj=1e-5, maxFluxJyInj=1.0, radiusFactorToInject=0.95, outDir=None):
     """
     Executes the source injection and completeness analysis for a single image.
     
@@ -528,7 +529,7 @@ def executeSingle(imageName, nInjectionSources=5000, nRepetitions=1, minFluxJyIn
     - nRepetitions: Number of repetitions for the injection (default: 100).
     - minFluxJyInj: Minimum flux density of injected sources in Jy (default: 1e-5).
     - maxFluxJyInj: Maximum flux density of injected sources in Jy (default: 1.0).
-    - radiusFactorToInject: Factor to multiply the band radius for defining the injection area (default: 1.0).
+    - radiusFactorToInject: Factor to multiply the band radius for defining the injection area (default: 0.95).
     - outDir: Path to the directory to save source injection files. Default: current working directory
     """
 
@@ -679,7 +680,7 @@ def executeSingle(imageName, nInjectionSources=5000, nRepetitions=1, minFluxJyIn
     )
 
 
-def execute(imageName=None, nInjectionSources=5000, nRepetitions=1, minFluxJyInj=1e-5, maxFluxJyInj=1.0, radiusFactorToInject=1.0):
+def execute(imageName=None, nInjectionSources=5000, nRepetitions=1, minFluxJyInj=1e-5, maxFluxJyInj=1.0, radiusFactorToInject=0.95):
     """
     Main function to execute the source injection and completeness analysis.
     
@@ -693,7 +694,7 @@ def execute(imageName=None, nInjectionSources=5000, nRepetitions=1, minFluxJyInj
     - nRepetitions: Number of repetitions for the injection (default: 100).
     - minFluxJyInj: Minimum flux density of injected sources in Jy (default: 1e-5).
     - maxFluxJyInj: Maximum flux density of injected sources in Jy (default: 1.0).
-    - radiusFactorToInject: Factor to multiply the band radius for defining the injection area (default: 1.0).
+    - radiusFactorToInject: Factor to multiply the band radius for defining the injection area (default: 0.95).
     """
     
     if imageName is not None:

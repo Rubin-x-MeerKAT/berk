@@ -606,6 +606,48 @@ def calculateRadioLum(fluxJy, redshift, spectralIndex=0.7, cosmology=None):
     return L_WHz
 
 #------------------------------------------------------------------------------------------------------------
+def calculateFluxDensityFromRadLum(luminosityWHz, redshift, spectralIndex=0.7, cosmology=None):
+    """
+    Computes the observed radio flux density of a source from its radio luminosity 
+    and redshift, applying the inverse K-correction assuming a power-law spectrum.
+
+    Args:
+        luminosityWHz (float or np.ndarray): Radio luminosity in W/Hz.
+        redshift (float or np.ndarray): Redshift of the source.
+        spectralIndex (float): Spectral index alpha, defined such that S_nu ~ nu^{-alpha}.
+            Default is 0.7.
+        cosmology (astropy.cosmology instance, optional): Cosmology to use for luminosity
+            distance calculation. If None, defaults to FlatLambdaCDM with H0=70 km/s/Mpc
+            and Om0=0.3.
+
+    Returns:
+        float or np.ndarray: Observed flux density in Jansky (Jy).
+    """
+
+    if cosmology is None:
+        cosmo = FlatLambdaCDM(H0=70 * u.km / u.s / u.Mpc, Om0=0.3)
+    else:
+        cosmo = cosmology
+
+    z = redshift
+    alpha = spectralIndex
+
+    # Attach units to the input luminosity
+    L_si = luminosityWHz * (u.W / u.Hz)
+
+    # Calculate luminosity distance and convert to meters
+    DL = cosmo.luminosity_distance(z)
+    DL_si = DL.to(u.m)
+
+    # Compute observed flux density in W/m^2/Hz (incorporating inverse K-correction)
+    S_Wm2Hz = L_si / (4 * np.pi * DL_si**2 * (1 + z)**(alpha - 1))
+
+    # Convert back to Jansky and extract the numerical value
+    fluxJy = S_Wm2Hz.to(u.Jy).value
+
+    return fluxJy
+
+#------------------------------------------------------------------------------------------------------------
 def fluxDensityAtRedshift_uJy(z, Lrest_WHz, alpha=0.7, cosmology=None):
     """
     Computes the expected observed flux density of a source at a given redshift,
@@ -707,7 +749,19 @@ def calculateComovingVolBetweenZ_h3Mpc3(skyArea, zMin, zMax, cosmology=None):
     return volume_h3Mpc3
 
 #------------------------------------------------------------------------------------------------------------
-def removeDuplicateSources(tab, DRImages, matchRadius_arcsec=6.0):
+def getUnitlessValues(col):
+    """
+    Returns unitless numeric values from an astropy Table Column.
+    If the column has a unit (not None), returns .value.
+    Otherwise, returns the column as-is.
+    """
+    if hasattr(col, 'unit') and col.unit is not None:
+        return col.value
+    else:
+        return col
+    
+#------------------------------------------------------------------------------------------------------------
+def removeDuplicateSources(tab, matchRadius_arcsec=6.0, raCol='RA', decCol='DEC', fluxCol='Total_flux', fluxErrCol='E_Total_flux'):
     """
     Removes duplicate sources from a merged catalogue arising from overlapping
     image footprints. For each pair of sources within matchRadius_arcsec,
@@ -716,18 +770,22 @@ def removeDuplicateSources(tab, DRImages, matchRadius_arcsec=6.0):
     Args:
         tab (astropy.table.Table): Merged source catalogue with 'RA', 'DEC',
             and 'radCatPath' columns.
-        DRImages (astropy.table.Table): Images table with 'radioCatPath' and
-            'RMS_uJy/beam' columns.
         matchRadius_arcsec (float): Matching radius in arcseconds. Should be
             approximately one beam FWHM. Default is 6.0.
+        raCol (str): Column name for right ascension in degrees. Default is 'RA_rad'.
+        decCol (str): Column name for declination in degrees. Default is 'DEC_rad'.
+        fluxCol (str): Column name for total flux density. Default is 'Total_flux'.
+        fluxErrCol (str): Column name for flux density uncertainty. Default is 'E_Total_flux'.
 
     Returns:
         astropy.table.Table: Deduplicated catalogue.
     """
-    rmsLookup = {row['radioCatPath']: row['RMS_uJy/beam'] for row in DRImages}
-    sourceRMS = np.array([rmsLookup.get(p, np.inf) for p in tab['radCatName']])
+    tab = tab.copy()
+    tab['FluxErrRatio'] = tab[fluxCol] / tab[fluxErrCol]
 
-    coords = SkyCoord(ra=tab['RA_rad']*u.deg, dec=tab['DEC_rad']*u.deg)
+    raArray = getUnitlessValues(tab[raCol])
+    decArray = getUnitlessValues(tab[decCol])
+    coords = SkyCoord(ra=raArray*u.deg, dec=decArray*u.deg)
     idx1, idx2, sep, _ = search_around_sky(coords, coords, matchRadius_arcsec*u.arcsec)
 
     remove = np.zeros(len(tab), dtype=bool)
@@ -739,10 +797,10 @@ def removeDuplicateSources(tab, DRImages, matchRadius_arcsec=6.0):
         if pair in processed:
             continue
         processed.add(pair)
-        if sourceRMS[i] <= sourceRMS[j]:
-            remove[j] = True
-        else:
+        if tab['FluxErrRatio'][i] <= tab['FluxErrRatio'][j]:
             remove[i] = True
+        else:
+            remove[j] = True
 
     n_dupes = remove.sum()
     print("Removed %d duplicates out of %d within %0.2f arcsec" % (n_dupes, len(tab), matchRadius_arcsec))

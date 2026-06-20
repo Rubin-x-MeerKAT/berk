@@ -164,37 +164,37 @@ def processVmaxForXmatchFile(args):
 
     zMaxDirPath = os.path.join(DRDir, zmaxDirName)
     os.makedirs(zMaxDirPath, exist_ok = True)
-    
+
     zmaxFilePath = os.path.join(zMaxDirPath, 'zmax_%s.fits' %radCatName.split('_srl_bdsfcat')[0])
 
     if os.path.exists(zmaxFilePath):
         zmaxTab = atpy.Table().read(zmaxFilePath)
         return xmatchTab, zmaxTab
-    
+
     print("\nProcessing Vmax for %s..." % xmatchFile)
-    
+
     if 'radCatName' not in xmatchTab.colnames:
         xmatchTab['radCatName'] = 'catalogs'+os.path.sep+radCatName
 
     if zColName not in xmatchTab.colnames:
-        xmatchTab[zColName] = np.where(np.isfinite(xmatchTab['zspec_opt']) & 
-                                                    (xmatchTab['zspec_opt'] != -99), 
-                                                    xmatchTab['zspec_opt'], 
+        xmatchTab[zColName] = np.where(np.isfinite(xmatchTab['zspec_opt']) &
+                                                    (xmatchTab['zspec_opt'] != -99),
+                                                    xmatchTab['zspec_opt'],
                                                     xmatchTab['zphoto_opt'])
-    
+
     zmaxTab = xmatchTab[xmatchTab[zColName] != -99]
 
     maxRedshift = np.max(zmaxTab[zColName])
     minRedshift = np.min(zmaxTab[zColName])
 
-    zmaxTab['LuminosityWHz_rad'] = catalogs.calculateRadioLum(zmaxTab['Total_flux_rad'].value, zmaxTab[zColName].value, 
+    zmaxTab['LuminosityWHz_rad'] = catalogs.calculateRadioLum(zmaxTab['Total_flux_rad'].value, zmaxTab[zColName].value,
                                                               spectralIndex=0.7, cosmology=cosmologyDR)
 
     DRImageRow = DRImages[DRImages['radioCatPath'] == 'catalogs/'+radCatName]
 
     if len(DRImageRow) == 0:
         return None, None
-    
+
     completenessFilePath = os.path.join(startup.config['productsDir'], 'completeness', 'completeness_%s.txt' %(radCatName.split('_srl_bdsfcat')[0]))
     if os.path.exists(completenessFilePath):
         completenessTab = atpy.Table.read(completenessFilePath, format='ascii')
@@ -206,7 +206,7 @@ def processVmaxForXmatchFile(args):
         zmaxTab['completeness_rad'] = -99 # undefined completeness
 
     # Calculating optical completeness
-    # Given by the fraction of radio sources in a flux bin 
+    # Given by the fraction of radio sources in a flux bin
     # that has an optical counterpart
 
     radioCatTab = atpy.Table().read(os.path.join(DRDir, 'catalogs',radCatName))
@@ -238,7 +238,7 @@ def processVmaxForXmatchFile(args):
         galLum_WHz = galNow['LuminosityWHz_rad']
         Slim_uJypbeam = Slim_Jypbeam*1E6
 
-        zMax = catalogs.calculateZmax(galRedshift, galLum_WHz, Slim_uJypbeam, alpha=0.7, zmaxLimit=10.0, step=0.001, cosmology=cosmologyDR)
+        zMax = catalogs.calculateZmax(galRedshift, galLum_WHz, Slim_uJypbeam, alpha=0.7, zmaxLimit=10.0,cosmology=cosmologyDR)
         VMax_h3Mpc3 = catalogs.calculateComovingVolBetweenZ_h3Mpc3(skyArea_sqDeg, zMin=0.0, zMax=zMax, cosmology=cosmologyDR)
 
         zMaxList.append(zMax)
@@ -292,7 +292,7 @@ def builddr(dataRelease='EDR', includeBands=None, includeQuality=None, removeDup
 
     for band in includeBands:
         for q in includeQuality:
-            rows = parentImagesTab[(parentImagesTab['band'] == band) & 
+            rows = parentImagesTab[(parentImagesTab['band'] == band) &
                                 (parentImagesTab['quality'] == q)]
             filteredRows.append(rows)
 
@@ -309,8 +309,8 @@ def builddr(dataRelease='EDR', includeBands=None, includeQuality=None, removeDup
 
     if removeDuplicates is True:
         uniqueIdx = []
-        raFilt = filteredTable["centre_RADeg"] 
-        decFilt = filteredTable["centre_decDeg"] 
+        raFilt = filteredTable["centre_RADeg"]
+        decFilt = filteredTable["centre_decDeg"]
         coordsFilt = SkyCoord(ra=raFilt*u.deg, dec=decFilt*u.deg)
         for i in range(nFiltered):
             candidateIdx = i
@@ -371,8 +371,8 @@ def builddr(dataRelease='EDR', includeBands=None, includeQuality=None, removeDup
         rmsFile = os.path.join(startup.config['productsDir'], 'rms', pybdsfCommonName+'_rms.fits')
         rmsHistFile = os.path.join(startup.config['productsDir'], 'rms', pybdsfCommonName+'_rms_rmshist.txt')
 
-        xmatchDir = os.path.join(startup.config['productsDir'], 
-                                 'xmatches_DECaLSDR10', 
+        xmatchDir = os.path.join(startup.config['productsDir'],
+                                 'xmatches_DECaLSDR10',
                                  'xmatch_%s_srl_bdsfcat_DECaLSDR10_rband' %pybdsfCommonName)
 
         if os.path.exists(fitsFile) and not os.path.exists(os.path.join(DRDir, row['path'])):
@@ -412,9 +412,9 @@ def builddr(dataRelease='EDR', includeBands=None, includeQuality=None, removeDup
 
             if bandKey not in includeBands:
                 continue
-            
-            tab = tab[tab['Total_flux'] > 0.0] 
-            tab['freqGHz']=freqGHz 
+
+            tab = tab[tab['Total_flux'] > 0.0]
+            tab['freqGHz']=freqGHz
             tab['radCatPath'] = os.path.join("catalogs", os.path.basename(t))
 
             # assigning completeness
@@ -432,7 +432,7 @@ def builddr(dataRelease='EDR', includeBands=None, includeQuality=None, removeDup
                 print("\nCompleteness information is not available for %s." %(t))
                 tab['completeness_rad'] = -99 # undefined completeness
 
-            tab.meta.clear() 
+            tab.meta.clear()
             if globalTabsDict[bandKey] is None:
                 globalTabsDict[bandKey]=tab
             else:
@@ -456,7 +456,7 @@ def builddr(dataRelease='EDR', includeBands=None, includeQuality=None, removeDup
             globalTabsDict[bandKey].write(outFileName, overwrite = True)
 
             # Removing source-level duplicates (due to overlapping pointings)
-            DRGlobalCatUnique = catalogs.removeDuplicateSources(globalTabsDict[bandKey], matchRadius_arcsec=6.0, raCol='RA', decCol='DEC', 
+            DRGlobalCatUnique = catalogs.removeDuplicateSources(globalTabsDict[bandKey], matchRadius_arcsec=6.0, raCol='RA', decCol='DEC',
                                                       fluxCol='Total_flux', fluxErrCol='E_Total_flux')
             DRGlobalCatUniqueFile = os.path.join(DRDir, "survey_catalog_%s_unique_%s.fits" % (bandKey, dataRelease))
             DRGlobalCatUnique.write(DRGlobalCatUniqueFile, overwrite=True)
@@ -475,12 +475,12 @@ def builddr(dataRelease='EDR', includeBands=None, includeQuality=None, removeDup
     xmatchFilesList = sorted(glob.glob(DRXmatchDir+os.path.sep+'xmatch_*'+os.path.sep+'xmatchtable_bestmatches_*.fits'))
 
     filesToProcess = xmatchFilesList
-    radCatNames = [os.path.basename(xmatchFileNow).split('xmatchtable_bestmatches_')[1].split('_DECaLSDR10_rband')[0]+'.fits' 
+    radCatNames = [os.path.basename(xmatchFileNow).split('xmatchtable_bestmatches_')[1].split('_DECaLSDR10_rband')[0]+'.fits'
                   for xmatchFileNow in filesToProcess]
     args = [(f, DRImages, DRDir, cosmologyDR, 'zmax', 'zphot_ifnot_spec_opt', radCatFileName) for f, radCatFileName in zip(filesToProcess, radCatNames)]
 
     doParallel = True
-    
+
     if doParallel is True:
         nProcess = max(1, int(os.cpu_count()-1))
         with Pool(processes=nProcess) as pool:
@@ -509,13 +509,33 @@ def builddr(dataRelease='EDR', includeBands=None, includeQuality=None, removeDup
         DRzmaxTab.write(DRzmaxFile, overwrite=True)
         print("\nWrote %s" % (DRzmaxFile))
 
+
     # Removing source-level duplicates (due to overlapping pointings)
 
-    DRzmaxTabUnique = catalogs.removeDuplicateSources(DRzmaxTab, matchRadius_arcsec=6.0, raCol='RA_rad', decCol='DEC_rad', 
+    DRzmaxTabUnique = catalogs.removeDuplicateSources(DRzmaxTab, matchRadius_arcsec=6.0, raCol='RA_rad', decCol='DEC_rad',
                                                       fluxCol='Total_flux_rad', fluxErrCol='E_Total_flux_rad')
 
     DRzmaxUniqueFile = os.path.join(DRDir, 'zmaxCatUnique_%s.fits' % dataRelease)
     DRzmaxTabUnique.write(DRzmaxUniqueFile, overwrite=True)
+
+    # Removing pointings that are not well covered by opticalsurvey.
+    # Visually checking the sky coverage of cross-matches using the RadOptSyPlot*.png in each crossmatch dir.
+    # The pointings to avoid is in the directory xmatches_DECaLSDR10/xmatchPlotsToAvoid/
+
+    DRzmaxTabUniqueBest = DRzmaxTabUnique.copy()
+    xmatchPlotsToAvoidDir = os.path.join(DRXmatchDir, 'xmatchPlotsToAvoid')
+    print(xmatchPlotsToAvoidDir)
+    if os.path.exists(xmatchPlotsToAvoidDir) is True:
+        plotNamesInAvoidDir = sorted(glob.glob(DRXmatchDir+os.path.sep+'xmatchPlotsToAvoid'+os.path.sep+'RadOptSkyPlot_*.png'))
+        if len(plotNamesInAvoidDir) > 0:
+            print("\nRemoving pointings that are not well covered by optical survey...\n")
+            for plotName in plotNamesInAvoidDir:
+                catAvoidName = os.path.basename(plotName).split('RadOptSkyPlot_')[1].replace('_DECaLSDR10_rband.png', '.fits')
+                DRzmaxTabUniqueBest = DRzmaxTabUniqueBest[DRzmaxTabUniqueBest['radCatName'] != 'catalogs/'+catAvoidName]
+                print("Removed %s from zmax table." %catAvoidName)
+
+    DRzmaxUniqueBestFile = os.path.join(DRDir, 'zmaxCatUniqueBest_%s.fits' % dataRelease)
+    DRzmaxTabUniqueBest.write(DRzmaxUniqueBestFile, overwrite=True)
 
     print("\n" + "═" * 40)
     print("Successfully built %s ║" %dataRelease)
@@ -546,7 +566,7 @@ def builddb():
             # if any(tab['RA'] < 0.0):
             #     # This pybdsf catalog has -180 to 180 wrapping. Need to change to 360 wrapping
             #     tab = catalogs.fixRA(tab, raCol='RA', wrapAngle=360)
-            #     catalogs.listCatalogInFile(t, catWrapIssueList) 
+            #     catalogs.listCatalogInFile(t, catWrapIssueList)
             tab = tab[tab['Total_flux'] > 0.0] # ignoring negative flux entries
             freqGHz=tab.meta['FREQ0']/1e9
             tab['freqGHz']=freqGHz # for scaling of the global catalog
@@ -1102,11 +1122,11 @@ def estimateCompleteness(beginImage=0, endImage=None, nInjectionSources=5000, nR
     for tab in selectedTabs:
         print("\n" + "═" * 50)
         baseName = tab.split('_bdsfcat.fits')[0]
-        sourceinjection.executeSingle(imageName=baseName, 
-            nInjectionSources=nInjectionSources, 
-            nRepetitions=nRepetitions, 
-            minFluxJyInj=minFluxJyInj, 
-            maxFluxJyInj=maxFluxJyInj, 
-            radiusFactorToInject=radiusFactorToInject, 
+        sourceinjection.executeSingle(imageName=baseName,
+            nInjectionSources=nInjectionSources,
+            nRepetitions=nRepetitions,
+            minFluxJyInj=minFluxJyInj,
+            maxFluxJyInj=maxFluxJyInj,
+            radiusFactorToInject=radiusFactorToInject,
             outDir=sinjectDirPath)
 

@@ -13,6 +13,7 @@ from astropy import units as u
 from . import __version__
 import os
 from astropy.cosmology import FlatLambdaCDM
+from scipy.optimize import brentq
 
 # For adding meta data to output
 import datetime
@@ -56,7 +57,7 @@ def IsFieldContinuous(RAValues):
         return False
     else:
         return True
-    
+
 #------------------------------------------------------------------------------------------------------------
 def detectWrapAngle(ra_values):
     """
@@ -79,7 +80,7 @@ def fixRA(table, raCol='RA', wrapAngle=None):
     Args:
         table (:obj:`~astropy.table.Table`): Input table with RA values.
         raCol (:obj:`str`, optional): Name of the RA column. Default is 'RA'.
-        wrapAngle (:obj:`float`, optional): Angle at which to wrap RA in degrees. If None, it is auto-detected from the data. 
+        wrapAngle (:obj:`float`, optional): Angle at which to wrap RA in degrees. If None, it is auto-detected from the data.
 
     Returns:
         :obj:`~astropy.table.Table`: Table with RA values wrapped to [0, 360) range.
@@ -89,7 +90,7 @@ def fixRA(table, raCol='RA', wrapAngle=None):
     if wrapAngle is None:
         wrapAngle = detectWrapAngle(table[raCol])
         print(f"Auto-detected wrap angle: {wrapAngle} degrees based on RA distribution.")
-        
+
     fixTable[raCol] = Longitude(table[raCol], unit=u.deg, wrap_angle=wrapAngle * u.deg).value
     if IsFieldContinuous(fixTable[raCol]) is False:
         newWrapAngle = 180.0 if wrapAngle == 360 else 360
@@ -608,7 +609,7 @@ def calculateRadioLum(fluxJy, redshift, spectralIndex=0.7, cosmology=None):
 #------------------------------------------------------------------------------------------------------------
 def calculateFluxDensityFromRadLum(luminosityWHz, redshift, spectralIndex=0.7, cosmology=None):
     """
-    Computes the observed radio flux density of a source from its radio luminosity 
+    Computes the observed radio flux density of a source from its radio luminosity
     and redshift, applying the inverse K-correction assuming a power-law spectrum.
 
     Args:
@@ -679,10 +680,14 @@ def fluxDensityAtRedshift_uJy(z, Lrest_WHz, alpha=0.7, cosmology=None):
     return S_uJy
 
 #------------------------------------------------------------------------------------------------------------
-def calculateZmax(galRedshift, galLum_WHz, Slim_uJy, alpha=0.7, zmaxLimit=10.0, step=0.001, cosmology=None):
+def calculateZmaxIterative(galRedshift, galLum_WHz, Slim_uJy, alpha=0.7, zmaxLimit=10.0, step=None, cosmology=None):
     """
     Finds the maximum redshift at which a source of given luminosity would remain
-    detectable above a survey flux limit, using Brent's root-finding method.
+    detectable above a survey flux limit, using a linear forward-stepping search.
+
+    Starting from the source's observed redshift, the flux density is recomputed
+    at each step of size `step` and compared to the survey limit. The search stops
+    as soon as the flux density drops below Slim_uJy, or once zmaxLimit is reached.
 
     Args:
         galRedshift (float): Observed redshift of the source. Search begins here
@@ -707,6 +712,9 @@ def calculateZmax(galRedshift, galLum_WHz, Slim_uJy, alpha=0.7, zmaxLimit=10.0, 
     if cosmology is None:
         cosmology = FlatLambdaCDM(H0=70 * u.km / u.s / u.Mpc, Om0=0.3)
 
+    if step is None:
+        step = 0.001
+
     zIter = galRedshift
     SIter = fluxDensityAtRedshift_uJy(zIter, galLum_WHz, alpha=alpha, cosmology=cosmology)
 
@@ -715,6 +723,45 @@ def calculateZmax(galRedshift, galLum_WHz, Slim_uJy, alpha=0.7, zmaxLimit=10.0, 
         SIter = fluxDensityAtRedshift_uJy(zIter, galLum_WHz, alpha=alpha, cosmology=cosmology)
 
     return zIter
+
+#------------------------------------------------------------------------------------------------------------
+def calculateZmax(galRedshift, galLum_WHz, Slim_uJy, alpha=0.7, zmaxLimit=10.0, cosmology=None):
+    """
+    Finds the maximum redshift at which a source of given luminosity would remain
+    detectable above a survey flux limit, using Brent's root-finding method.
+
+    Args:
+        galRedshift (float): Observed redshift of the source. Search begins here
+            since zmax >= galRedshift by definition.
+        galLum_WHz (float): Rest-frame radio luminosity of the source in W/Hz.
+        Slim_uJy (float): Survey flux density limit in microjansky (uJy),
+            typically N-sigma * RMS of the image.
+        alpha (float): Spectral index, defined such that S_nu ~ nu^{-alpha}.
+            Default is 0.7.
+        zmax_limit (float): Hard upper bound on redshift to search. If the source
+            remains detectable at this redshift, zmax_limit is returned.
+            Default is 10.0.
+        cosmology (astropy.cosmology instance, optional): Cosmology to use. If None,
+            defaults to FlatLambdaCDM with H0=70 km/s/Mpc and Om0=0.3.
+
+    Returns:
+        float: Maximum redshift zmax at which the source flux equals Slim_uJy.
+            Returns zmax_limit if the source is detectable across the full search range.
+    """
+
+    if cosmology is None:
+        cosmology = FlatLambdaCDM(H0=70 * u.km / u.s / u.Mpc, Om0=0.3)
+
+    def f(z):
+        return fluxDensityAtRedshift_uJy(z, galLum_WHz, alpha=alpha, cosmology=cosmology) - Slim_uJy
+
+    if f(zmaxLimit) >= 0:
+        return zmaxLimit
+
+    if f(galRedshift) < 0:
+        return galRedshift
+
+    return brentq(f, galRedshift, zmaxLimit)
 
 #------------------------------------------------------------------------------------------------------------
 def calculateComovingVolBetweenZ_h3Mpc3(skyArea, zMin, zMax, cosmology=None):
@@ -759,7 +806,7 @@ def getUnitlessValues(col):
         return col.value
     else:
         return col
-    
+
 #------------------------------------------------------------------------------------------------------------
 def removeDuplicateSources(tab, matchRadius_arcsec=6.0, raCol='RA', decCol='DEC', fluxCol='Total_flux', fluxErrCol='E_Total_flux'):
     """

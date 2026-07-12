@@ -12,6 +12,10 @@ import astropy.stats as apyStats
 from astLib import *
 import matplotlib.pyplot as plt
 from astropy.wcs import WCS
+from astropy.coordinates import SkyCoord
+import astropy.units as u
+from reproject import reproject_interp
+from reproject.mosaicking import find_optimal_celestial_wcs, reproject_and_coadd
 
 #------------------------------------------------------------------------------------
 def getImageAreaSqDeg(imgFileName):
@@ -42,6 +46,97 @@ def getImageAreaSqDeg(imgFileName):
 
     return skyAreaSqDeg
 
+#------------------------------------------------------------------------------------
+def findOverlappingPointings(imagesTab, raCol='centre_RADeg', decCol='centre_decDeg', areaCol='skyArea_sqDeg', bandCol='band'):
+    """Identify groups of overlapping pointings based on their sky positions
+    and approximate sky coverage.
+
+    Args:
+        imagesTab (:obj:`astropy.table.Table`): Table containing pointing
+            information, including right ascension, declination, and sky area.
+        raCol (:obj:`str`, optional): Name of the column containing the
+            pointing right ascension in degrees. Defaults to 'centre_RADeg'.
+        decCol (:obj:`str`, optional): Name of the column containing the
+            pointing declination in degrees. Defaults to 'centre_decDeg'.
+        areaCol (:obj:`str`, optional): Name of the column containing the
+            sky area covered by each pointing in square degrees. Defaults to
+            'skyArea_sqDeg'.
+        bandCol (:obj:`str`, optional): Name of the column containing the
+            band information for each pointing. Defaults to 'band'.
+
+    Returns:
+        tuple: A tuple containing:
+            - overlapGroups (:obj:`list`): List of sets, where each set
+              contains the indices of pointings belonging to the same
+              overlapping group.
+            - isolatedIndices (:obj:`list`): List of indices corresponding
+              to pointings that do not overlap with any other pointing.
+    """
+    coords = SkyCoord(ra=imagesTab[raCol]*u.deg, dec=imagesTab[decCol]*u.deg)
+    n = len(imagesTab)
+    radii = np.array(np.sqrt(imagesTab[areaCol] / np.pi)) # not accurate, but good enough for our purpose
+
+    # Build adjacency: two pointings overlap if their separation < sum of their radii
+    overlaps = np.zeros((n, n), dtype=bool)
+    for i in range(n):
+        for j in range(i+1, n):
+            # Only compare pointings within the same band
+            if imagesTab[bandCol][i] != imagesTab[bandCol][j]:
+                continue
+            sep = coords[i].separation(coords[j]).deg
+            if sep < (radii[i] + radii[j]):
+                overlaps[i, j] = True
+                overlaps[j, i] = True
+
+    # Group overlapping pointings using connected components
+    visited = np.zeros(n, dtype=bool)
+    overlapGroups = []
+    isolatedIndices = []
+
+    for i in range(n):
+        if visited[i]:
+            continue
+        # find all pointings connected to i
+        group = set()
+        queue = [i]
+        while queue:
+            current = queue.pop()
+            if visited[current]:
+                continue
+            visited[current] = True
+            group.add(current)
+            neighbours = np.where(overlaps[current])[0]
+            for nb in neighbours:
+                if not visited[nb]:
+                    queue.append(nb)
+        if len(group) == 1:
+            isolatedIndices.append(i)
+        else:
+            overlapGroups.append(group)
+
+    print("\nFound %d overlapping groups and %d isolated pointings\n" % (len(overlapGroups), len(isolatedIndices)))
+
+    overlapGroupsByBand = {}
+
+    for group in overlapGroups:
+        band = imagesTab[bandCol][list(group)[0]]
+
+        if band not in overlapGroupsByBand:
+            overlapGroupsByBand[band] = []
+
+        overlapGroupsByBand[band].append(group)
+
+    isolatedIndicesByBand = {}
+
+    for idx in isolatedIndices:
+        band = imagesTab[bandCol][idx]
+
+        if band not in isolatedIndicesByBand:
+            isolatedIndicesByBand[band] = []
+
+        isolatedIndicesByBand[band].append(idx)
+
+    return overlapGroupsByBand, isolatedIndicesByBand
 
 #------------------------------------------------------------------------------------
 def getImagesStats(imgFileName, radiusArcmin = 12):
@@ -207,3 +302,73 @@ def plotImages(imgFilePath, outDirName=os.getcwd(), colorMap = 'viridis', vmin =
 
     plt.savefig(imgOutName, dpi=300, bbox_inches = 'tight')
     plt.close()
+
+#------------------------------------------------------------------------------------------
+def mosaicRMSMaps(rmsFileList, outputFile, resolutionArcmin=1.0):
+    """
+    Mosaics a list of RMS maps by reprojecting onto a common WCS grid
+    and taking the minimum RMS value per pixel across all overlapping pointings.
+
+    Args:
+        rmsFileList (list): List of paths to RMS FITS files.
+        outputFile (str): Path to save the output mosaicked RMS FITS file.
+        resolutionArcmin (float): Output pixel scale in arcminutes. Default is 1.0
+            arcmin, which is sufficient for area calculations and avoids memory issues.
+            The native pixel scale of MeerKAT images (~2 arcsec) is much finer but
+            unnecessary for footprint estimation.
+
+    Returns:
+        str: Path to the output mosaicked RMS FITS file.
+    """
+
+    hdus = []
+    for rmsFile in rmsFileList:
+        with pyfits.open(rmsFile) as hdul:
+            data = np.squeeze(hdul[0].data).astype(np.float32)
+            header = hdul[0].header
+
+        wcs4d = WCS(header)
+        wcs2d = wcs4d.celestial
+
+        # Validate the celestial WCS before adding
+        # by checking if the corner pixels project to finite sky coordinates
+        ny, nx = data.shape
+        corners = wcs2d.pixel_to_world_values(
+            [0, nx-1, 0, nx-1],
+            [0, 0, ny-1, ny-1]
+        )
+        if not np.all(np.isfinite(corners)):
+            print("WARNING: Skipping %s — WCS projects to NaN sky coordinates" % rmsFile)
+            continue
+
+        header2d = wcs2d.to_header()
+        header2d['NAXIS']  = 2
+        header2d['NAXIS1'] = data.shape[1]
+        header2d['NAXIS2'] = data.shape[0]
+
+        hdu2d = pyfits.PrimaryHDU(data=data, header=header2d)
+        hdus.append(hdu2d)
+
+    if len(hdus) == 0:
+        print("ERROR: No valid HDUs found. Cannot mosaic.")
+        return None
+
+    wcsOut, shapeOut = find_optimal_celestial_wcs(
+        hdus,
+        resolution=resolutionArcmin * u.arcmin  # coarser resolution = much smaller array
+    )
+
+    mosaicData, footprint = reproject_and_coadd(
+        hdus,
+        wcsOut,
+        shape_out=shapeOut,
+        reproject_function=reproject_interp,
+        combine_function='min'
+    )
+
+    hduOut = pyfits.PrimaryHDU(data=mosaicData.astype(np.float32),
+                             header=wcsOut.to_header())
+    hduOut.writeto(outputFile, overwrite=True)
+
+    return outputFile
+

@@ -19,6 +19,7 @@ import random
 import numpy as np
 from astropy.cosmology import FlatLambdaCDM
 from multiprocessing import Pool
+from scipy.interpolate import PchipInterpolator
 
 #------------------------------------------------------------------------------------------------------------
 def fetch(captureBlockId):
@@ -142,45 +143,56 @@ def listObservations():
 
         print("   %s    %s" % (captureBlockId, status))
 
-#------------------------------------------------------------------------------------------------------------
-# def samplePhotoZAsymmetric(zmed, zl68, zu68, nReal):
-
-#     sigmaLow = zmed - zl68
-#     sigmaHigh = zu68 - zmed
-
-#     samples = np.zeros(nReal)
-
-#     for i in range(nReal):
-#         if np.random.random() < 0.5:
-#             samples[i] = np.random.normal(zmed, sigmaLow)
-#         else:
-#             samples[i] = np.random.normal(zmed, sigmaHigh)
-
-#     return np.clip(samples, 0, None)
-
-def samplePhotoZAsymmetric(zmed, zl68, zu68, nReal, rng=None, clip_min=1e-6):
+def samplePhotoZ68p95(zmed, zl68, zu68, zl95, zu95, nReal, rng=None, clip_min=1e-6):
     """
-    Draw samples from an asymmetric (split-normal) photo-z PDF.
+    Draw Monte Carlo samples from an approximate photometric-redshift PDF
+    defined by the median and the 68% and 95% confidence intervals.
 
-    Parameters
-    ----------
-    zmed : float
-        Median photometric redshift.
-    zl68 : float
-        Lower 68 percentile of the photo-z PDF.
-    zu68 : float
-        Upper 68 percentile of the photo-z PDF.
-    nReal : int
-        Number of redshift realisations.
-    rng : numpy.random.Generator, optional
-        Random number generator.
-    clip_min : float or None, optional
-        Minimum allowed redshift. If None, no clipping is applied.
+    Args:
+        zmed (float): Median photometric redshift.
+        zl68 (float): Lower 68% confidence limit.
+        zu68 (float): Upper 68% confidence limit.
+        zl95 (float): Lower 95% confidence limit.
+        zu95 (float): Upper 95% confidence limit.
+        nReal (int): Number of Monte Carlo samples.
+        rng (numpy.random.Generator, optional): Random number generator.
+        clip_min (float or None, optional): Minimum allowed redshift.
 
-    Returns
-    -------
-    samples : ndarray
-        Array of sampled redshifts with length nReal.
+    Returns:
+        numpy.ndarray: Array of sampled redshifts.
+    """
+
+    if rng is None:
+        rng = np.random.default_rng()
+
+    probs = np.array([0.025, 0.16, 0.50, 0.84, 0.975])
+    zvals = np.array([zl95, zl68, zmed, zu68, zu95])
+
+    # Monotonic interpolation of the inverse CDF
+    invCDF = PchipInterpolator(probs, zvals, extrapolate=True)
+
+    u = rng.uniform(0.025, 0.975, nReal)
+    samples = invCDF(u)
+
+    if clip_min is not None:
+        samples = np.clip(samples, clip_min, None)
+
+    return samples
+#------------------------------------------------------------------------------------------------------------
+def samplePhotoZ68(zmed, zl68, zu68, nReal, rng=None, clip_min=1e-6):
+    """
+    Draws Monte Carlo samples from an asymmetric (split-normal) approximation
+    to a photometric redshift probability distribution.
+
+    Args:
+        zmed (float): Median photometric redshift.
+        zl68 (float): Lower 68% confidence limit of the photometric redshift.
+        zu68 (float): Upper 68% confidence limit of the photometric redshift.
+        nReal (int): Number of Monte Carlo redshift realisations to generate.
+        rng (numpy.random.Generator, optional): NumPy random number generator.
+            If None, a new default generator is created.
+        clip_min (float or None, optional): Minimum allowed sampled redshift.
+            Default 1e-6.
     """
 
     if rng is None:
@@ -189,9 +201,9 @@ def samplePhotoZAsymmetric(zmed, zl68, zu68, nReal, rng=None, clip_min=1e-6):
     sigmaLow = np.clip(zmed - zl68, 1e-6, None)
     sigmaHigh = np.clip(zu68 - zmed, 1e-6, None)
 
-    z = rng.standard_normal(size=nReal)
+    normalDeviates = rng.standard_normal(size=nReal)
 
-    samples = np.where(z < 0, zmed + z * sigmaLow, zmed + z * sigmaHigh)
+    samples = np.where(normalDeviates < 0, zmed + normalDeviates * sigmaLow, zmed + normalDeviates * sigmaHigh)
 
     if clip_min is not None:
         samples = np.clip(samples, clip_min, None)
@@ -214,19 +226,9 @@ def processVmaxForXmatchFile(args):
         tuple: A pair (xmatchTab, zmaxTab) as astropy Tables, or (None, None) if the
             zmax file already exists or the image row is not found.
     """
-    xmatchFile, DRImages, DRDir, cosmologyDR, zmaxDirName, zColNameToAssign, zPhotoColName, zSpecColName, radCatName = args
-
-    radioCatTab = atpy.Table().read(os.path.join(DRDir, 'catalogs',radCatName))
-
-    DRImageRow = DRImages[DRImages['radioCatPath'] == 'catalogs/'+radCatName]
+    xmatchFile, DRImages, DRDir, cosmologyDR, zmaxDirName, zColName, radCatName = args
 
     xmatchTab = atpy.Table().read(xmatchFile)
-
-    # Assigning optical completeness to each source in the cross-match table
-    fluxBinsForOptComp = np.logspace(np.log10(np.nanmin(xmatchTab['Total_flux_rad'])), np.log10(np.nanmax(xmatchTab['Total_flux_rad'])), 35)
-    radioSourcesHist, _ = np.histogram(radioCatTab['Total_flux'], bins=fluxBinsForOptComp)
-    xmatchedSourcesHist, _ = np.histogram(xmatchTab['Total_flux_rad'], bins=fluxBinsForOptComp)
-    optCompletenessInFluxBins = np.divide(xmatchedSourcesHist, radioSourcesHist, out=np.zeros_like(xmatchedSourcesHist, dtype=float),where=radioSourcesHist>0)
 
     zMaxDirPath = os.path.join(DRDir, zmaxDirName)
     os.makedirs(zMaxDirPath, exist_ok = True)
@@ -242,6 +244,46 @@ def processVmaxForXmatchFile(args):
     if 'radCatName' not in xmatchTab.colnames:
         xmatchTab['radCatName'] = 'catalogs'+os.path.sep+radCatName
 
+    if zColName not in xmatchTab.colnames:
+        xmatchTab[zColName] = np.where(np.isfinite(xmatchTab['zspec_opt']) &
+                                                    (xmatchTab['zspec_opt'] != -99),
+                                                    xmatchTab['zspec_opt'],
+                                                    xmatchTab['zphoto_opt'])
+
+    zmaxTab = xmatchTab[xmatchTab[zColName] != -99]
+
+    maxRedshift = np.max(zmaxTab[zColName])
+    minRedshift = np.min(zmaxTab[zColName])
+
+    zmaxTab['LuminosityWHz_rad'] = catalogs.calculateRadioLum(zmaxTab['Total_flux_rad'].value, zmaxTab[zColName].value,
+                                                              spectralIndex=0.7, cosmology=cosmologyDR)
+
+    DRImageRow = DRImages[DRImages['radioCatPath'] == 'catalogs/'+radCatName]
+
+    if len(DRImageRow) == 0:
+        return None, None
+
+    completenessFilePath = os.path.join(startup.config['productsDir'], 'completeness', 'completeness_%s.txt' %(radCatName.split('_srl_bdsfcat')[0]))
+    if os.path.exists(completenessFilePath):
+        completenessTab = atpy.Table.read(completenessFilePath, format='ascii')
+        completenessFluxJy = completenessTab['FluxBinCentre_Jy']
+        completenessVal = completenessTab['MeanCompleteness']
+        completenessSources = np.interp(zmaxTab['Total_flux_rad'], completenessFluxJy, completenessVal)
+        zmaxTab['completeness_rad'] = completenessSources
+    else:
+        zmaxTab['completeness_rad'] = -99 # undefined completeness
+
+    # Calculating optical completeness
+    # Given by the fraction of radio sources in a flux bin
+    # that has an optical counterpart
+
+    radioCatTab = atpy.Table().read(os.path.join(DRDir, 'catalogs',radCatName))
+
+    fluxBinsForOptComp = np.logspace(np.log10(np.nanmin(zmaxTab['Total_flux_rad'])), np.log10(np.nanmax(zmaxTab['Total_flux_rad'])), 35)
+    radioSourcesHist, _ = np.histogram(radioCatTab['Total_flux'], bins=fluxBinsForOptComp)
+    xmatchedSourcesHist, _ = np.histogram(zmaxTab['Total_flux_rad'], bins=fluxBinsForOptComp)
+    optCompletenessInFluxBins = np.divide(xmatchedSourcesHist, radioSourcesHist, out=np.zeros_like(xmatchedSourcesHist, dtype=float),where=radioSourcesHist>0)
+
     RMS_uJypbeam = DRImageRow['RMS_uJy/beam'][0]
     skyArea_sqDeg = DRImageRow['skyArea_sqDeg'][0]
 
@@ -249,99 +291,30 @@ def processVmaxForXmatchFile(args):
 
     Slim_Jypbeam = sigmaTimes*RMS_uJypbeam*1e-6 # flux limit in Jy/beam
 
-    ### photoz realisations
+    zMaxList = []
+    VMaxList = []
+    optCompList = []
 
-    specMask = np.isfinite(xmatchTab[zSpecColName]) & (xmatchTab[zSpecColName] != -99)
+    for galNow in zmaxTab:
 
-    nRealisations = 100
-    zRealisationTabs = []
+        indexFlux = (np.digitize(galNow['Total_flux_rad'], fluxBinsForOptComp) - 1)
+        indexFlux = np.clip(indexFlux, 0, len(optCompletenessInFluxBins)-1)
+        optCompNow = optCompletenessInFluxBins[indexFlux]
+        optCompList.append(optCompNow)
 
-    # zmaxTabNow = xmatchTab.copy()
-    # zmaxTabNow[zColNameToAssign] = np.where(specMask, xmatchTab[zSpecColName], xmatchTab[zPhotoColName])
-    # zmaxTabNow['zRealisation'] = 0
-    # zRealisationTabs.append(zmaxTabNow)
+        galRedshift = galNow[zColName]
+        galLum_WHz = galNow['LuminosityWHz_rad']
+        Slim_uJypbeam = Slim_Jypbeam*1E6
 
-    photoZReal = np.zeros((len(xmatchTab), nRealisations+1))
+        zMax = catalogs.calculateZmax(galRedshift, galLum_WHz, Slim_uJypbeam, alpha=0.7, zmaxLimit=10.0,cosmology=cosmologyDR)
+        VMax_h3Mpc3 = catalogs.calculateComovingVolBetweenZ_h3Mpc3(skyArea_sqDeg, zMin=0.0, zMax=zMax, cosmology=cosmologyDR)
 
-    rng = np.random.default_rng(42)
+        zMaxList.append(zMax)
+        VMaxList.append(VMax_h3Mpc3)
 
-    for i, row in enumerate(xmatchTab):
-        if specMask[i]:
-            photoZReal[i, :] = row[zSpecColName]
-        else:
-            photoZReal[i,0] = row[zPhotoColName]
-            photoZReal[i,1:] = samplePhotoZAsymmetric(row[zPhotoColName], row['zphoto_l68_opt'],row['zphoto_u68_opt'], nRealisations, rng=rng)
-
-    for iRealisation in range(0, nRealisations+1):
-        zmaxTabNow = xmatchTab.copy()
-        zmaxTabNow[zColNameToAssign] = photoZReal[:, iRealisation]
-        zmaxTabNow['zRealisation'] = iRealisation
-        zmaxTabNow = zmaxTabNow[zmaxTabNow[zColNameToAssign] != -99]
-
-        zmaxTabNow['LuminosityWHz_rad'] = catalogs.calculateRadioLum(zmaxTabNow['Total_flux_rad'].value, zmaxTabNow[zColNameToAssign].value,
-                                                                    spectralIndex=0.7, cosmology=cosmologyDR)
-        # ###################
-
-        # if zColNameToAssign not in xmatchTab.colnames:
-        #     xmatchTab[zColNameToAssign] = np.where(np.isfinite(xmatchTab[zSpecColName]) &
-        #                                                 (xmatchTab[zSpecColName] != -99),
-        #                                                 xmatchTab[zSpecColName],
-        #                                                 xmatchTab[zPhotoColName])
-
-        # zmaxTab = xmatchTab[xmatchTab[zColNameToAssign] != -99]
-
-        # zmaxTab['LuminosityWHz_rad'] = catalogs.calculateRadioLum(zmaxTab['Total_flux_rad'].value, zmaxTab[zColNameToAssign].value,
-        #                                                         spectralIndex=0.7, cosmology=cosmologyDR)
-
-        #
-
-        # if len(DRImageRow) == 0:
-        #     return None, None
-
-        # completenessFilePath = os.path.join(startup.config['productsDir'], 'completeness', 'completeness_%s.txt' %(radCatName.split('_srl_bdsfcat')[0]))
-        # if os.path.exists(completenessFilePath):
-        #     completenessTab = atpy.Table.read(completenessFilePath, format='ascii')
-        #     completenessFluxJy = completenessTab['FluxBinCentre_Jy']
-        #     completenessVal = completenessTab['MeanCompleteness']
-        #     completenessSources = np.interp(zmaxTab['Total_flux_rad'], completenessFluxJy, completenessVal)
-        #     zmaxTab['completeness_rad'] = completenessSources
-        # else:
-        #     zmaxTab['completeness_rad'] = -99 # undefined completeness
-
-        # # Calculating optical completeness
-        # # Given by the fraction of radio sources in a flux bin
-        # # that has an optical counterpart
-
-
-
-
-        zMaxList = []
-        VMaxList = []
-        optCompList = []
-
-        for galNow in zmaxTabNow:
-
-            indexFlux = (np.digitize(galNow['Total_flux_rad'], fluxBinsForOptComp) - 1)
-            indexFlux = np.clip(indexFlux, 0, len(optCompletenessInFluxBins)-1)
-            optCompNow = optCompletenessInFluxBins[indexFlux]
-            optCompList.append(optCompNow)
-
-            galRedshift = galNow[zColNameToAssign]
-            galLum_WHz = galNow['LuminosityWHz_rad']
-            Slim_uJypbeam = Slim_Jypbeam*1E6
-
-            zMax = catalogs.calculateZmax(galRedshift, galLum_WHz, Slim_uJypbeam, alpha=0.7, zmaxLimit=10.0,cosmology=cosmologyDR)
-            VMax_h3Mpc3 = catalogs.calculateComovingVolBetweenZ_h3Mpc3(skyArea_sqDeg, zMin=0.0, zMax=zMax, cosmology=cosmologyDR)
-
-            zMaxList.append(zMax)
-            VMaxList.append(VMax_h3Mpc3)
-
-        zmaxTabNow['zmax_rad'] = zMaxList
-        zmaxTabNow['Vmax_rad_h3Mpc3'] = VMaxList
-        zmaxTabNow['completeness_opt'] = optCompList
-        zRealisationTabs.append(zmaxTabNow)
-
-    zmaxTab = atpy.vstack(zRealisationTabs)
+    zmaxTab['zmax_rad'] = zMaxList
+    zmaxTab['Vmax_rad_h3Mpc3'] = VMaxList
+    zmaxTab['completeness_opt'] = optCompList
     zmaxTab.write(zmaxFilePath, overwrite=True)
 
     return xmatchTab, zmaxTab
@@ -572,8 +545,8 @@ def builddr(dataRelease='EDR', includeBands=None, includeQuality=None, removeDup
     filesToProcess = xmatchFilesList
     radCatNames = [os.path.basename(xmatchFileNow).split('xmatchtable_bestmatches_')[1].split('_DECaLSDR10_rband')[0]+'.fits'
                   for xmatchFileNow in filesToProcess]
-    args = [(f, DRImages, DRDir, cosmologyDR, 'zmax', 'zphot_ifnot_spec_opt', 'zphoto_median_opt', 'zspec_opt',radCatFileName) for f, radCatFileName in zip(filesToProcess, radCatNames)]
-
+    args = [(f, DRImages, DRDir, cosmologyDR, 'zmax', 'zphot_ifnot_spec_opt', radCatFileName) for f, radCatFileName in zip(filesToProcess, radCatNames)]
+    
     doParallel = True
 
     if doParallel is True:
@@ -807,6 +780,62 @@ def builddb():
     # Generate survey mask in some format - we'll use that to get total survey area
 
 #------------------------------------------------------------------------------------------------------------
+def _processXmatchOnRadioCatalogue(args):
+        
+    radCat, optSurvey, optBandToMatch, optPosErrAsecValue = args
+
+    catalogName = radCat.split(os.path.sep)[-1]
+
+    # making a subscript for this particular match
+    outSubscript = '%s_%s_%sband' %(catalogName.replace('.fits',''), optSurvey, optBandToMatch)# , str(np.round(searchRadiusArcsec, 1)).replace(".","p"))
+
+    xmatchDirPath = os.path.join(startup.config['productsDir'], 'xmatches_%s' %optSurvey)
+    os.makedirs(xmatchDirPath, exist_ok = True)
+
+    radCatTab = atpy.Table().read(radCat)
+    freqGHz=radCatTab.meta['FREQ0']/1e9
+    radBandName=getBandKey(freqGHz)
+
+    # determining search radius based on radio positional uncertainty and optical positional uncertainty
+
+    sigmaRadPosDeg = np.sqrt(radCatTab['E_RA']**2 + radCatTab['E_DEC']**2)
+    sigmaRadPosMeanDeg = np.mean(sigmaRadPosDeg)
+
+    # add optical positional uncertainty (e.g. 0.2 arcsec for DECaLS)
+    sigmaOptDeg = optPosErrAsecValue/3600.
+
+    # combined sigma
+    sigmaTotalDeg = np.sqrt(sigmaRadPosMeanDeg**2 + sigmaOptDeg**2)
+
+    # search radius as 3-sigma
+    searchRadiusDegVal = 3 * sigmaTotalDeg
+    searchRadiusArcsec = searchRadiusDegVal * 3600
+
+    xmatchTab = crossmatch.xmatchRadioOptical(radioCatFilePath=radCat,
+                                                radioBand=radBandName,
+                                                xmatchDirPath=xmatchDirPath,
+                                                optSurvey=optSurvey,
+                                                optMagCol = optBandToMatch,
+                                                searchRadiusArcsec = searchRadiusArcsec,
+                                                radRACol='RA', radERACol='E_RA',
+                                                radDecCol='DEC', radEDecCol='E_DEC',
+                                                radEMajCol='E_Maj',
+                                                radEMinCol='E_Min', radPACol='PA',
+                                                outSubscript=outSubscript,
+                                                optPosErrAsecValue=optPosErrAsecValue, nMagBins=15, beamSizeArcsecValue=6.0,
+                                                skipIfExists=True
+                                                )
+
+    if xmatchTab is None:
+        return None
+
+    if 'radCatPath' not in xmatchTab.columns:
+        radCatPathName = radCat.replace(startup.config['productsDir']+os.path.sep, '')
+        xmatchTab.add_column(radCatPathName, name='radCatPath', index=0)
+
+    return xmatchTab
+
+#------------------------------------------------------------------------------------------------------------
 def xmatch(optSurveyInput='decalsdr10'):
     """Does cross-matching...
 
@@ -831,63 +860,28 @@ def xmatch(optSurveyInput='decalsdr10'):
     globalBestXmatchTab=None
     radCatFilesList=sorted(glob.glob(startup.config['productsDir']+os.path.sep+'catalogs'+os.path.sep+'*srl_bdsfcat.fits'))
 
-    for radCat in radCatFilesList:
-        catalogName = radCat.split(os.path.sep)[-1]
+    args = [(radCat, optSurvey, optBandToMatch, optPosErrAsecValue) for radCat in radCatFilesList]
 
-        # making a subscript for this particular match
-        outSubscript = '%s_%s_%sband' %(catalogName.replace('.fits',''), optSurvey, optBandToMatch)# , str(np.round(searchRadiusArcsec, 1)).replace(".","p"))
+    doParallelXmatch = True
+    if doParallelXmatch is True:
+        nProcess = max(1, int(os.cpu_count()-1))
+        with Pool(processes=nProcess) as pool:
+            tables = pool.map(_processXmatchOnRadioCatalogue, args)
+        tables = [t for t in tables if t is not None]
+    else:
+        tables = []
+        for arg in args:
+            table = _processXmatchOnRadioCatalogue(arg)
+            tables.append(table)
 
-        xmatchDirPath = os.path.join(startup.config['productsDir'], 'xmatches_%s' %optSurvey)
-        os.makedirs(xmatchDirPath, exist_ok = True)
-
-        radCatTab = atpy.Table().read(radCat)
-        freqGHz=radCatTab.meta['FREQ0']/1e9
-        radBandName=getBandKey(freqGHz)
-
-        # determining search radius based on radio positional uncertainty and optical positional uncertainty
-
-        sigmaRadPosDeg = np.sqrt(radCatTab['E_RA']**2 + radCatTab['E_DEC']**2)
-        sigmaRadPosMeanDeg = np.mean(sigmaRadPosDeg)
-
-        # add optical positional uncertainty (e.g. 0.2 arcsec for DECaLS)
-        sigmaOptDeg = optPosErrAsecValue/3600.
-
-        # combined sigma
-        sigmaTotalDeg = np.sqrt(sigmaRadPosMeanDeg**2 + sigmaOptDeg**2)
-
-        # search radius as 3-sigma
-        searchRadiusDegVal = 3 * sigmaTotalDeg
-        searchRadiusArcsec = searchRadiusDegVal * 3600
-
-        xmatchTab = crossmatch.xmatchRadioOptical(radioCatFilePath=radCat,
-                                                    radioBand=radBandName,
-                                                    xmatchDirPath=xmatchDirPath,
-                                                    optSurvey=optSurvey,
-                                                    optMagCol = optBandToMatch,
-                                                    searchRadiusArcsec = searchRadiusArcsec,
-                                                    radRACol='RA', radERACol='E_RA',
-                                                    radDecCol='DEC', radEDecCol='E_DEC',
-                                                    radEMajCol='E_Maj',
-                                                    radEMinCol='E_Min', radPACol='PA',
-                                                    outSubscript=outSubscript,
-                                                    optPosErrAsecValue=optPosErrAsecValue, nMagBins=15, beamSizeArcsecValue=6.0,
-                                                    skipIfExists=True
-                                                    )
-
-        if xmatchTab is not None:
-            if 'radCatPath' not in xmatchTab.columns:
-                radCatPathName = radCat.replace(startup.config['productsDir']+os.path.sep, '')
-                xmatchTab.add_column(radCatPathName, name='radCatPath', index=0)
-            if globalBestXmatchTab is None:
-                globalBestXmatchTab = xmatchTab
-            else:
-                globalBestXmatchTab = atpy.vstack([globalBestXmatchTab, xmatchTab])
-
-    if globalBestXmatchTab is None:
-        print("\nNo radio catalogs had successful cross-matching with %s!\n" %optSurvey)
+    if len(tables) == 0:
+        print("\nNo radio catalogs had successful cross-matching with %s!\n" % optSurvey)
         return
+    
+    globalBestXmatchTab = atpy.vstack(tables)
 
-    globalBestXmatchTab.write(globalBestXmatchTabName, overwrite = True)
+    globalBestXmatchTab.write(globalBestXmatchTabName, overwrite=True)
+
     print("\n" + "-" * 100)
     print("\nWrote %s" % (globalBestXmatchTabName))
     print("\n" + "-" * 100)

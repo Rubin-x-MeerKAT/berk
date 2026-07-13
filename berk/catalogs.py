@@ -852,3 +852,73 @@ def removeDuplicateSources(tab, matchRadius_arcsec=6.0, raCol='RA', decCol='DEC'
     n_dupes = remove.sum()
     print("Removed %d duplicates out of %d within %0.2f arcsec" % (n_dupes, len(tab), matchRadius_arcsec))
     return tab[~remove]
+
+#------------------------------------------------------------------------------------------------------------
+def convertFluxFreq(flux1, nu1, nu2, alpha=0.7):
+    """
+    Converts radio flux densities between two observing frequencies assuming
+    a power-law radio spectrum.
+
+    Args:
+        flux1 (float or np.ndarray):
+            Flux density at the original frequency. Can be a scalar or array.
+            Units may be any consistent flux density unit (e.g. Jy, mJy, uJy),
+            as the conversion is unit-independent.
+        nu1 (float or np.ndarray):
+            Original observing frequency in the same units as ``nu2``
+            (e.g. Hz, MHz or GHz).
+        nu2 (float or np.ndarray):
+            Target observing frequency in the same units as ``nu1``.
+        alpha (float, optional):
+            Radio spectral index, defined such that
+
+                S_nu ∝ nu^{-alpha}
+
+            Default is 0.7.
+
+    Returns:
+        float or np.ndarray:
+            Flux density at the target frequency, in the same units as
+            ``flux1``.
+    """
+
+    flux1 = np.asarray(flux1)
+    nu1 = np.asarray(nu1)
+
+    flux2 = flux1 * (nu2 / nu1) ** (-alpha)
+
+    return flux2
+
+#------------------------------------------------------------------------------------------------------------
+def convertLuminosityFreq(luminosity1, nu1, nu2, alpha=0.7):
+    """
+    Converts radio luminosities between two frequencies assuming
+    a power-law radio spectrum.
+
+    Args:
+        luminosity1 (float or np.ndarray):
+            Monochromatic radio luminosity at the original frequency
+            (typically in W/Hz).
+        nu1 (float or np.ndarray):
+            Original frequency in the same units as ``nu2``.
+        nu2 (float or np.ndarray):
+            Target frequency in the same units as ``nu1``.
+        alpha (float, optional):
+            Radio spectral index, defined such that
+
+                L_nu ∝ nu^{-alpha}
+
+            Default is 0.7.
+
+    Returns:
+        float or np.ndarray:
+            Monochromatic radio luminosity at the target frequency, in the
+            same units as ``luminosity1``.
+    """
+
+    luminosity1 = np.asarray(luminosity1)
+    nu1 = np.asarray(nu1)
+
+    luminosity2 = luminosity1 * (nu2 / nu1) ** (-alpha)
+
+    return luminosity2

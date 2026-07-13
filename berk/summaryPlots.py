@@ -8,7 +8,7 @@ import os
 import numpy as np
 from astropy.io import fits
 import astropy.table as atpy
-from . import startup, tasks, images
+from . import startup, tasks, images, catalogs
 import matplotlib.pyplot as plt
 import glob
 
@@ -177,7 +177,9 @@ def plotSourceCounts(surveyCatDir, catSubScript, fluxCol='Total_flux', fluxMin=N
         catFileName = surveyCatDir+os.path.sep+"survey_catalog_%s%s.fits" %(band, catSubScript)
         catalogTab = atpy.Table().read(catFileName)
 
-        fluxVals = catalogTab[fluxCol].value
+        # Converting fluxes to 1.4 GHz
+        catalogTab['%s_1p4GHz' %fluxCol] = catalogs.convertFluxFreq(catalogTab[fluxCol].value, catalogTab['freqGHz'].value, 1.4, alpha=0.7)
+        fluxVals = catalogTab['%s_1p4GHz' %fluxCol].value
         fluxUnitLabel = catalogTab[fluxCol].unit
         completeness = catalogTab['completeness'] if 'completeness' in catalogTab.colnames else np.ones_like(fluxVals)
 

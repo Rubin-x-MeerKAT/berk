@@ -718,7 +718,7 @@ def calculateZmaxIterative(galRedshift, galLum_WHz, Slim_uJy, alpha=0.7, zmaxLim
     zIter = galRedshift
     SIter = fluxDensityAtRedshift_uJy(zIter, galLum_WHz, alpha=alpha, cosmology=cosmology)
 
-    while SIter >= Slim_uJy and zIter < zmaxLimit:
+    while SIter >= Slim_uJy: # and zIter < zmaxLimit:
         zIter += step
         SIter = fluxDensityAtRedshift_uJy(zIter, galLum_WHz, alpha=alpha, cosmology=cosmology)
 

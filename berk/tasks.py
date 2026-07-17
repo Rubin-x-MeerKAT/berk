@@ -248,7 +248,7 @@ def processVmaxForXmatchFile(args):
         xmatchTab[zColName] = np.where(np.isfinite(xmatchTab['zspec_opt']) &
                                                     (xmatchTab['zspec_opt'] != -99),
                                                     xmatchTab['zspec_opt'],
-                                                    xmatchTab['zphoto_opt'])
+                                                    xmatchTab['zphoto_median_opt'])
 
     zmaxTab = xmatchTab[xmatchTab[zColName] != -99]
 
@@ -306,7 +306,7 @@ def processVmaxForXmatchFile(args):
         galLum_WHz = galNow['LuminosityWHz_rad']
         Slim_uJypbeam = Slim_Jypbeam*1E6
 
-        zMax = catalogs.calculateZmax(galRedshift, galLum_WHz, Slim_uJypbeam, alpha=0.7, zmaxLimit=10.0,cosmology=cosmologyDR)
+        zMax = catalogs.calculateZmax(galRedshift, galLum_WHz, Slim_uJypbeam, alpha=0.7, zmaxLimit=1E10,cosmology=cosmologyDR)
         VMax_h3Mpc3 = catalogs.calculateComovingVolBetweenZ_h3Mpc3(skyArea_sqDeg, zMin=0.0, zMax=zMax, cosmology=cosmologyDR)
 
         zMaxList.append(zMax)
@@ -546,7 +546,7 @@ def builddr(dataRelease='EDR', includeBands=None, includeQuality=None, removeDup
     radCatNames = [os.path.basename(xmatchFileNow).split('xmatchtable_bestmatches_')[1].split('_DECaLSDR10_rband')[0]+'.fits'
                   for xmatchFileNow in filesToProcess]
     args = [(f, DRImages, DRDir, cosmologyDR, 'zmax', 'zphot_ifnot_spec_opt', radCatFileName) for f, radCatFileName in zip(filesToProcess, radCatNames)]
-    
+
     doParallel = True
 
     if doParallel is True:
@@ -781,7 +781,7 @@ def builddb():
 
 #------------------------------------------------------------------------------------------------------------
 def _processXmatchOnRadioCatalogue(args):
-        
+
     radCat, optSurvey, optBandToMatch, optPosErrAsecValue = args
 
     catalogName = radCat.split(os.path.sep)[-1]
@@ -877,7 +877,7 @@ def xmatch(optSurveyInput='decalsdr10'):
     if len(tables) == 0:
         print("\nNo radio catalogs had successful cross-matching with %s!\n" % optSurvey)
         return
-    
+
     globalBestXmatchTab = atpy.vstack(tables)
 
     globalBestXmatchTab.write(globalBestXmatchTabName, overwrite=True)

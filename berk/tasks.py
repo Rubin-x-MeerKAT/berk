@@ -562,6 +562,10 @@ def builddr(dataRelease='EDR', includeBands=None, includeQuality=None, removeDup
     DRXmatchTab = None
     DRzmaxTab = None
     for xmatchTab, zmaxTab in results:
+        if 'ref_cat_opt' in zmaxTab.colnames:
+            zmaxTab.remove_column('ref_cat_opt')
+        if 'ref_cat_opt' in xmatchTab.colnames:
+            xmatchTab.remove_column('ref_cat_opt')
         if xmatchTab is None:
             continue
         DRXmatchTab = xmatchTab if DRXmatchTab is None else atpy.vstack([DRXmatchTab, xmatchTab])
@@ -877,6 +881,10 @@ def xmatch(optSurveyInput='decalsdr10'):
     if len(tables) == 0:
         print("\nNo radio catalogs had successful cross-matching with %s!\n" % optSurvey)
         return
+
+    for tab in tables:
+        if 'ref_cat_opt' in tab.colnames:
+            tab.remove_column('ref_cat_opt')
 
     globalBestXmatchTab = atpy.vstack(tables)
 

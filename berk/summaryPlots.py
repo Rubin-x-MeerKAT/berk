@@ -116,7 +116,7 @@ def computeSourceCount(fluxVals, fluxBins, fluxCompleteness, rmsBinCentreJy=None
             cumAreaSqDeg is not supplied.
 
     Returns:
-        tuple: (bin centers, row counts, row count errors, source count values, source count errors).
+        tuple: (bin centers, row counts, row count errors, source count values, source count errors, effective areas).
     """
 
     fluxBinCentre = np.sqrt(fluxBins[:-1] * fluxBins[1:])
@@ -148,7 +148,7 @@ def computeSourceCount(fluxVals, fluxBins, fluxCompleteness, rmsBinCentreJy=None
     sourceCountValues = getS2p5dNdS(fluxBinCentre, fluxCounts, fluxBinWidths, effAreaInFluxBins)
     sourceCountErr = getS2p5dNdS(fluxBinCentre, fluxCountsErr, fluxBinWidths, effAreaInFluxBins)
 
-    return fluxBinCentre, fluxCounts, fluxCountsErr, sourceCountValues, sourceCountErr
+    return fluxBinCentre, fluxCounts, fluxCountsErr, sourceCountValues, sourceCountErr, effAreaInFluxBins
 
 def plotSourceCounts(surveyCatDir, catSubScript, fluxCol='Total_flux', fluxMin=None, fluxMax=None, nFluxBins=50, bandColorDict=None, plotOutPath=None):
     """Plot Euclidean-normalized source counts for each band using survey catalogs.
@@ -193,8 +193,8 @@ def plotSourceCounts(surveyCatDir, catSubScript, fluxCol='Total_flux', fluxMin=N
         rmsBinCentreJy = RMSAreaCoverage[:, 0]
         cumAreaSqDeg = RMSAreaCoverage[:, 4]
 
-        fluxBinCentre, rowCount, rawCountErr, sourceCountUncorr, sourceCountErrUncorr = computeSourceCount(fluxVals, fluxBins, completeness, rmsBinCentreJy, cumAreaSqDeg, corrRMSCoverage=False, corrCompleteness=True)
-        fluxBinCentre, rowCount, rawCountErr, sourceCountCorr, sourceCountErrCorr = computeSourceCount(fluxVals, fluxBins, completeness, rmsBinCentreJy, cumAreaSqDeg, corrRMSCoverage=True, corrCompleteness=True)
+        fluxBinCentre, rowCount, rawCountErr, sourceCountUncorr, sourceCountErrUncorr, effAreaInFluxBins = computeSourceCount(fluxVals, fluxBins, completeness, rmsBinCentreJy, cumAreaSqDeg, corrRMSCoverage=False, corrCompleteness=True)
+        fluxBinCentre, rowCount, rawCountErr, sourceCountCorr, sourceCountErrCorr, effAreaInFluxBins = computeSourceCount(fluxVals, fluxBins, completeness, rmsBinCentreJy, cumAreaSqDeg, corrRMSCoverage=True, corrCompleteness=True)
 
         ax.errorbar(fluxBinCentre, sourceCountCorr, sourceCountErrCorr, mec='k', mew=0.5, mfc=bandColorDict[band], ecolor=bandColorDict[band], marker='o', ms=6, alpha=1, ls='None', label="%s-band" %band)
 

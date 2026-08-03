@@ -82,8 +82,6 @@ def filterBadRows(table, columnsToCheck, badValues=[99., 999., -99., -999.]):
 
     return table[mask]
 
-
-
 def makeMagBins(magnitudes, nBins):
     """ Compute custom magnitude bin edges for a given array of magnitudes.
 
@@ -101,45 +99,25 @@ def makeMagBins(magnitudes, nBins):
 
     return magBins
 
-
-def getMagHist(optMag, nBins):
-    """Compute histogram of optical magnitudes.
-
-    Args:
-        optMag (:obj:`array_like`): Array of optical magnitudes (e.g., from parent optical catalogue).
-        nBins (:obj:`int`): Number of bins to use for the histogram.
-
-    Returns:
-        tuple:
-            - optMagHist (:obj:`np.ndarray`): Counts in each magnitude bin.
-            - optMagBins (:obj:`np.ndarray`): Edges of the magnitude bins.
-    """
-
-    optMagBins = makeMagBins(optMag, nBins)
-
-    optMagHist, _ = np.histogram(optMag, bins=optMagBins)
-
-    return optMagHist, optMagBins
-
-def getNM(optMag, nBins, areaSqDeg):
+def getNM(optMag, optMagBins, areaSqDeg):
     """Estimate the magnitude distribution n(m) from an optical catalogue.
 
     Args:
         optMag (:obj:`array_like`): Array of optical magnitudes (e.g., from parent optical catalogue).
-        nBins (:obj:`int`): Number of bins to use for the magnitude histogram.
+        optMagBins (:obj:`array_like`): Edges of the magnitude bins (length N+1 for N bins).
         areaSqDeg (:obj:`astropy.units.Quantity`): Survey area in square degrees (with units attached).
 
     Returns:
         :obj:`np.ndarray`: The magnitude distribution n(m), i.e., number of sources per square degree per bin.
     """
 
-    optMagHist, optMagBins = getMagHist(optMag, nBins)
+    optMagHist, _ = np.histogram(optMag, bins=optMagBins)
 
     if hasattr(areaSqDeg, 'unit'):
         areaSqDeg = areaSqDeg.value
 
-    binWidth = np.diff(optMagBins)[0]
-    distNm = optMagHist / (areaSqDeg * binWidth)
+    distNm = optMagHist / areaSqDeg
+
     return distNm
 
 def randomPointsInCircleExactNPoints(centerRA, centerDec, radiusDeg, nPoints, rng=None):
@@ -203,7 +181,6 @@ def randomPointsInCircle(centerRA, centerDec, radiusDeg, nPoints):
     withinCircle = toCentreDistances < radiusDeg * u.deg
     return randRA[withinCircle], randDec[withinCircle]
 
-
 def makeRandomCat(centerRA, centerDec, radiusDeg, nRandomPoints, radRACol, radDecCol):
     """
     Create a random catalogue of sources uniformly distributed within a circular sky region.
@@ -223,7 +200,6 @@ def makeRandomCat(centerRA, centerDec, radiusDeg, nRandomPoints, radRACol, radDe
     randRA, randDec = randomPointsInCircleExactNPoints(centerRA, centerDec, radiusDeg, nRandomPoints)
     randomCat = Table([randRA, randDec], names=(radRACol, radDecCol))
     return randomCat
-
 
 def countBlanks(skyCatCoords1, skyCatCoords2, searchRadRsDeg):
     """
@@ -333,7 +309,7 @@ def getQ0SingleRs(radCatCoords, randRadCatCoords, optCatCoords, searchRadRsDeg, 
     print("\nQ0 = ", Q0)
     return Q0
 
-def getQM(radCatCoords, nRadio, optCatCoords, optMagList, searchRadRmaxDegVal, nM, Q0):
+def getQM(radCatCoords, nRadio, optCatCoords, optMagList, optMagBins, searchRadRmaxDegVal, nM, Q0):
 
     """
     Estimate q(m): the magnitude distribution of real counterparts to radio sources.
@@ -343,6 +319,7 @@ def getQM(radCatCoords, nRadio, optCatCoords, optMagList, searchRadRmaxDegVal, n
         nRadio (int): Number of radio sources.
         optCatCoords (SkyCoord): SkyCoord array of optical catalogue positions.
         optMagList (array_like): List or array of optical magnitudes corresponding to optCatCoords.
+        optMagBins (array_like): Magnitude bin edges for computing histograms.
         searchRadRmaxDeg (float): Maximum search radius in deg.
         nM (array_like): Surface density of background sources per magnitude bin, in sources/sq.deg.
         Q0 (float): Fraction of radio sources that have real optical counterparts (0 < Q0 < 1).
@@ -350,7 +327,6 @@ def getQM(radCatCoords, nRadio, optCatCoords, optMagList, searchRadRmaxDegVal, n
     Returns:
         np.ndarray: Estimated q(m), the probability distribution of magnitudes for real counterparts.
     """
-    nMagBins = len(nM)
 
     # getting total(m)
 
@@ -364,8 +340,8 @@ def getQM(radCatCoords, nRadio, optCatCoords, optMagList, searchRadRmaxDegVal, n
     # idxOpt are indices of optical sources within r_max of any radio source
     matchedMags = optMagList[idxOpt]
 
-    totalM, _ = getMagHist(optMag=matchedMags, nBins=nMagBins)
-
+    totalM, _ = np.histogram(matchedMags, bins=optMagBins)
+    
     areaSearchRadiusSqDeg = np.pi * searchRadRmaxDegVal**2  # in sq.deg.
     backgroundCounts = nM * nRadio * areaSearchRadiusSqDeg
 
@@ -867,7 +843,6 @@ def computeLR(radioCat, opticalCat, searchRadiusDegVal, optMagCol, magBins, qMLi
 
         if dofRSymErr is True:
             fRPair = getFRRadioAsymErrOptSymErr(radOptOffsetDeg, radioSource, opticalSource, radRACol, radDecCol, radEMajCol, radEMinCol, radPACol, optRACol, optDecCol, optPosErrCol)
-            #fRPair = getFRSymErr(radOptOffsetDeg, radioSource, opticalSource, radERACol, radEDecCol, optPosErrCol)
         else:
             fRPair = getFRAsymErr(radOptOffsetDeg, radioSource, opticalSource, radRACol, radDecCol, radEMajCol, radEMinCol, radPACol, optRACol, optDecCol, optPosErrCol, sigmaAstArcsecVal=sigmaAstArcsecVal)
 
@@ -1026,7 +1001,7 @@ def xmatchRadioOptical(radioCatFilePath, radioBand, xmatchDirPath, optSurvey, op
 
     if os.path.exists(optCatFileName):
         opticalSources = Table.read(optCatFileName, format='fits')
-        # getting sky area covered by the optical catalogue (DECaLS for now!) #TODO
+        # getting sky area covered by the optical catalogue (DECaLS for now!) 
         opticalSkyAreaSqDeg = getDECaLSSkyAreaSqDeg(opticalSources, healPixNSide=4096, healPixCountCol='nest4096')
     else:
         # Radius for which optical catalogue is to be fetched
@@ -1055,7 +1030,7 @@ def xmatchRadioOptical(radioCatFilePath, radioBand, xmatchDirPath, optSurvey, op
         
         os.makedirs(xmatchIndividualDirPath, exist_ok = True)
 
-        # getting sky area covered by the optical catalogue (DECaLS for now!) #TODO
+        # getting sky area covered by the optical catalogue (DECaLS for now!)
         opticalSkyAreaSqDeg = getDECaLSSkyAreaSqDeg(opticalSources, healPixNSide=4096, healPixCountCol='nest4096')
 
         opticalSources.meta['AREASQDEG'] = opticalSkyAreaSqDeg
@@ -1091,7 +1066,7 @@ def xmatchRadioOptical(radioCatFilePath, radioBand, xmatchDirPath, optSurvey, op
 
     optSourcesCoords = SkyCoord(ra=optRAValDegList * u.deg, dec= optDecValDegList * u.deg, frame='icrs')
 
-    nRandomRadSources = 1 * nRadio # TODO make sure about number of randoms. need to normalize somewhere if different?
+    nRandomRadSources = 1 * nRadio # nRandom = nReal
     randomRadioSources=makeRandomCat(centerRA, centerDec, radiusDeg, nRandomRadSources, radRACol, radDecCol)
     randomRadioSources.write(xmatchIndividualDirPath+os.path.sep+'Randoms_%s.fits' %outSubscript, format='fits', overwrite=True)
 
@@ -1100,8 +1075,6 @@ def xmatchRadioOptical(radioCatFilePath, radioBand, xmatchDirPath, optSurvey, op
 
     randomRadioSourcesCoords = SkyCoord(ra= randRadRAValDegList * u.deg, dec= randRadDecValDegList * u.deg, frame='icrs')
 
-    #Q0 = getQ0SingleRs(radCatCoords=radioSourcesCoords, randRadCatCoords=randomRadioSourcesCoords, optCatCoords=optSourcesCoords, #searchRadRsDeg=beamSizeDegValue, sigmaRadDeg=sigmaRadPosMeanDeg)
-
     Q0, radiiDeg, UobsByUrandArray, FrsArray = getQ0FitForRs(radCatCoords=radioSourcesCoords, randRadCatCoords=randomRadioSourcesCoords, 
                                                              optCatCoords=optSourcesCoords, 
                                                              searchRadiusDeg=searchRadiusDegVal, sigmaRadDeg=sigmaRadPosMeanDeg)
@@ -1109,13 +1082,11 @@ def xmatchRadioOptical(radioCatFilePath, radioBand, xmatchDirPath, optSurvey, op
 
     # Finding n(m)
 
-    nM = getNM(optMag=optMagList, nBins=nMagBins, areaSqDeg=opticalSkyAreaSqDeg)
+    nM = getNM(optMag=optMagList, optMagBins=optMagBins, areaSqDeg=opticalSkyAreaSqDeg)
 
     # Finding q(m)
 
-    # qM = getQM(radCatCoords=radioSourcesCoords, nRadio=nRadio, optCatCoords=optSourcesCoords, optMagList=optMagList, 
-    #           searchRadRmaxDegVal=beamSizeDegValue, nM=nM, Q0=Q0) 
-    qM = getQM(radCatCoords=radioSourcesCoords, nRadio=nRadio, optCatCoords=optSourcesCoords, optMagList=optMagList, 
+    qM = getQM(radCatCoords=radioSourcesCoords, nRadio=nRadio, optCatCoords=optSourcesCoords, optMagList=optMagList, optMagBins=optMagBins,
                searchRadRmaxDegVal=searchRadiusDegVal, nM=nM, Q0=Q0) 
     
     if qM is None:
@@ -1124,7 +1095,10 @@ def xmatchRadioOptical(radioCatFilePath, radioBand, xmatchDirPath, optSurvey, op
 
     print("\nComputing LR ...")
 
-    xmatchTable = computeLR(radioCat=radioSources, opticalCat=opticalSources, searchRadiusDegVal=searchRadiusDegVal, optMagCol=optMagCol, magBins=optMagBins, qMList=qM, nMList=nM, radRACol=radRACol, radDecCol=radDecCol, radERACol=radERACol, radEDecCol=radEDecCol, optRACol=optRACol, optDecCol=optDecCol, radEMajCol=radEMajCol, radEMinCol=radEMinCol, radPACol=radPACol, optPosErrCol=optPosErrCol, dofRSymErr=dofRSymErr)
+    xmatchTable = computeLR(radioCat=radioSources, opticalCat=opticalSources, searchRadiusDegVal=searchRadiusDegVal, optMagCol=optMagCol, 
+                            magBins=optMagBins, qMList=qM, nMList=nM, radRACol=radRACol, radDecCol=radDecCol, 
+                            radERACol=radERACol, radEDecCol=radEDecCol, optRACol=optRACol, optDecCol=optDecCol, 
+                            radEMajCol=radEMajCol, radEMinCol=radEMinCol, radPACol=radPACol, optPosErrCol=optPosErrCol, dofRSymErr=dofRSymErr)
 
     if xmatchTable is None:
         print("\n%s: No cross-matched objects...!" %radCatName)

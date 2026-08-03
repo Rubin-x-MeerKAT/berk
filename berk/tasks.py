@@ -866,7 +866,7 @@ def xmatch(optSurveyInput='decalsdr10'):
 
     args = [(radCat, optSurvey, optBandToMatch, optPosErrAsecValue) for radCat in radCatFilesList]
 
-    doParallelXmatch = True
+    doParallelXmatch = False
     if doParallelXmatch is True:
         nProcess = max(1, int(os.cpu_count()-1))
         with Pool(processes=nProcess) as pool:

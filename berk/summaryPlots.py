@@ -292,7 +292,7 @@ def plotRMSAreaCoverageCumulative(rmsDirPath, areaCoveragePlotOutName, bandColor
 
         if os.path.exists(rmsHistFile):
             rmsHistFromFile = np.loadtxt(rmsHistFile)
-            binCentresFile, _, areaSqDegFile, cumulativeAreaSqDegFile = rmsHistFromFile[:, 0], rmsHistFromFile[:, 1], rmsHistFromFile[:, 2], rmsHistFromFile[:, 3]
+            binCentresFile, _, areaSqDegFile, _, cumulativeAreaSqDegFile = rmsHistFromFile[:, 0], rmsHistFromFile[:, 1], rmsHistFromFile[:, 2], rmsHistFromFile[:, 3], rmsHistFromFile[:, 4]
 
             if len(binCentres) != len(binCentresFile) or not np.allclose(np.round(binCentres,6), np.round(binCentresFile,6)):
                 countsInBins, areaSqDegInBins = getRMSAreaCoverage(rmsFile, rmsBins)

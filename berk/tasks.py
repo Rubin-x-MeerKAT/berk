@@ -234,13 +234,14 @@ def processVmaxForXmatchFile(args):
     os.makedirs(zMaxDirPath, exist_ok = True)
 
     zmaxFilePath = os.path.join(zMaxDirPath, 'zmax_%s.fits' %radCatName.split('_srl_bdsfcat')[0])
-
+    
     if os.path.exists(zmaxFilePath):
         zmaxTab = atpy.Table().read(zmaxFilePath)
         return xmatchTab, zmaxTab
 
     print("\nProcessing Vmax for %s..." % xmatchFile)
 
+    
     if 'radCatName' not in xmatchTab.colnames:
         xmatchTab['radCatName'] = 'catalogs'+os.path.sep+radCatName
 
@@ -257,7 +258,17 @@ def processVmaxForXmatchFile(args):
 
     zmaxTab['LuminosityWHz_rad'] = catalogs.calculateRadioLum(zmaxTab['Total_flux_rad'].value, zmaxTab[zColName].value,
                                                               spectralIndex=0.7, cosmology=cosmologyDR)
+    
+    # Finding effective area based on RMS area coverage curve
 
+    rmsAreaFileName = radCatName.replace('_srl_bdsfcat.fits', '_rms_rmshist.txt')
+    rmsAreaFile = os.path.join(DRDir, 'rms', rmsAreaFileName)
+    rmsHistFromFile = np.loadtxt(rmsAreaFile)
+    rmsBinsCentres, cumArea = rmsHistFromFile[:, 0], rmsHistFromFile[:, 4]
+    zmaxTab['EffectiveAreaSqDeg'] = summaryPlots.getEffectiveAreaInFluxBinsfromRMS(zmaxTab['Total_flux_rad'].value, 
+                                                   rmsBinsCentres, cumArea, sigmaDetection=5.0)
+    zmaxTab['WholeAreaSqDeg'] = np.max(cumArea)
+    
     DRImageRow = DRImages[DRImages['radioCatPath'] == 'catalogs/'+radCatName]
 
     if len(DRImageRow) == 0:
@@ -293,6 +304,8 @@ def processVmaxForXmatchFile(args):
 
     zMaxList = []
     VMaxList = []
+    VMaxEffAreaList = []
+    VMaxWholeAreaList = []
     optCompList = []
 
     for galNow in zmaxTab:
@@ -304,16 +317,24 @@ def processVmaxForXmatchFile(args):
 
         galRedshift = galNow[zColName]
         galLum_WHz = galNow['LuminosityWHz_rad']
+        galEffArea = galNow['EffectiveAreaSqDeg']
+        galWholeArea = galNow['WholeAreaSqDeg']
         Slim_uJypbeam = Slim_Jypbeam*1E6
 
         zMax = catalogs.calculateZmax(galRedshift, galLum_WHz, Slim_uJypbeam, alpha=0.7, zmaxLimit=1E10,cosmology=cosmologyDR)
         VMax_h3Mpc3 = catalogs.calculateComovingVolBetweenZ_h3Mpc3(skyArea_sqDeg, zMin=0.0, zMax=zMax, cosmology=cosmologyDR)
+        VMax_h3Mpc3_effarea = catalogs.calculateComovingVolBetweenZ_h3Mpc3(galEffArea, zMin=0.0, zMax=zMax, cosmology=cosmologyDR)
+        VMax_h3Mpc3_wholearea = catalogs.calculateComovingVolBetweenZ_h3Mpc3(galWholeArea, zMin=0.0, zMax=zMax, cosmology=cosmologyDR)
 
         zMaxList.append(zMax)
         VMaxList.append(VMax_h3Mpc3)
+        VMaxEffAreaList.append(VMax_h3Mpc3_effarea)
+        VMaxWholeAreaList.append(VMax_h3Mpc3_wholearea)
 
     zmaxTab['zmax_rad'] = zMaxList
     zmaxTab['Vmax_rad_h3Mpc3'] = VMaxList
+    zmaxTab['Vmax_rad_h3Mpc3_effarea'] = VMaxEffAreaList
+    zmaxTab['Vmax_rad_h3Mpc3_wholearea'] = VMaxWholeAreaList
     zmaxTab['completeness_opt'] = optCompList
     zmaxTab.write(zmaxFilePath, overwrite=True)
 

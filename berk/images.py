@@ -245,7 +245,7 @@ def plotImages(imgFilePath, outDirName=os.getcwd(), colorMap = 'viridis', vmin =
         fluxUnit = None
 
     if not fluxUnit:
-        print("Unit of flux not found in header, assuming it to be Jy/beam")
+        print("Unit of flux not found in header, assuming it to be Jy/beam and converting to microJy/beam")
         fluxUnit = 'Jy/beam'
 
     fluxUnit = fluxUnit.lower()
@@ -273,6 +273,7 @@ def plotImages(imgFilePath, outDirName=os.getcwd(), colorMap = 'viridis', vmin =
     im = ax.imshow(imageData, cmap=colorMap, vmin=vmin, vmax=vmax, origin='lower')
     cbar = plt.colorbar(im, ax=ax)
     cbar.set_label(label=fluxUnitLab)
+
 
     if plotTitle:
         plt.title(plotTitle, fontsize=9)

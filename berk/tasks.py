@@ -506,6 +506,19 @@ def builddr(dataRelease='EDR', includeBands=None, includeQuality=None, removeDup
             tab['freqGHz']=freqGHz
             tab['radCatPath'] = os.path.join("catalogs", os.path.basename(t))
 
+            # Renaming source names from MSS to MWM
+            tab['Source_name'] = [name.replace('MSS', 'MWM', 1) if name.startswith('MSS') else name for name in tab['Source_name']]
+            # Creating resolved flag
+            bmajCatDeg = float(tab.meta['BMAJ']) # in degrees
+            bminCatDeg = float(tab.meta['BMIN']) # in degrees
+            tab['beamMajDeg'] = bmajCatDeg
+            tab['beamMinDeg'] = bminCatDeg
+            resolved = (tab['Maj'] - bmajCatDeg) >= 2 * tab['E_Maj'] # Eq. 6 Heywood et al. 2021
+            tab['resolvedFlag_axes'] = resolved.astype(int)
+            # Size calculation
+            tab['sizeMajAsec'] = np.sqrt(np.clip(tab['Maj']**2 - tab['beamMajDeg']**2, 0, None)) * 3600
+            tab['sizeMinAsec'] = np.sqrt(np.clip(tab['Min']**2 - tab['beamMinDeg']**2, 0, None)) * 3600
+
             # assigning completeness
             tabFlux = tab['Total_flux'] # in Jy
             tabBaseName = os.path.basename(t).split('_bdsfcat.fits')[0]
@@ -616,7 +629,6 @@ def builddr(dataRelease='EDR', includeBands=None, includeQuality=None, removeDup
 
     DRzmaxTabUniqueBest = DRzmaxTabUnique.copy()
     xmatchPlotsToAvoidDir = os.path.join(DRXmatchDir, 'xmatchPlotsToAvoid')
-    print(xmatchPlotsToAvoidDir)
     if os.path.exists(xmatchPlotsToAvoidDir) is True:
         plotNamesInAvoidDir = sorted(glob.glob(DRXmatchDir+os.path.sep+'xmatchPlotsToAvoid'+os.path.sep+'RadOptSkyPlot_*.png'))
         if len(plotNamesInAvoidDir) > 0:
@@ -663,6 +675,17 @@ def builddb():
             freqGHz=tab.meta['FREQ0']/1e9
             tab['freqGHz']=freqGHz # for scaling of the global catalog
             bandKey=getBandKey(freqGHz)
+
+            # Renaming source names from MSS to MWM
+            tab['Source_name'] = [name.replace('MSS', 'MWM', 1) if name.startswith('MSS') else name for name in tab['Source_name']]
+            # Creating resolved flag
+            bmajCatDeg = float(tab.meta['BMAJ']) # in degrees
+            bminCatDeg = float(tab.meta['BMIN']) # in degrees
+            tab['beamMajDeg'] = bmajCatDeg
+            tab['beamMinDeg'] = bminCatDeg
+            resolved = (tab['Maj'] - float(bmajCatDeg)) >= 2 * tab['E_Maj'] # Eq. 6 Heywood et al. 2021
+            tab['resolvedFlag_axes'] = resolved.astype(int)
+
             #tab.meta=None # It'd be good to clear this... but the catalog matching stuff wants many things from here
             tab.meta.clear() #
             if globalTabsDict[bandKey] is None:
@@ -889,7 +912,7 @@ def xmatch(optSurveyInput='decalsdr10'):
 
     doParallelXmatch = False
     if doParallelXmatch is True:
-        nProcess = max(1, int(os.cpu_count()-1))
+        nProcess = max(1, int(os.cpu_count()-4))
         with Pool(processes=nProcess) as pool:
             tables = pool.map(_processXmatchOnRadioCatalogue, args)
         tables = [t for t in tables if t is not None]
@@ -897,14 +920,15 @@ def xmatch(optSurveyInput='decalsdr10'):
         tables = []
         for arg in args:
             table = _processXmatchOnRadioCatalogue(arg)
-            tables.append(table)
+            if table is not None:
+                tables.append(table)
 
     if len(tables) == 0:
         print("\nNo radio catalogs had successful cross-matching with %s!\n" % optSurvey)
         return
 
     for tab in tables:
-        if 'ref_cat_opt' in tab.colnames:
+        if tab is not None and 'ref_cat_opt' in tab.colnames:
             tab.remove_column('ref_cat_opt')
 
     globalBestXmatchTab = atpy.vstack(tables)
@@ -1101,7 +1125,7 @@ def analyse(captureBlockId):
 
         imgDir, imgFileName=os.path.split(imgPath)
         pbcorrImgPath=imgDir+os.path.sep+"pbcorr_trim_"+imgFileName
-        cmd=cmd+"\npython3 sourcefinding.py c %s -o fits --survey MSS" % (pbcorrImgPath)
+        cmd=cmd+"\npython3 sourcefinding.py c %s -o fits --survey MWM" % (pbcorrImgPath)
 
         # The bit below isn't going to work on compute nodes - so we may as well move this
         #label=imgFileName.split(".ms_")[0].split(".")[0]

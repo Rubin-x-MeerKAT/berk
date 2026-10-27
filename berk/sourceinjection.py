@@ -107,6 +107,97 @@ def sourceExtract(imageFile, pybdsfBaseName, saveRMSMeanResidualMaps=False,
         print("Error: %s" % e)
         print("Skipping this file and moving on...")
         return None
+
+def makeExtendedGaussian(localX, localY, x0, y0, sourceMajDeg, sourceMinDeg, sourcePADeg, beamMajDeg, beamMinDeg, beamPADeg, wcsObj, fluxJy):
+    """
+    Creates a beam-convolved elliptical Gaussian source in Jy/beam.
+
+    Args:
+        - localX: A 2D numpy array containing the x pixel coordinates of the source stamp.
+        - localY: A 2D numpy array containing the y pixel coordinates of the source stamp.
+        - x0: The x pixel coordinate of the source centre.
+        - y0: The y pixel coordinate of the source centre.
+        - sourceMajDeg: The intrinsic major-axis FWHM of the source in degrees.
+        - sourceMinDeg: The intrinsic minor-axis FWHM of the source in degrees.
+        - sourcePADeg: The intrinsic source position angle in degrees east of north.
+        - beamMajDeg: The restoring beam major-axis FWHM in degrees.
+        - beamMinDeg: The restoring beam minor-axis FWHM in degrees.
+        - beamPADeg: The restoring beam position angle in degrees east of north.
+        - wcsObj: A two-dimensional Astropy WCS object describing the celestial coordinate system.
+        - fluxJy: The integrated flux density of the source in Jy.
+
+    Returns:
+        - A 2D numpy array containing the beam-convolved source profile in Jy/beam.
+    """
+
+    fwhmToSigma = 1.0 / (2.0 * np.sqrt(2.0 * np.log(2.0)))
+
+    def skyCovariance(majorDeg, minorDeg, paDeg):
+        major = majorDeg * fwhmToSigma
+        minor = minorDeg * fwhmToSigma
+        pa = np.deg2rad(paDeg)
+
+        # Coordinates are east and north on the sky.
+        majorVector = np.array([np.sin(pa), np.cos(pa)])
+        minorVector = np.array([np.cos(pa), -np.sin(pa)])
+
+        return (
+            major**2 * np.outer(majorVector, majorVector)
+            + minor**2 * np.outer(minorVector, minorVector)
+        )
+
+    sourceCovSky = skyCovariance(
+        sourceMajDeg, sourceMinDeg, sourcePADeg
+    )
+    beamCovSky = skyCovariance(
+        beamMajDeg, beamMinDeg, beamPADeg
+    )
+
+    # Local Jacobian mapping pixel offsets (dx, dy) to
+    # tangent-plane sky offsets (east, north), in degrees.
+    eps = 1e-3  # pixel
+
+    ra0, dec0 = wcsObj.all_pix2world(x0, y0, 0)
+
+    raX, decX = wcsObj.all_pix2world(x0 + eps, y0, 0)
+    raY, decY = wcsObj.all_pix2world(x0, y0 + eps, 0)
+
+    # Wrap RA differences and project them onto the local east direction.
+    draX = ((raX - ra0 + 180.0) % 360.0 - 180.0) * np.cos(np.deg2rad(dec0))
+    draY = ((raY - ra0 + 180.0) % 360.0 - 180.0) * np.cos(np.deg2rad(dec0))
+
+    jacobian = np.array([
+        [draX / eps, draY / eps],
+        [(decX - dec0) / eps, (decY - dec0) / eps],
+    ])
+
+    if not np.all(np.isfinite(jacobian)) or abs(np.linalg.det(jacobian)) < 1e-20:
+        raise ValueError("Invalid local WCS Jacobian")
+
+    invJacobian = np.linalg.inv(jacobian)
+
+    sourceCovPix = invJacobian @ sourceCovSky @ invJacobian.T
+    beamCovPix = invJacobian @ beamCovSky @ invJacobian.T
+
+    observedCovPix = sourceCovPix + beamCovPix
+
+    dx = localX - x0
+    dy = localY - y0
+
+    invCov = np.linalg.inv(observedCovPix)
+
+    exponent = (
+        invCov[0, 0] * dx**2
+        + 2.0 * invCov[0, 1] * dx * dy
+        + invCov[1, 1] * dy**2
+    )
+
+    # Normalise so the integrated Gaussian flux is fluxJy.
+    peakJyBeam = fluxJy * np.sqrt(
+        np.linalg.det(beamCovPix) / np.linalg.det(observedCovPix)
+    )
+
+    return peakJyBeam * np.exp(-0.5 * exponent)
     
 def _runSingleInjectionToResidual(args):
     """
@@ -133,8 +224,8 @@ def _runSingleInjectionToResidual(args):
     (rep, img, hdr, beam, nInjectionSources, 
      fieldRACentre, fieldDecCentre, 
      injectRadius, minFluxJyInj, maxFluxJyInj, 
-     sinjectDir, imageBaseName, rCutOff) = args
-    
+     sinjectDir, imageBaseName, rCutOff, sourceSizes) = args
+
     rng = np.random.default_rng(seed=rep)
 
     try:
@@ -168,6 +259,9 @@ def _runSingleInjectionToResidual(args):
         randomRAInjected = []
         randomDecInjected = []
         randomFluxInjected= []
+        randomSourceMajDegInjected = []
+        randomSourceMinDegInjected = []
+        randomSourcePADegInjected = []
 
         while nSourcesInjected < nInjectionSources:
 
@@ -179,7 +273,6 @@ def _runSingleInjectionToResidual(args):
                 seps = randPostCoord.separation(prevCoords)
                 # #TODO: harcoded 5 times the the beam size
                 if seps.min() < (5 * 6.0 * u.arcsec):
-                    #print("Source at RA=%.4f, Dec=%.4f is too close to a previously injected source. Skipping." % (randomRA[0], randomDec[0]))
                     continue
 
             
@@ -202,14 +295,25 @@ def _runSingleInjectionToResidual(args):
 
             localY, localX = np.mgrid[yMin:yMax, xMin:xMax]
 
-            psfStamp = beam(localX - x0, localY - y0)
+            #############
+            sourceMajDeg, sourceMinDeg, sourcePADeg = sourceSizes[rng.integers(len(sourceSizes))]
 
-            copyImg[yMin:yMax, xMin:xMax] += randomFlux * psfStamp
+            extendedStamp = makeExtendedGaussian(localX, localY, x0, y0,sourceMajDeg, sourceMinDeg, sourcePADeg,hdr["BMAJ"], hdr["BMIN"], hdr["BPA"], wcsObj, randomFlux)
+
+            copyImg[yMin:yMax, xMin:xMax] += extendedStamp
+            ###############
+
+            # psfStamp = beam(localX - x0, localY - y0)
+
+            # copyImg[yMin:yMax, xMin:xMax] += randomFlux * psfStamp
 
             nSourcesInjected += 1
             randomRAInjected.append(float(randomRA[0]))
             randomDecInjected.append(float(randomDec[0]))
             randomFluxInjected.append(float(randomFlux))
+            randomSourceMajDegInjected.append(float(sourceMajDeg))
+            randomSourceMinDegInjected.append(float(sourceMinDeg))
+            randomSourcePADegInjected.append(float(sourcePADeg))
             
         # Save the injected image
 
@@ -224,6 +328,9 @@ def _runSingleInjectionToResidual(args):
             "RADeg_injected":  randomRAInjected,
             "decDeg_injected": randomDecInjected,
             "fluxJy_injected": randomFluxInjected,
+            "sourceMajDeg_injected": randomSourceMajDegInjected,
+            "sourceMinDeg_injected": randomSourceMinDegInjected,
+            "sourcePADeg_injected": randomSourcePADegInjected
         })
         fakeSourcesOutFile = os.path.join(sinjectDir, "%s_sinjected_%dsources_%d_fakesources.fits" %(imageBaseName, nInjectionSources, rep))
         fakeSourcesTab.write(fakeSourcesOutFile, overwrite=True)
@@ -237,7 +344,7 @@ def _runSingleInjectionToResidual(args):
 
 def injectImage(imageToInjectFileName, fieldRACentre, fieldDecCentre, injectRadius, 
                 sinjectDir, imageBaseName, nInjectionSources=100, 
-                minFluxJyInj=1E-5, maxFluxJyInj=1.0, nRepetitions=100):
+                minFluxJyInj=1E-5, maxFluxJyInj=1.0, nRepetitions=100, sourceSizes=None):
     """
     Injects fake sources into the residual image and saves the injected images and the corresponding fake source catalogues.
     
@@ -272,6 +379,14 @@ def injectImage(imageToInjectFileName, fieldRACentre, fieldDecCentre, injectRadi
     bmajDeg = hdr["BMAJ"]     # Beam major axis (deg)
     bminDeg = hdr["BMIN"]     # Beam minor axis (deg)
     bpaDeg  = hdr["BPA"]      # Beam position angle (deg)
+    pixelScale = min(abs(hdr["CDELT1"]), abs(hdr["CDELT2"]))
+    if sourceSizes is not None and len(sourceSizes) > 0:
+        maxSourceMajDeg = np.max(sourceSizes[:, 0])
+    else:
+        maxSourceMajDeg = 0.0
+    maxObservedFwhmDeg = np.sqrt(bmajDeg**2 + maxSourceMajDeg**2)
+    sigmaMaxPix = (maxObservedFwhmDeg / pixelScale / (2.0 * np.sqrt(2.0 * np.log(2.0))))
+    rCutOff = int(np.ceil(7.0 * sigmaMaxPix))
 
     cDelt = np.abs(hdr["CDELT1"]) # pixel scale (deg/pix)
 
@@ -287,11 +402,11 @@ def injectImage(imageToInjectFileName, fieldRACentre, fieldDecCentre, injectRadi
     beam = Gaussian2D(1.0, 0, 0, sigmaX, sigmaY, theta=np.deg2rad(bpaDeg)) 
 
     # Stamp cutoff: 5 * FWHM in pixels
-    rCutOff = int(5 * max(sigmaX, sigmaY)) + 1
+    #rCutOff = int(5 * max(sigmaX, sigmaY)) + 1
 
     argsList = [
         (rep, img, hdr, beam, nInjectionSources, fieldRACentre, fieldDecCentre, injectRadius,
-         minFluxJyInj, maxFluxJyInj, sinjectDir, imageBaseName, rCutOff)
+         minFluxJyInj, maxFluxJyInj, sinjectDir, imageBaseName, rCutOff, sourceSizes)
         for rep in range(nRepetitions)
     ]
 
@@ -519,7 +634,8 @@ def calculateCompleteness(sInjectedCatList, pybdsfCat, imageName, sinjectDir,
     
     return meanFraction, stdFraction, allBinCentres
 
-def executeSingle(imageName, nInjectionSources=5000, nRepetitions=1, minFluxJyInj=1e-5, maxFluxJyInj=1.0, radiusFactorToInject=0.95, outDir=None):
+def executeSingle(imageName, nInjectionSources=5000, nRepetitions=1, minFluxJyInj=1e-5, maxFluxJyInj=1.0, 
+                  radiusFactorToInject=0.95, outDir=None, injectUnresolvedOnly=True):
     """
     Executes the source injection and completeness analysis for a single image.
     
@@ -531,6 +647,7 @@ def executeSingle(imageName, nInjectionSources=5000, nRepetitions=1, minFluxJyIn
     - maxFluxJyInj: Maximum flux density of injected sources in Jy (default: 1.0).
     - radiusFactorToInject: Factor to multiply the band radius for defining the injection area (default: 0.95).
     - outDir: Path to the directory to save source injection files. Default: current working directory
+    - injectUnresolvedOnly: If True, only unresolved sources will be injected. If False, resolved sources will be injected (default: True).
     """
 
     currentDir = os.getcwd()
@@ -608,9 +725,14 @@ def executeSingle(imageName, nInjectionSources=5000, nRepetitions=1, minFluxJyIn
     tabWrapAngle = catalogs.detectWrapAngle(pybdsfCat['RA'])
     pybdsfCat = catalogs.fixRA(pybdsfCat, raCol='RA', wrapAngle=tabWrapAngle)
 
+    if injectUnresolvedOnly is True:
+        sourceType = 'unresolved'
+    else:
+        sourceType = 'resolved'
+
     if outDir is None:
         outDir = os.getcwd()
-    sinjectDir = os.path.join(outDir, "sinjected_%s_%dsources_%dreps" %(imageBaseName, nInjectionSources, nRepetitions))
+    sinjectDir = os.path.join(outDir, "sinjected_%s_%s_%dsources_%dreps" %(sourceType, imageBaseName, nInjectionSources, nRepetitions))
 
     os.makedirs(sinjectDir, exist_ok=True)
 
@@ -636,6 +758,31 @@ def executeSingle(imageName, nInjectionSources=5000, nRepetitions=1, minFluxJyIn
     # Inject within certain % of the band radius to avoid edge effects
     radiusToInject = bandRadius * radiusFactorToInject
 
+    if injectUnresolvedOnly is True:
+        sourceSizes = np.zeros((1, 3), dtype=float)
+    else:
+        # Getting size distribution
+        sizeCols = ['DC_Maj', 'DC_Min', 'DC_PA']
+        sizeTab = pybdsfCat[sizeCols]
+
+        valid = np.ones(len(sizeTab), dtype=bool)
+
+        for col in sizeCols:
+            valid &= np.isfinite(sizeTab[col])
+
+        valid &= (sizeTab['DC_Maj'] > 0)
+        valid &= (sizeTab['DC_Min'] > 0)
+        valid &= (sizeTab['DC_Min'] <= sizeTab['DC_Maj'])
+
+        sourceSizes = np.column_stack([
+            np.asarray(sizeTab['DC_Maj'][valid], dtype=float),
+            np.asarray(sizeTab['DC_Min'][valid], dtype=float),
+            np.asarray(sizeTab['DC_PA'][valid], dtype=float),
+        ])
+
+        if len(sourceSizes) == 0:
+            raise ValueError("No valid deconvolved source sizes found")
+
     injectImage(
         residualFileName,
         fieldRACentre, fieldDecCentre, radiusToInject,
@@ -644,6 +791,7 @@ def executeSingle(imageName, nInjectionSources=5000, nRepetitions=1, minFluxJyIn
         minFluxJyInj=minFluxJyInj,
         maxFluxJyInj=maxFluxJyInj,
         nRepetitions=nRepetitions,
+        sourceSizes=sourceSizes,
     )
 
     # Run PyBDSF on each injected image
@@ -680,7 +828,7 @@ def executeSingle(imageName, nInjectionSources=5000, nRepetitions=1, minFluxJyIn
     )
 
 
-def execute(imageName=None, nInjectionSources=5000, nRepetitions=1, minFluxJyInj=1e-5, maxFluxJyInj=1.0, radiusFactorToInject=0.95):
+def execute(imageName=None, nInjectionSources=5000, nRepetitions=1, minFluxJyInj=1e-5, maxFluxJyInj=1.0, radiusFactorToInject=0.95, injectUnresolvedOnly=True):
     """
     Main function to execute the source injection and completeness analysis.
     
@@ -695,10 +843,11 @@ def execute(imageName=None, nInjectionSources=5000, nRepetitions=1, minFluxJyInj
     - minFluxJyInj: Minimum flux density of injected sources in Jy (default: 1e-5).
     - maxFluxJyInj: Maximum flux density of injected sources in Jy (default: 1.0).
     - radiusFactorToInject: Factor to multiply the band radius for defining the injection area (default: 0.95).
+    - injectUnresolvedOnly: If True, only unresolved sources will be injected. If False, resolved sources will be injected (default: True).
     """
     
     if imageName is not None:
-        executeSingle(imageName, nInjectionSources, nRepetitions, minFluxJyInj, maxFluxJyInj, radiusFactorToInject)
+        executeSingle(imageName, nInjectionSources, nRepetitions, minFluxJyInj, maxFluxJyInj, radiusFactorToInject, None, injectUnresolvedOnly)
         return
     
     print("No imageName provided. Searching for FITS images in current directory...\n")
@@ -717,7 +866,7 @@ def execute(imageName=None, nInjectionSources=5000, nRepetitions=1, minFluxJyInj
         print("Working on %s" % imageFile)
 
         try:
-            executeSingle(imageFile, nInjectionSources, nRepetitions, minFluxJyInj, maxFluxJyInj, radiusFactorToInject)
+            executeSingle(imageFile, nInjectionSources, nRepetitions, minFluxJyInj, maxFluxJyInj, radiusFactorToInject, None, injectUnresolvedOnly)
         except Exception as e:
             print("Error processing %s: %s" % (imageFile, e))
             print("Skipping this file and moving on...\n")

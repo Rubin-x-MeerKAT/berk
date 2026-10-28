@@ -13,6 +13,7 @@ from astropy import units as u
 from . import __version__
 import os
 from astropy.cosmology import FlatLambdaCDM
+from scipy.optimize import brentq
 
 # For adding meta data to output
 import datetime
@@ -58,18 +59,38 @@ def IsFieldContinuous(RAValues):
         return True
 
 #------------------------------------------------------------------------------------------------------------
-def fixRA(table, raCol='RA', wrapAngle=360):
+def detectWrapAngle(ra_values):
+    """
+    If the RA range spans the 0/360 boundary, wrap at 180.
+    Detection: min < threshold_low AND max > threshold_high.
+    """
+    ra = np.asarray(ra_values)
+    ra = ra % 360
+    ra_min, ra_max = ra.min(), ra.max()
+
+    if ra_min < 10 and ra_max > 350:
+        return 180.0  # field straddles 0/360 → centre around 0
+    else:
+        return 360.0  # normal case
+
+#------------------------------------------------------------------------------------------------------------
+def fixRA(table, raCol='RA', wrapAngle=None):
     """Returns table with corrected RA wrap.
 
     Args:
         table (:obj:`~astropy.table.Table`): Input table with RA values.
         raCol (:obj:`str`, optional): Name of the RA column. Default is 'RA'.
-        wrapAngle (:obj:`float`, optional): Angle at which to wrap RA in degrees. Default is 360.
+        wrapAngle (:obj:`float`, optional): Angle at which to wrap RA in degrees. If None, it is auto-detected from the data.
 
     Returns:
         :obj:`~astropy.table.Table`: Table with RA values wrapped to [0, 360) range.
     """
     fixTable = table.copy()
+
+    if wrapAngle is None:
+        wrapAngle = detectWrapAngle(table[raCol])
+        print(f"Auto-detected wrap angle: {wrapAngle} degrees based on RA distribution.")
+
     fixTable[raCol] = Longitude(table[raCol], unit=u.deg, wrap_angle=wrapAngle * u.deg).value
     if IsFieldContinuous(fixTable[raCol]) is False:
         newWrapAngle = 180.0 if wrapAngle == 360 else 360
@@ -586,6 +607,48 @@ def calculateRadioLum(fluxJy, redshift, spectralIndex=0.7, cosmology=None):
     return L_WHz
 
 #------------------------------------------------------------------------------------------------------------
+def calculateFluxDensityFromRadLum(luminosityWHz, redshift, spectralIndex=0.7, cosmology=None):
+    """
+    Computes the observed radio flux density of a source from its radio luminosity
+    and redshift, applying the inverse K-correction assuming a power-law spectrum.
+
+    Args:
+        luminosityWHz (float or np.ndarray): Radio luminosity in W/Hz.
+        redshift (float or np.ndarray): Redshift of the source.
+        spectralIndex (float): Spectral index alpha, defined such that S_nu ~ nu^{-alpha}.
+            Default is 0.7.
+        cosmology (astropy.cosmology instance, optional): Cosmology to use for luminosity
+            distance calculation. If None, defaults to FlatLambdaCDM with H0=70 km/s/Mpc
+            and Om0=0.3.
+
+    Returns:
+        float or np.ndarray: Observed flux density in Jansky (Jy).
+    """
+
+    if cosmology is None:
+        cosmo = FlatLambdaCDM(H0=70 * u.km / u.s / u.Mpc, Om0=0.3)
+    else:
+        cosmo = cosmology
+
+    z = redshift
+    alpha = spectralIndex
+
+    # Attach units to the input luminosity
+    L_si = luminosityWHz * (u.W / u.Hz)
+
+    # Calculate luminosity distance and convert to meters
+    DL = cosmo.luminosity_distance(z)
+    DL_si = DL.to(u.m)
+
+    # Compute observed flux density in W/m^2/Hz (incorporating inverse K-correction)
+    S_Wm2Hz = L_si / (4 * np.pi * DL_si**2 * (1 + z)**(alpha - 1))
+
+    # Convert back to Jansky and extract the numerical value
+    fluxJy = S_Wm2Hz.to(u.Jy).value
+
+    return fluxJy
+
+#------------------------------------------------------------------------------------------------------------
 def fluxDensityAtRedshift_uJy(z, Lrest_WHz, alpha=0.7, cosmology=None):
     """
     Computes the expected observed flux density of a source at a given redshift,
@@ -617,10 +680,14 @@ def fluxDensityAtRedshift_uJy(z, Lrest_WHz, alpha=0.7, cosmology=None):
     return S_uJy
 
 #------------------------------------------------------------------------------------------------------------
-def calculateZmax(galRedshift, galLum_WHz, Slim_uJy, alpha=0.7, zmaxLimit=10.0, step=0.001, cosmology=None):
+def calculateZmaxIterative(galRedshift, galLum_WHz, Slim_uJy, alpha=0.7, zmaxLimit=10.0, step=None, cosmology=None):
     """
     Finds the maximum redshift at which a source of given luminosity would remain
-    detectable above a survey flux limit, using Brent's root-finding method.
+    detectable above a survey flux limit, using a linear forward-stepping search.
+
+    Starting from the source's observed redshift, the flux density is recomputed
+    at each step of size `step` and compared to the survey limit. The search stops
+    as soon as the flux density drops below Slim_uJy, or once zmaxLimit is reached.
 
     Args:
         galRedshift (float): Observed redshift of the source. Search begins here
@@ -645,14 +712,56 @@ def calculateZmax(galRedshift, galLum_WHz, Slim_uJy, alpha=0.7, zmaxLimit=10.0, 
     if cosmology is None:
         cosmology = FlatLambdaCDM(H0=70 * u.km / u.s / u.Mpc, Om0=0.3)
 
+    if step is None:
+        step = 0.001
+
     zIter = galRedshift
     SIter = fluxDensityAtRedshift_uJy(zIter, galLum_WHz, alpha=alpha, cosmology=cosmology)
 
-    while SIter >= Slim_uJy and zIter < zmaxLimit:
+    while SIter >= Slim_uJy: # and zIter < zmaxLimit:
         zIter += step
         SIter = fluxDensityAtRedshift_uJy(zIter, galLum_WHz, alpha=alpha, cosmology=cosmology)
 
     return zIter
+
+#------------------------------------------------------------------------------------------------------------
+def calculateZmax(galRedshift, galLum_WHz, Slim_uJy, alpha=0.7, zmaxLimit=10.0, cosmology=None):
+    """
+    Finds the maximum redshift at which a source of given luminosity would remain
+    detectable above a survey flux limit, using Brent's root-finding method.
+
+    Args:
+        galRedshift (float): Observed redshift of the source. Search begins here
+            since zmax >= galRedshift by definition.
+        galLum_WHz (float): Rest-frame radio luminosity of the source in W/Hz.
+        Slim_uJy (float): Survey flux density limit in microjansky (uJy),
+            typically N-sigma * RMS of the image.
+        alpha (float): Spectral index, defined such that S_nu ~ nu^{-alpha}.
+            Default is 0.7.
+        zmax_limit (float): Hard upper bound on redshift to search. If the source
+            remains detectable at this redshift, zmax_limit is returned.
+            Default is 10.0.
+        cosmology (astropy.cosmology instance, optional): Cosmology to use. If None,
+            defaults to FlatLambdaCDM with H0=70 km/s/Mpc and Om0=0.3.
+
+    Returns:
+        float: Maximum redshift zmax at which the source flux equals Slim_uJy.
+            Returns zmax_limit if the source is detectable across the full search range.
+    """
+
+    if cosmology is None:
+        cosmology = FlatLambdaCDM(H0=70 * u.km / u.s / u.Mpc, Om0=0.3)
+
+    def f(z):
+        return fluxDensityAtRedshift_uJy(z, galLum_WHz, alpha=alpha, cosmology=cosmology) - Slim_uJy
+
+    if f(zmaxLimit) >= 0:
+        return zmaxLimit
+
+    if f(galRedshift) < 0:
+        return galRedshift
+
+    return brentq(f, galRedshift, zmaxLimit)
 
 #------------------------------------------------------------------------------------------------------------
 def calculateComovingVolBetweenZ_h3Mpc3(skyArea, zMin, zMax, cosmology=None):
@@ -687,7 +796,19 @@ def calculateComovingVolBetweenZ_h3Mpc3(skyArea, zMin, zMax, cosmology=None):
     return volume_h3Mpc3
 
 #------------------------------------------------------------------------------------------------------------
-def removeDuplicateSources(tab, DRImages, matchRadius_arcsec=6.0):
+def getUnitlessValues(col):
+    """
+    Returns unitless numeric values from an astropy Table Column.
+    If the column has a unit (not None), returns .value.
+    Otherwise, returns the column as-is.
+    """
+    if hasattr(col, 'unit') and col.unit is not None:
+        return col.value
+    else:
+        return col
+
+#------------------------------------------------------------------------------------------------------------
+def removeDuplicateSources(tab, matchRadius_arcsec=6.0, raCol='RA', decCol='DEC', fluxCol='Total_flux', fluxErrCol='E_Total_flux'):
     """
     Removes duplicate sources from a merged catalogue arising from overlapping
     image footprints. For each pair of sources within matchRadius_arcsec,
@@ -696,18 +817,22 @@ def removeDuplicateSources(tab, DRImages, matchRadius_arcsec=6.0):
     Args:
         tab (astropy.table.Table): Merged source catalogue with 'RA', 'DEC',
             and 'radCatPath' columns.
-        DRImages (astropy.table.Table): Images table with 'radioCatPath' and
-            'RMS_uJy/beam' columns.
         matchRadius_arcsec (float): Matching radius in arcseconds. Should be
             approximately one beam FWHM. Default is 6.0.
+        raCol (str): Column name for right ascension in degrees. Default is 'RA_rad'.
+        decCol (str): Column name for declination in degrees. Default is 'DEC_rad'.
+        fluxCol (str): Column name for total flux density. Default is 'Total_flux'.
+        fluxErrCol (str): Column name for flux density uncertainty. Default is 'E_Total_flux'.
 
     Returns:
         astropy.table.Table: Deduplicated catalogue.
     """
-    rmsLookup = {row['radioCatPath']: row['RMS_uJy/beam'] for row in DRImages}
-    sourceRMS = np.array([rmsLookup.get(p, np.inf) for p in tab['radCatName']])
+    tab = tab.copy()
+    tab['FluxErrRatio'] = tab[fluxCol] / tab[fluxErrCol]
 
-    coords = SkyCoord(ra=tab['RA_rad']*u.deg, dec=tab['DEC_rad']*u.deg)
+    raArray = getUnitlessValues(tab[raCol])
+    decArray = getUnitlessValues(tab[decCol])
+    coords = SkyCoord(ra=raArray*u.deg, dec=decArray*u.deg)
     idx1, idx2, sep, _ = search_around_sky(coords, coords, matchRadius_arcsec*u.arcsec)
 
     remove = np.zeros(len(tab), dtype=bool)
@@ -719,11 +844,81 @@ def removeDuplicateSources(tab, DRImages, matchRadius_arcsec=6.0):
         if pair in processed:
             continue
         processed.add(pair)
-        if sourceRMS[i] <= sourceRMS[j]:
-            remove[j] = True
-        else:
+        if tab['FluxErrRatio'][i] <= tab['FluxErrRatio'][j]:
             remove[i] = True
+        else:
+            remove[j] = True
 
     n_dupes = remove.sum()
     print("Removed %d duplicates out of %d within %0.2f arcsec" % (n_dupes, len(tab), matchRadius_arcsec))
     return tab[~remove]
+
+#------------------------------------------------------------------------------------------------------------
+def convertFluxFreq(flux1, nu1, nu2, alpha=0.7):
+    """
+    Converts radio flux densities between two observing frequencies assuming
+    a power-law radio spectrum.
+
+    Args:
+        flux1 (float or np.ndarray):
+            Flux density at the original frequency. Can be a scalar or array.
+            Units may be any consistent flux density unit (e.g. Jy, mJy, uJy),
+            as the conversion is unit-independent.
+        nu1 (float or np.ndarray):
+            Original observing frequency in the same units as ``nu2``
+            (e.g. Hz, MHz or GHz).
+        nu2 (float or np.ndarray):
+            Target observing frequency in the same units as ``nu1``.
+        alpha (float, optional):
+            Radio spectral index, defined such that
+
+                S_nu ∝ nu^{-alpha}
+
+            Default is 0.7.
+
+    Returns:
+        float or np.ndarray:
+            Flux density at the target frequency, in the same units as
+            ``flux1``.
+    """
+
+    flux1 = np.asarray(flux1)
+    nu1 = np.asarray(nu1)
+
+    flux2 = flux1 * (nu2 / nu1) ** (-alpha)
+
+    return flux2
+
+#------------------------------------------------------------------------------------------------------------
+def convertLuminosityFreq(luminosity1, nu1, nu2, alpha=0.7):
+    """
+    Converts radio luminosities between two frequencies assuming
+    a power-law radio spectrum.
+
+    Args:
+        luminosity1 (float or np.ndarray):
+            Monochromatic radio luminosity at the original frequency
+            (typically in W/Hz).
+        nu1 (float or np.ndarray):
+            Original frequency in the same units as ``nu2``.
+        nu2 (float or np.ndarray):
+            Target frequency in the same units as ``nu1``.
+        alpha (float, optional):
+            Radio spectral index, defined such that
+
+                L_nu ∝ nu^{-alpha}
+
+            Default is 0.7.
+
+    Returns:
+        float or np.ndarray:
+            Monochromatic radio luminosity at the target frequency, in the
+            same units as ``luminosity1``.
+    """
+
+    luminosity1 = np.asarray(luminosity1)
+    nu1 = np.asarray(nu1)
+
+    luminosity2 = luminosity1 * (nu2 / nu1) ** (-alpha)
+
+    return luminosity2

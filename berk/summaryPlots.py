@@ -8,7 +8,7 @@ import os
 import numpy as np
 from astropy.io import fits
 import astropy.table as atpy
-from . import startup, tasks, images
+from . import startup, tasks, images, catalogs
 import matplotlib.pyplot as plt
 import glob
 
@@ -116,7 +116,7 @@ def computeSourceCount(fluxVals, fluxBins, fluxCompleteness, rmsBinCentreJy=None
             cumAreaSqDeg is not supplied.
 
     Returns:
-        tuple: (bin centers, row counts, row count errors, source count values, source count errors).
+        tuple: (bin centers, row counts, row count errors, source count values, source count errors, effective areas).
     """
 
     fluxBinCentre = np.sqrt(fluxBins[:-1] * fluxBins[1:])
@@ -148,7 +148,7 @@ def computeSourceCount(fluxVals, fluxBins, fluxCompleteness, rmsBinCentreJy=None
     sourceCountValues = getS2p5dNdS(fluxBinCentre, fluxCounts, fluxBinWidths, effAreaInFluxBins)
     sourceCountErr = getS2p5dNdS(fluxBinCentre, fluxCountsErr, fluxBinWidths, effAreaInFluxBins)
 
-    return fluxBinCentre, fluxCounts, fluxCountsErr, sourceCountValues, sourceCountErr
+    return fluxBinCentre, fluxCounts, fluxCountsErr, sourceCountValues, sourceCountErr, effAreaInFluxBins
 
 def plotSourceCounts(surveyCatDir, catSubScript, fluxCol='Total_flux', fluxMin=None, fluxMax=None, nFluxBins=50, bandColorDict=None, plotOutPath=None):
     """Plot Euclidean-normalized source counts for each band using survey catalogs.
@@ -177,7 +177,9 @@ def plotSourceCounts(surveyCatDir, catSubScript, fluxCol='Total_flux', fluxMin=N
         catFileName = surveyCatDir+os.path.sep+"survey_catalog_%s%s.fits" %(band, catSubScript)
         catalogTab = atpy.Table().read(catFileName)
 
-        fluxVals = catalogTab[fluxCol].value
+        # Converting fluxes to 1.4 GHz
+        catalogTab['%s_1p4GHz' %fluxCol] = catalogs.convertFluxFreq(catalogTab[fluxCol].value, catalogTab['freqGHz'].value, 1.4, alpha=0.7)
+        fluxVals = catalogTab['%s_1p4GHz' %fluxCol].value
         fluxUnitLabel = catalogTab[fluxCol].unit
         completeness = catalogTab['completeness'] if 'completeness' in catalogTab.colnames else np.ones_like(fluxVals)
 
@@ -185,14 +187,14 @@ def plotSourceCounts(surveyCatDir, catSubScript, fluxCol='Total_flux', fluxMin=N
         fluxMax = np.max(fluxVals) if fluxMax is None else fluxMax
         fluxBins = np.logspace(np.log10(fluxMin), np.log10(fluxMax), nFluxBins+1)
 
-        RMSAreaCoverageName = surveyCatDir+os.path.sep+"MeerKAT_RMS_area_coverage%s_%s.txt" %(catSubScript, band)
+        RMSAreaCoverageName = surveyCatDir+os.path.sep+"MeerKAT_RMS_area_coverage_unique%s_%s.txt" %(catSubScript, band)
 
         RMSAreaCoverage = np.loadtxt(RMSAreaCoverageName)
         rmsBinCentreJy = RMSAreaCoverage[:, 0]
         cumAreaSqDeg = RMSAreaCoverage[:, 4]
 
-        fluxBinCentre, rowCount, rawCountErr, sourceCountUncorr, sourceCountErrUncorr = computeSourceCount(fluxVals, fluxBins, completeness, rmsBinCentreJy, cumAreaSqDeg, corrRMSCoverage=False, corrCompleteness=True)
-        fluxBinCentre, rowCount, rawCountErr, sourceCountCorr, sourceCountErrCorr = computeSourceCount(fluxVals, fluxBins, completeness, rmsBinCentreJy, cumAreaSqDeg, corrRMSCoverage=True, corrCompleteness=True)
+        fluxBinCentre, rowCount, rawCountErr, sourceCountUncorr, sourceCountErrUncorr, effAreaInFluxBins = computeSourceCount(fluxVals, fluxBins, completeness, rmsBinCentreJy, cumAreaSqDeg, corrRMSCoverage=False, corrCompleteness=True)
+        fluxBinCentre, rowCount, rawCountErr, sourceCountCorr, sourceCountErrCorr, effAreaInFluxBins = computeSourceCount(fluxVals, fluxBins, completeness, rmsBinCentreJy, cumAreaSqDeg, corrRMSCoverage=True, corrCompleteness=True)
 
         ax.errorbar(fluxBinCentre, sourceCountCorr, sourceCountErrCorr, mec='k', mew=0.5, mfc=bandColorDict[band], ecolor=bandColorDict[band], marker='o', ms=6, alpha=1, ls='None', label="%s-band" %band)
 
@@ -240,13 +242,13 @@ def getRMSAreaCoverage(rmsFile, rmsBins):
     areaInBins = countsInBins * pixelAreaSqDeg
     return countsInBins, areaInBins
 
-def plotRMSAreaCoverageCumulative(rmsDirPath, areaCoveragePlotOutName, bandColorDict, nRMSBins=30):
+def plotRMSAreaCoverageCumulative(rmsDirPath, areaCoveragePlotOutName, bandColorDict, nRMSBins=100):
     """Plot cumulative sky area as a function of RMS noise for all bands.
 
     Args:
         areaCoveragePlotOutName (str): Path to save the output plot.
         bandColorDict (dict): Dictionary mapping band names to color codes.
-        nRMSBins (int, optional): Number of RMS bins to use (default is 30).
+        nRMSBins (int, optional): Number of RMS bins to use (default is 100).
 
     Returns:
         None. Saves the cumulative RMS area plot to the specified path.
@@ -290,7 +292,7 @@ def plotRMSAreaCoverageCumulative(rmsDirPath, areaCoveragePlotOutName, bandColor
 
         if os.path.exists(rmsHistFile):
             rmsHistFromFile = np.loadtxt(rmsHistFile)
-            binCentresFile, _, areaSqDegFile, cumulativeAreaSqDegFile = rmsHistFromFile[:, 0], rmsHistFromFile[:, 1], rmsHistFromFile[:, 2], rmsHistFromFile[:, 3]
+            binCentresFile, _, areaSqDegFile, _, cumulativeAreaSqDegFile = rmsHistFromFile[:, 0], rmsHistFromFile[:, 1], rmsHistFromFile[:, 2], rmsHistFromFile[:, 3], rmsHistFromFile[:, 4]
 
             if len(binCentres) != len(binCentresFile) or not np.allclose(np.round(binCentres,6), np.round(binCentresFile,6)):
                 countsInBins, areaSqDegInBins = getRMSAreaCoverage(rmsFile, rmsBins)
@@ -348,10 +350,12 @@ def plotRMSAreaCoverageCumulative(rmsDirPath, areaCoveragePlotOutName, bandColor
                    header='RMS(Jy/beam)\tNPixel\tArea(sq.deg.)\tCumulativeNPixel\tCumulativeArea(sq.deg)')
 
         cumulativeArea = globalRMSCumulativeAreaInBinsDict[band]
+        totalArea = cumulativeArea[-1]
 
         ax[bandi].plot(binCentres, cumulativeArea, color=bandColorDict[band])
 
-        ax[bandi].axhline(y=totalRMSAreaDict[band], linestyle='dashed', color='k')
+        #ax[bandi].axhline(y=totalRMSAreaDict[band], linestyle='dashed', color='k')
+        ax[bandi].axhline(y=totalArea, linestyle='dashed', color='k')
 
         ax[bandi].set_xlabel("RMS Noise (Jy/beam)")
         ax[bandi].set_xlim(1E-7, 1E-1)
@@ -363,3 +367,121 @@ def plotRMSAreaCoverageCumulative(rmsDirPath, areaCoveragePlotOutName, bandColor
     plt.savefig(areaCoveragePlotOutName, dpi=700, bbox_inches='tight')
     plt.close()
     print("\nCumulative RMS area plotted!\n")
+
+def plotRMSAreaCoverageCumulativeUnique(rmsDirPath, areaCoveragePlotOutName, bandColorDict, imagesTab, overlapGroupsByBand, isolatedIndicesByBand, nRMSBins=100):
+    """Compute and plot the cumulative unique sky area as a function of RMS
+    noise for different observing bands, accounting for overlapping pointings.
+
+    Overlapping pointings within each band are combined into RMS mosaics before
+    calculating the area coverage, while isolated pointings are treated
+    independently. The resulting RMS-dependent area coverage is computed
+    separately for each band and plotted.
+
+    Args:
+        rmsDirPath (:obj:`str`): Directory containing RMS FITS images for individual pointings.
+        areaCoveragePlotOutName (:obj:`str`): Path to save the output area coverage plot.
+        bandColorDict (:obj:`dict`): Dictionary mapping band names to colours used for plotting.
+        imagesTab (:obj:`astropy.table.Table`): Table containing pointing information, including RMS image/catalogue paths.
+        overlapGroupsByBand (:obj:`dict`): Dictionary containing lists of overlapping pointing groups for each band. Each group contains
+            indices corresponding to rows in ``imagesTab``.
+        isolatedIndicesByBand (:obj:`dict`): Dictionary containing lists of isolated pointing indices for each band. Indices correspond to rows
+            in ``imagesTab``.
+        nRMSBins (:obj:`int`, optional): Number of RMS noise bins used for calculating the area coverage. Defaults to 100.
+
+    Returns:
+        None: Saves the cumulative RMS area coverage plot to ``areaCoveragePlotOutName``.
+    """
+    rmsBins = np.logspace(-10, 0, nRMSBins)
+    binCentres = 0.5 * (rmsBins[1:] + rmsBins[:-1])
+
+    orderedBands = list(bandColorDict.keys())
+    numBands = len(orderedBands)
+    globalRMSNPixelsInBinsDict = {band: np.zeros(len(binCentres)) for band in orderedBands}
+    globalRMSCumulativeNPixelsInBinsDict = {band: np.zeros(len(binCentres)) for band in orderedBands}
+    globalRMSAreaInBinsDict = {band: np.zeros(len(binCentres)) for band in orderedBands}
+    globalRMSCumulativeAreaInBinsDict = {band: np.zeros(len(binCentres)) for band in orderedBands}
+
+    # Process isolated pointings band-by-band
+    for band, isolatedIndices in isolatedIndicesByBand.items():
+
+        print("Processing %d isolated %s-band pointings..." %
+              (len(isolatedIndices), band))
+
+        for i in isolatedIndices:
+
+            rmsFile = os.path.join(
+                rmsDirPath,
+                os.path.basename(imagesTab['radioCatPath'][i])
+                .replace('_srl_bdsfcat.fits', '_rms.fits')
+            )
+
+            countsInBins, areaSqDegInBins = getRMSAreaCoverage(rmsFile=rmsFile, rmsBins=rmsBins)
+
+            cumulativeNPixInBins = np.cumsum(countsInBins)
+            cumulativeAreaSqDegInBins = np.cumsum(areaSqDegInBins)
+
+            globalRMSNPixelsInBinsDict[band] += countsInBins
+            globalRMSCumulativeNPixelsInBinsDict[band] += cumulativeNPixInBins
+            globalRMSAreaInBinsDict[band] += areaSqDegInBins
+            globalRMSCumulativeAreaInBinsDict[band] += cumulativeAreaSqDegInBins
+
+    # Process overlapping groups band-by-band
+    for band, overlapGroups in overlapGroupsByBand.items():
+        for gi, group in enumerate(overlapGroups):
+
+            rmsFileList = [os.path.join(rmsDirPath, os.path.basename(imagesTab['radioCatPath'][i]).replace('_srl_bdsfcat.fits', '_rms.fits')) for i in group]
+
+            mosaicFilesDir = os.path.join(rmsDirPath, "mosaics")
+            os.makedirs(mosaicFilesDir, exist_ok=True)
+            mosaicFile = os.path.join(mosaicFilesDir, "%s_mosaic_group%d.fits" %(band, gi))
+
+            images.mosaicRMSMaps(rmsFileList, outputFile=mosaicFile, resolutionArcmin=1.0)
+
+            countsInBins, areaSqDegInBins = getRMSAreaCoverage(rmsFile=mosaicFile,rmsBins=rmsBins)
+
+            cumulativeNPixInBins = np.cumsum(countsInBins)
+            cumulativeAreaSqDegInBins = np.cumsum(areaSqDegInBins)
+
+            globalRMSNPixelsInBinsDict[band] += countsInBins
+            globalRMSCumulativeNPixelsInBinsDict[band] += cumulativeNPixInBins
+            globalRMSAreaInBinsDict[band] += areaSqDegInBins
+            globalRMSCumulativeAreaInBinsDict[band] += cumulativeAreaSqDegInBins
+
+    # Plot cumulative area
+
+    figWidthPerPanel = 4
+    figHeight = 3
+    fig,ax=plt.subplots(nrows=1,ncols=numBands,sharex=True, sharey=False, squeeze=False)
+    fig.set_size_inches(figWidthPerPanel * numBands, figHeight)
+    ax = ax.flatten()
+
+    for bandi, band in enumerate(orderedBands):
+
+        areaCoverageTxtOutName = areaCoveragePlotOutName.replace(".png", "")
+
+        np.savetxt(areaCoverageTxtOutName+'_%s.txt' %band,
+                   np.column_stack((binCentres,
+                                    globalRMSNPixelsInBinsDict[band],
+                                    globalRMSAreaInBinsDict[band],
+                                    globalRMSCumulativeNPixelsInBinsDict[band],
+                                    globalRMSCumulativeAreaInBinsDict[band])),
+                   fmt='%.6f\t%d\t%.6f\t%d\t%.6f',
+                   header='RMS(Jy/beam)\tNPixel\tArea(sq.deg.)\tCumulativeNPixel\tCumulativeArea(sq.deg)')
+
+        cumulativeArea = globalRMSCumulativeAreaInBinsDict[band]
+        totalArea = cumulativeArea[-1]
+
+        ax[bandi].plot(binCentres, cumulativeArea, color=bandColorDict[band])
+
+        ax[bandi].axhline(y=totalArea, linestyle='dashed', color='k')
+
+        ax[bandi].set_xlabel("RMS Noise (Jy/beam)")
+        ax[bandi].set_xlim(1E-7, 1E-1)
+        ax[bandi].text(0.75,0.15, "%s band\n(%0.2f sq. deg.)" %(band, totalArea),transform=ax[bandi].transAxes,ha='center')
+        ax[bandi].set_xscale('log')
+
+    ax[0].set_ylabel("Sky Area (sq. deg.)")
+
+    plt.savefig(areaCoveragePlotOutName, dpi=700, bbox_inches='tight')
+    plt.close()
+    print("\nCumulative RMS area plotted for unique coverage!\n")

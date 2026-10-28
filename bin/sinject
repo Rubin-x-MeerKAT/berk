@@ -19,7 +19,7 @@ def make_parser():
     parser.add_argument("--nrep", dest="nRepetitions", help="Number of repetitions to perform the injection. Default is 100.", default=50, type=int)
     parser.add_argument("--minflux", dest="minFluxJyInj", help="Minimum flux density (in Jy) of the sources to be injected. Default is 1e-5 Jy.", default=1e-5, type=float)
     parser.add_argument("--maxflux", dest="maxFluxJyInj", help="Maximum flux density (in Jy) of the sources to be injected. Default is 1.0 Jy.", default=1.0, type=float)
-    parser.add_argument("--rad", dest="radiusFactorToInject", help="Radius factor to inject sources within (0 to 1). Default is 1.0, which means sources will be injected within the radius of the image.", default=1.0, type=float)
+    parser.add_argument("--rad", dest="radiusFactorToInject", help="Radius factor to inject sources within (0 to 1). Default is 1.0, which means sources will be injected within the radius of the image.", default=0.95, type=float)
 
     return parser
 

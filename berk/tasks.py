@@ -234,13 +234,14 @@ def processVmaxForXmatchFile(args):
     os.makedirs(zMaxDirPath, exist_ok = True)
 
     zmaxFilePath = os.path.join(zMaxDirPath, 'zmax_%s.fits' %radCatName.split('_srl_bdsfcat')[0])
-
+    
     if os.path.exists(zmaxFilePath):
         zmaxTab = atpy.Table().read(zmaxFilePath)
         return xmatchTab, zmaxTab
 
     print("\nProcessing Vmax for %s..." % xmatchFile)
 
+    
     if 'radCatName' not in xmatchTab.colnames:
         xmatchTab['radCatName'] = 'catalogs'+os.path.sep+radCatName
 
@@ -257,7 +258,17 @@ def processVmaxForXmatchFile(args):
 
     zmaxTab['LuminosityWHz_rad'] = catalogs.calculateRadioLum(zmaxTab['Total_flux_rad'].value, zmaxTab[zColName].value,
                                                               spectralIndex=0.7, cosmology=cosmologyDR)
+    
+    # Finding effective area based on RMS area coverage curve
 
+    rmsAreaFileName = radCatName.replace('_srl_bdsfcat.fits', '_rms_rmshist.txt')
+    rmsAreaFile = os.path.join(DRDir, 'rms', rmsAreaFileName)
+    rmsHistFromFile = np.loadtxt(rmsAreaFile)
+    rmsBinsCentres, cumArea = rmsHistFromFile[:, 0], rmsHistFromFile[:, 4]
+    zmaxTab['EffectiveAreaSqDeg'] = summaryPlots.getEffectiveAreaInFluxBinsfromRMS(zmaxTab['Total_flux_rad'].value, 
+                                                   rmsBinsCentres, cumArea, sigmaDetection=5.0)
+    zmaxTab['WholeAreaSqDeg'] = np.max(cumArea)
+    
     DRImageRow = DRImages[DRImages['radioCatPath'] == 'catalogs/'+radCatName]
 
     if len(DRImageRow) == 0:
@@ -293,6 +304,8 @@ def processVmaxForXmatchFile(args):
 
     zMaxList = []
     VMaxList = []
+    VMaxEffAreaList = []
+    VMaxWholeAreaList = []
     optCompList = []
 
     for galNow in zmaxTab:
@@ -304,16 +317,24 @@ def processVmaxForXmatchFile(args):
 
         galRedshift = galNow[zColName]
         galLum_WHz = galNow['LuminosityWHz_rad']
+        galEffArea = galNow['EffectiveAreaSqDeg']
+        galWholeArea = galNow['WholeAreaSqDeg']
         Slim_uJypbeam = Slim_Jypbeam*1E6
 
         zMax = catalogs.calculateZmax(galRedshift, galLum_WHz, Slim_uJypbeam, alpha=0.7, zmaxLimit=1E10,cosmology=cosmologyDR)
         VMax_h3Mpc3 = catalogs.calculateComovingVolBetweenZ_h3Mpc3(skyArea_sqDeg, zMin=0.0, zMax=zMax, cosmology=cosmologyDR)
+        VMax_h3Mpc3_effarea = catalogs.calculateComovingVolBetweenZ_h3Mpc3(galEffArea, zMin=0.0, zMax=zMax, cosmology=cosmologyDR)
+        VMax_h3Mpc3_wholearea = catalogs.calculateComovingVolBetweenZ_h3Mpc3(galWholeArea, zMin=0.0, zMax=zMax, cosmology=cosmologyDR)
 
         zMaxList.append(zMax)
         VMaxList.append(VMax_h3Mpc3)
+        VMaxEffAreaList.append(VMax_h3Mpc3_effarea)
+        VMaxWholeAreaList.append(VMax_h3Mpc3_wholearea)
 
     zmaxTab['zmax_rad'] = zMaxList
     zmaxTab['Vmax_rad_h3Mpc3'] = VMaxList
+    zmaxTab['Vmax_rad_h3Mpc3_effarea'] = VMaxEffAreaList
+    zmaxTab['Vmax_rad_h3Mpc3_wholearea'] = VMaxWholeAreaList
     zmaxTab['completeness_opt'] = optCompList
     zmaxTab.write(zmaxFilePath, overwrite=True)
 
@@ -485,6 +506,19 @@ def builddr(dataRelease='EDR', includeBands=None, includeQuality=None, removeDup
             tab['freqGHz']=freqGHz
             tab['radCatPath'] = os.path.join("catalogs", os.path.basename(t))
 
+            # Renaming source names from MSS to MWM
+            tab['Source_name'] = [name.replace('MSS', 'MWM', 1) if name.startswith('MSS') else name for name in tab['Source_name']]
+            # Creating resolved flag
+            bmajCatDeg = float(tab.meta['BMAJ']) # in degrees
+            bminCatDeg = float(tab.meta['BMIN']) # in degrees
+            tab['beamMajDeg'] = bmajCatDeg
+            tab['beamMinDeg'] = bminCatDeg
+            resolved = (tab['Maj'] - bmajCatDeg) >= 2 * tab['E_Maj'] # Eq. 6 Heywood et al. 2021
+            tab['resolvedFlag_axes'] = resolved.astype(int)
+            # Size calculation
+            tab['sizeMajAsec'] = np.sqrt(np.clip(tab['Maj']**2 - tab['beamMajDeg']**2, 0, None)) * 3600
+            tab['sizeMinAsec'] = np.sqrt(np.clip(tab['Min']**2 - tab['beamMinDeg']**2, 0, None)) * 3600
+
             # assigning completeness
             tabFlux = tab['Total_flux'] # in Jy
             tabBaseName = os.path.basename(t).split('_bdsfcat.fits')[0]
@@ -595,7 +629,6 @@ def builddr(dataRelease='EDR', includeBands=None, includeQuality=None, removeDup
 
     DRzmaxTabUniqueBest = DRzmaxTabUnique.copy()
     xmatchPlotsToAvoidDir = os.path.join(DRXmatchDir, 'xmatchPlotsToAvoid')
-    print(xmatchPlotsToAvoidDir)
     if os.path.exists(xmatchPlotsToAvoidDir) is True:
         plotNamesInAvoidDir = sorted(glob.glob(DRXmatchDir+os.path.sep+'xmatchPlotsToAvoid'+os.path.sep+'RadOptSkyPlot_*.png'))
         if len(plotNamesInAvoidDir) > 0:
@@ -642,6 +675,17 @@ def builddb():
             freqGHz=tab.meta['FREQ0']/1e9
             tab['freqGHz']=freqGHz # for scaling of the global catalog
             bandKey=getBandKey(freqGHz)
+
+            # Renaming source names from MSS to MWM
+            tab['Source_name'] = [name.replace('MSS', 'MWM', 1) if name.startswith('MSS') else name for name in tab['Source_name']]
+            # Creating resolved flag
+            bmajCatDeg = float(tab.meta['BMAJ']) # in degrees
+            bminCatDeg = float(tab.meta['BMIN']) # in degrees
+            tab['beamMajDeg'] = bmajCatDeg
+            tab['beamMinDeg'] = bminCatDeg
+            resolved = (tab['Maj'] - float(bmajCatDeg)) >= 2 * tab['E_Maj'] # Eq. 6 Heywood et al. 2021
+            tab['resolvedFlag_axes'] = resolved.astype(int)
+
             #tab.meta=None # It'd be good to clear this... but the catalog matching stuff wants many things from here
             tab.meta.clear() #
             if globalTabsDict[bandKey] is None:
@@ -866,9 +910,9 @@ def xmatch(optSurveyInput='decalsdr10'):
 
     args = [(radCat, optSurvey, optBandToMatch, optPosErrAsecValue) for radCat in radCatFilesList]
 
-    doParallelXmatch = True
+    doParallelXmatch = False
     if doParallelXmatch is True:
-        nProcess = max(1, int(os.cpu_count()-1))
+        nProcess = max(1, int(os.cpu_count()-4))
         with Pool(processes=nProcess) as pool:
             tables = pool.map(_processXmatchOnRadioCatalogue, args)
         tables = [t for t in tables if t is not None]
@@ -876,14 +920,15 @@ def xmatch(optSurveyInput='decalsdr10'):
         tables = []
         for arg in args:
             table = _processXmatchOnRadioCatalogue(arg)
-            tables.append(table)
+            if table is not None:
+                tables.append(table)
 
     if len(tables) == 0:
         print("\nNo radio catalogs had successful cross-matching with %s!\n" % optSurvey)
         return
 
     for tab in tables:
-        if 'ref_cat_opt' in tab.colnames:
+        if tab is not None and 'ref_cat_opt' in tab.colnames:
             tab.remove_column('ref_cat_opt')
 
     globalBestXmatchTab = atpy.vstack(tables)
@@ -1080,7 +1125,7 @@ def analyse(captureBlockId):
 
         imgDir, imgFileName=os.path.split(imgPath)
         pbcorrImgPath=imgDir+os.path.sep+"pbcorr_trim_"+imgFileName
-        cmd=cmd+"\npython3 sourcefinding.py c %s -o fits --survey MSS" % (pbcorrImgPath)
+        cmd=cmd+"\npython3 sourcefinding.py c %s -o fits --survey MWM" % (pbcorrImgPath)
 
         # The bit below isn't going to work on compute nodes - so we may as well move this
         #label=imgFileName.split(".ms_")[0].split(".")[0]

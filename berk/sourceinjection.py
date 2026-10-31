@@ -54,7 +54,7 @@ pybdsfArgs = {
     },
 }
 
-def sourceExtract(imageFile, pybdsfBaseName, saveRMSMeanResidualMaps=False, 
+def sourceExtract(imageFile, pybdsfBaseName, saveRMSMeanResidualMaps=False,
                   outDir=None, rmsFileName=None, meanFileName=None):
     """
     Extracts sources from the given image using PyBDSF and saves the catalogue and optionally the RMS, mean and residual maps.
@@ -83,11 +83,11 @@ def sourceExtract(imageFile, pybdsfBaseName, saveRMSMeanResidualMaps=False,
     if (rmsFileName is not None) and (meanFileName is not None):
         pybdsfArgsCopy['process_image']['advanced_opts'] = True
         pybdsfArgsCopy['process_image']['rmsmean_map_filename'] = [
-            meanFileName, 
+            meanFileName,
             rmsFileName
         ]   # have to check this - but looks like this advance settings
             # do not take the absolute path to rms and mean files.
-            # We need to have a copy in the working directory. 
+            # We need to have a copy in the working directory.
 
     if saveRMSMeanResidualMaps is True:
         for mapType in ['rms', 'mean','gaus_resid']:
@@ -99,7 +99,7 @@ def sourceExtract(imageFile, pybdsfBaseName, saveRMSMeanResidualMaps=False,
             if pybdsfArgsCopy['export_image'][imgType] is True:
                 img.export_image(outfile=os.path.join(outDir, pybdsfBaseName+'_'+imgType+'.fits'), clobber=True, img_type=imgType)
 
-        img.write_catalog(outfile=outCatalog, format='fits', 
+        img.write_catalog(outfile=outCatalog, format='fits',
                           catalog_type='srl', clobber=True)
 
     except Exception as e:
@@ -198,11 +198,11 @@ def makeExtendedGaussian(localX, localY, x0, y0, sourceMajDeg, sourceMinDeg, sou
     )
 
     return peakJyBeam * np.exp(-0.5 * exponent)
-    
+
 def _runSingleInjectionToResidual(args):
     """
     Runs a single injection of fake sources to the residual image and saves the injected image and the corresponding fake source catalogue.
-    
+
     Args:
      args: A tuple containing the following elements:
         - rep: The repetition number (used for random seed).
@@ -218,12 +218,12 @@ def _runSingleInjectionToResidual(args):
         - sinjectDir: The directory to save the injected images and catalogues.
         - imageBaseName: The base name for the injected image and catalogue files.
         - rCutOff: The cutoff radius in pixels for the PSF stamp around each injected source.
-        
+
     """
 
-    (rep, img, hdr, beam, nInjectionSources, 
-     fieldRACentre, fieldDecCentre, 
-     injectRadius, minFluxJyInj, maxFluxJyInj, 
+    (rep, img, hdr, beam, nInjectionSources,
+     fieldRACentre, fieldDecCentre,
+     injectRadius, minFluxJyInj, maxFluxJyInj,
      sinjectDir, imageBaseName, rCutOff, sourceSizes) = args
 
     rng = np.random.default_rng(seed=rep)
@@ -231,8 +231,8 @@ def _runSingleInjectionToResidual(args):
     try:
 
         sInjectOutFile = os.path.join(
-            sinjectDir, "%s_sinjected_%dsources_%d_image.fits" %(imageBaseName, 
-                                                                nInjectionSources, 
+            sinjectDir, "%s_sinjected_%dsources_%d_image.fits" %(imageBaseName,
+                                                                nInjectionSources,
                                                                 rep)
         )
 
@@ -247,12 +247,13 @@ def _runSingleInjectionToResidual(args):
         copyImg = img.copy()
 
         ny, nx = copyImg.shape
-        
+
         logMin = np.log10(minFluxJyInj)
         logMax = np.log10(maxFluxJyInj)
 
         # to keep track of previously injected sources to avoid crowding
         injectedCoords = []
+        injectedSizes = []
 
         nSourcesInjected = 0
 
@@ -267,16 +268,31 @@ def _runSingleInjectionToResidual(args):
 
             randomRA, randomDec = crossmatch.randomPointsInCircleExactNPoints(fieldRACentre, fieldDecCentre, injectRadius, 1, rng=rng)
 
+            sourceMajDeg, sourceMinDeg, sourcePADeg = sourceSizes[rng.integers(len(sourceSizes))]
+
             randPostCoord = SkyCoord(ra=randomRA[0]*u.deg, dec=randomDec[0]*u.deg)
             if len(injectedCoords) > 0:
-                prevCoords = SkyCoord(ra=np.array(injectedCoords)[:,0]*u.deg, dec=np.array(injectedCoords)[:,1]*u.deg)
-                seps = randPostCoord.separation(prevCoords)
-                # #TODO: harcoded 5 times the the beam size
-                if seps.min() < (5 * 6.0 * u.arcsec):
+                prevCoords = SkyCoord(ra=np.array(injectedCoords)[:,0]*u.deg,
+                dec=np.array(injectedCoords)[:,1]*u.deg)
+                prevSizes = np.array(injectedSizes)
+                seps = randPostCoord.separation(prevCoords).deg
+
+                beamMajDeg = max(hdr["BMAJ"], hdr["BMIN"])
+                currentSize = max(sourceMajDeg, beamMajDeg)  # effective size of current source
+                prevEffSizes = np.maximum(prevSizes[:, 0], beamMajDeg)  # effective sizes of previous sources
+
+                minSeps = 2.0 * (currentSize + prevEffSizes)  # factor 2 for FWHM to full extent
+
+                if np.any(seps < minSeps):
                     continue
 
-            
-            xPix, yPix = wcsObj.wcs_world2pix(randomRA, randomDec, 0) 
+
+                # 5 times the the beam size
+                # if seps.min() < (5 * max(hdr["BMAJ"], hdr["BMIN"]) * u.deg):
+                #     continue
+
+
+            xPix, yPix = wcsObj.wcs_world2pix(randomRA, randomDec, 0)
 
             x0 = xPix[0]
             y0 = yPix[0]
@@ -290,22 +306,18 @@ def _runSingleInjectionToResidual(args):
                 continue # source fell outside the image
 
             injectedCoords.append([randomRA[0], randomDec[0]])
+            injectedSizes.append([sourceMajDeg, sourceMinDeg, sourcePADeg])  # track sizes
 
             randomFlux = 10 ** rng.uniform(logMin, logMax)
 
             localY, localX = np.mgrid[yMin:yMax, xMin:xMax]
 
-            #############
-            sourceMajDeg, sourceMinDeg, sourcePADeg = sourceSizes[rng.integers(len(sourceSizes))]
-
-            extendedStamp = makeExtendedGaussian(localX, localY, x0, y0,sourceMajDeg, sourceMinDeg, sourcePADeg,hdr["BMAJ"], hdr["BMIN"], hdr["BPA"], wcsObj, randomFlux)
-
-            copyImg[yMin:yMax, xMin:xMax] += extendedStamp
-            ###############
-
-            # psfStamp = beam(localX - x0, localY - y0)
-
-            # copyImg[yMin:yMax, xMin:xMax] += randomFlux * psfStamp
+            if sourceMajDeg < 1e-10:
+                psfStamp = beam(localX - x0, localY - y0)
+                copyImg[yMin:yMax, xMin:xMax] += randomFlux * psfStamp
+            else:
+                extendedStamp = makeExtendedGaussian(localX, localY, x0, y0,sourceMajDeg, sourceMinDeg, sourcePADeg,hdr["BMAJ"], hdr["BMIN"], hdr["BPA"], wcsObj, randomFlux)
+                copyImg[yMin:yMax, xMin:xMax] += extendedStamp
 
             nSourcesInjected += 1
             randomRAInjected.append(float(randomRA[0]))
@@ -314,7 +326,7 @@ def _runSingleInjectionToResidual(args):
             randomSourceMajDegInjected.append(float(sourceMajDeg))
             randomSourceMinDegInjected.append(float(sourceMinDeg))
             randomSourcePADegInjected.append(float(sourcePADeg))
-            
+
         # Save the injected image
 
         updatedHeader.update(wcsObj.to_header())
@@ -342,12 +354,12 @@ def _runSingleInjectionToResidual(args):
         print("Skipping this injection and moving on...")
         return None
 
-def injectImage(imageToInjectFileName, fieldRACentre, fieldDecCentre, injectRadius, 
-                sinjectDir, imageBaseName, nInjectionSources=100, 
+def injectImage(imageToInjectFileName, fieldRACentre, fieldDecCentre, injectRadius,
+                sinjectDir, imageBaseName, nInjectionSources=100,
                 minFluxJyInj=1E-5, maxFluxJyInj=1.0, nRepetitions=100, sourceSizes=None):
     """
     Injects fake sources into the residual image and saves the injected images and the corresponding fake source catalogues.
-    
+
     Args:
         imageToInjectFileName: Name of the residual image file to inject sources into.
         fieldRACentre: Right ascension of the field centre (deg).
@@ -399,7 +411,7 @@ def injectImage(imageToInjectFileName, fieldRACentre, fieldDecCentre, injectRadi
     sigmaY = bminPix / (2.0 * np.sqrt(2 * np.log(2.0)))
 
     # Gaussian beam definition
-    beam = Gaussian2D(1.0, 0, 0, sigmaX, sigmaY, theta=np.deg2rad(bpaDeg)) 
+    beam = Gaussian2D(1.0, 0, 0, sigmaX, sigmaY, theta=np.deg2rad(bpaDeg))
 
     # Stamp cutoff: 5 * FWHM in pixels
     #rCutOff = int(5 * max(sigmaX, sigmaY)) + 1
@@ -418,9 +430,9 @@ def injectImage(imageToInjectFileName, fieldRACentre, fieldDecCentre, injectRadi
 
 def matchFakeToRecovered(fakeTab, recovTab, matchRadDeg, fluxTolerance=0.5):
     """
-    Matches the injected fake sources to the recovered sources based on their sky positions. 
+    Matches the injected fake sources to the recovered sources based on their sky positions.
     A fake source is considered recovered if there is a recovered source within matchRadDeg degrees.
-    
+
      Args:
         fakeTab: Table containing the injected fake sources with columns "RADeg_injected" and "decDeg_injected".
         recovTab: Table containing the recovered sources with columns "RA" and "DEC".
@@ -507,13 +519,13 @@ def calculateCompleteness(sInjectedCatList, pybdsfCat, imageName, sinjectDir,
         minFluxJyInj: Minimum flux density of injected sources in Jy.
         maxFluxJyInj: Maximum flux density of injected sources in Jy.
         nJyBins: Number of flux bins to use for completeness calculation.
-        
+
     Returns:
         meanFraction: Array of mean completeness values for each flux bin.
         stdFraction: Array of standard deviation of completeness for each flux bin.
         allBinCentres: Array of flux bin centre values.
     """
-    
+
 
     allFractionRecovered = []
     allBinCentres        = None
@@ -579,7 +591,7 @@ def calculateCompleteness(sInjectedCatList, pybdsfCat, imageName, sinjectDir,
         fig.savefig(plotFile, dpi=150, bbox_inches="tight")
         plt.close(fig)
 
-        # Completeness per flux bin 
+        # Completeness per flux bin
         recoveredCounts, _ = np.histogram(
             matchedFakeTab["fluxJy_injected"], bins=fluxBins
         )
@@ -631,15 +643,15 @@ def calculateCompleteness(sInjectedCatList, pybdsfCat, imageName, sinjectDir,
         for centre, mean, std in zip(allBinCentres, meanFraction, stdFraction):
             f.write(f"{centre:.6e} {mean:.6f} {std:.6f}\n")
     print("\nCompleteness data saved to %s" % completenessDataFile)
-    
+
     return meanFraction, stdFraction, allBinCentres
 
-def executeSingle(imageName, nInjectionSources=5000, nRepetitions=1, minFluxJyInj=1e-5, maxFluxJyInj=1.0, 
+def executeSingle(imageName, nInjectionSources=5000, nRepetitions=1, minFluxJyInj=1e-5, maxFluxJyInj=1.0,
                   radiusFactorToInject=0.95, outDir=None, injectUnresolvedOnly=True):
     """
     Executes the source injection and completeness analysis for a single image.
-    
-    Args:       
+
+    Args:
     - imageName: Name of the image file to process.
     - nInjectionSources: Number of sources to inject (default: 10000).
     - nRepetitions: Number of repetitions for the injection (default: 100).
@@ -682,7 +694,7 @@ def executeSingle(imageName, nInjectionSources=5000, nRepetitions=1, minFluxJyIn
         print("\nUsing existing residual image from berk products directory: %s\n" % residualFilePath)
     else:
         needExtraction = True
-            
+
     if os.path.exists(os.path.join(currentDir, rmsFileName)):
         rmsFilePath = os.path.join(currentDir, rmsFileName)
         print("\nUsing existing RMS map from current directory: %s\n" % rmsFilePath)
@@ -712,7 +724,7 @@ def executeSingle(imageName, nInjectionSources=5000, nRepetitions=1, minFluxJyIn
             print("Error during source extraction of %s: %s" % (imageName, e))
             print("Skipping this file and moving on...")
             return
-        
+
     else:
         print("\nAll necessary files found. Proceeding with injection and completeness analysis...\n")
 
@@ -770,8 +782,8 @@ def executeSingle(imageName, nInjectionSources=5000, nRepetitions=1, minFluxJyIn
         for col in sizeCols:
             valid &= np.isfinite(sizeTab[col])
 
-        valid &= (sizeTab['DC_Maj'] > 0)
-        valid &= (sizeTab['DC_Min'] > 0)
+        valid &= (sizeTab['DC_Maj'] >= 0)
+        valid &= (sizeTab['DC_Min'] >= 0)
         valid &= (sizeTab['DC_Min'] <= sizeTab['DC_Maj'])
 
         sourceSizes = np.column_stack([
@@ -831,7 +843,7 @@ def executeSingle(imageName, nInjectionSources=5000, nRepetitions=1, minFluxJyIn
 def execute(imageName=None, nInjectionSources=5000, nRepetitions=1, minFluxJyInj=1e-5, maxFluxJyInj=1.0, radiusFactorToInject=0.95, injectUnresolvedOnly=True):
     """
     Main function to execute the source injection and completeness analysis.
-    
+
     Args:
     - imageName: Name of the image file to process. If None, all '*-image.fits' files in current directory will be processed.
     - pybdsfCatFilePath: Path to the PyBDSF catalogue file. If None, it will be searched in the current directory and then in the local products directory.
@@ -845,11 +857,11 @@ def execute(imageName=None, nInjectionSources=5000, nRepetitions=1, minFluxJyInj
     - radiusFactorToInject: Factor to multiply the band radius for defining the injection area (default: 0.95).
     - injectUnresolvedOnly: If True, only unresolved sources will be injected. If False, resolved sources will be injected (default: True).
     """
-    
+
     if imageName is not None:
         executeSingle(imageName, nInjectionSources, nRepetitions, minFluxJyInj, maxFluxJyInj, radiusFactorToInject, None, injectUnresolvedOnly)
         return
-    
+
     print("No imageName provided. Searching for FITS images in current directory...\n")
 
     currentDir = os.getcwd()
@@ -858,7 +870,7 @@ def execute(imageName=None, nInjectionSources=5000, nRepetitions=1, minFluxJyInj
     if len(imageFilesInCwd) == 0:
         print("\nNo '*-image.fits' file found in current directory. Exiting.")
         return
-    
+
     print("\nFound %d image files:\n" % len(imageFilesInCwd))
 
     for imageFile in imageFilesInCwd:

@@ -264,7 +264,15 @@ def _runSingleInjectionToResidual(args):
         randomSourceMinDegInjected = []
         randomSourcePADegInjected = []
 
+        maxAttempts = nInjectionSources * 10  # maximum attempts to inject sources
+        nAttempts = 0
+
         while nSourcesInjected < nInjectionSources:
+
+            nAttempts += 1
+            if nAttempts > maxAttempts:
+                print("Warning: could only inject %d / %d sources before hitting max attempts" %(nSourcesInjected, nInjectionSources))
+                break
 
             randomRA, randomDec = crossmatch.randomPointsInCircleExactNPoints(fieldRACentre, fieldDecCentre, injectRadius, 1, rng=rng)
 
@@ -281,7 +289,7 @@ def _runSingleInjectionToResidual(args):
                 currentSize = max(sourceMajDeg, beamMajDeg)  # effective size of current source
                 prevEffSizes = np.maximum(prevSizes[:, 0], beamMajDeg)  # effective sizes of previous sources
 
-                minSeps = 2.0 * (currentSize + prevEffSizes)  # factor 2 for FWHM to full extent
+                minSeps = 5.0 * (currentSize + prevEffSizes)  # factor 2 for FWHM to full extent
 
                 if np.any(seps < minSeps):
                     continue
@@ -647,7 +655,7 @@ def calculateCompleteness(sInjectedCatList, pybdsfCat, imageName, sinjectDir,
     return meanFraction, stdFraction, allBinCentres
 
 def executeSingle(imageName, nInjectionSources=5000, nRepetitions=1, minFluxJyInj=1e-5, maxFluxJyInj=1.0,
-                  radiusFactorToInject=0.95, outDir=None, injectUnresolvedOnly=True):
+                  radiusFactorToInject=0.95, outDir=None, injectUnresolvedOnly=False):
     """
     Executes the source injection and completeness analysis for a single image.
 
@@ -659,7 +667,7 @@ def executeSingle(imageName, nInjectionSources=5000, nRepetitions=1, minFluxJyIn
     - maxFluxJyInj: Maximum flux density of injected sources in Jy (default: 1.0).
     - radiusFactorToInject: Factor to multiply the band radius for defining the injection area (default: 0.95).
     - outDir: Path to the directory to save source injection files. Default: current working directory
-    - injectUnresolvedOnly: If True, only unresolved sources will be injected. If False, resolved sources will be injected (default: True).
+    - injectUnresolvedOnly: If True, only unresolved sources will be injected. If False, resolved sources will be injected (default: False).
     """
 
     currentDir = os.getcwd()
@@ -840,7 +848,7 @@ def executeSingle(imageName, nInjectionSources=5000, nRepetitions=1, minFluxJyIn
     )
 
 
-def execute(imageName=None, nInjectionSources=5000, nRepetitions=1, minFluxJyInj=1e-5, maxFluxJyInj=1.0, radiusFactorToInject=0.95, injectUnresolvedOnly=True):
+def execute(imageName=None, nInjectionSources=5000, nRepetitions=1, minFluxJyInj=1e-5, maxFluxJyInj=1.0, radiusFactorToInject=0.95, injectUnresolvedOnly=False):
     """
     Main function to execute the source injection and completeness analysis.
 
@@ -855,7 +863,7 @@ def execute(imageName=None, nInjectionSources=5000, nRepetitions=1, minFluxJyInj
     - minFluxJyInj: Minimum flux density of injected sources in Jy (default: 1e-5).
     - maxFluxJyInj: Maximum flux density of injected sources in Jy (default: 1.0).
     - radiusFactorToInject: Factor to multiply the band radius for defining the injection area (default: 0.95).
-    - injectUnresolvedOnly: If True, only unresolved sources will be injected. If False, resolved sources will be injected (default: True).
+    - injectUnresolvedOnly: If True, only unresolved sources will be injected. If False, resolved sources will be injected (default: False).
     """
 
     if imageName is not None:

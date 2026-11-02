@@ -234,14 +234,13 @@ def processVmaxForXmatchFile(args):
     os.makedirs(zMaxDirPath, exist_ok = True)
 
     zmaxFilePath = os.path.join(zMaxDirPath, 'zmax_%s.fits' %radCatName.split('_srl_bdsfcat')[0])
-    
+
     if os.path.exists(zmaxFilePath):
         zmaxTab = atpy.Table().read(zmaxFilePath)
         return xmatchTab, zmaxTab
 
     print("\nProcessing Vmax for %s..." % xmatchFile)
 
-    
     if 'radCatName' not in xmatchTab.colnames:
         xmatchTab['radCatName'] = 'catalogs'+os.path.sep+radCatName
 
@@ -258,17 +257,17 @@ def processVmaxForXmatchFile(args):
 
     zmaxTab['LuminosityWHz_rad'] = catalogs.calculateRadioLum(zmaxTab['Total_flux_rad'].value, zmaxTab[zColName].value,
                                                               spectralIndex=0.7, cosmology=cosmologyDR)
-    
+
     # Finding effective area based on RMS area coverage curve
 
     rmsAreaFileName = radCatName.replace('_srl_bdsfcat.fits', '_rms_rmshist.txt')
     rmsAreaFile = os.path.join(DRDir, 'rms', rmsAreaFileName)
     rmsHistFromFile = np.loadtxt(rmsAreaFile)
     rmsBinsCentres, cumArea = rmsHistFromFile[:, 0], rmsHistFromFile[:, 4]
-    zmaxTab['EffectiveAreaSqDeg'] = summaryPlots.getEffectiveAreaInFluxBinsfromRMS(zmaxTab['Total_flux_rad'].value, 
+    zmaxTab['EffectiveAreaSqDeg'] = summaryPlots.getEffectiveAreaInFluxBinsfromRMS(zmaxTab['Total_flux_rad'].value,
                                                    rmsBinsCentres, cumArea, sigmaDetection=5.0)
     zmaxTab['WholeAreaSqDeg'] = np.max(cumArea)
-    
+
     DRImageRow = DRImages[DRImages['radioCatPath'] == 'catalogs/'+radCatName]
 
     if len(DRImageRow) == 0:
@@ -1260,7 +1259,7 @@ def estimateCompleteness(beginImage=0, endImage=None, nInjectionSources=5000, nR
 
     """
 
-    tabFilesList=sorted(glob.glob(os.path.join(startup.config['rootDir'], 'EDR', 'catalogs', '*_bdsfcat.fits')))
+    tabFilesList=sorted(glob.glob(os.path.join(startup.config['rootDir'], 'EDR', 'catalogs', '*srl_bdsfcat.fits')))
 
     sinjectDirPath = os.path.join(startup.config['rootDir'], 'EDR', 'sinjection')
     os.makedirs(sinjectDirPath, exist_ok = True)
@@ -1271,13 +1270,16 @@ def estimateCompleteness(beginImage=0, endImage=None, nInjectionSources=5000, nR
         selectedTabs = tabFilesList[beginImage:endImage]
 
     for tab in selectedTabs:
-        print("\n" + "═" * 50)
-        baseName = tab.split('_bdsfcat.fits')[0]
+        baseName = tab.split('_srl_bdsfcat.fits')[0]
+        print("\n" + "═" * 70)
+        print("║ Estimating completeness for %s ║" %baseName)
         sourceinjection.executeSingle(imageName=baseName,
             nInjectionSources=nInjectionSources,
             nRepetitions=nRepetitions,
             minFluxJyInj=minFluxJyInj,
             maxFluxJyInj=maxFluxJyInj,
             radiusFactorToInject=radiusFactorToInject,
-            outDir=sinjectDirPath)
+            outDir=sinjectDirPath,
+            injectUnresolvedOnly=False)
+        print("\n" + "═" * 70)
 

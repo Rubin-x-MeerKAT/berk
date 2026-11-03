@@ -273,15 +273,17 @@ def processVmaxForXmatchFile(args):
     if len(DRImageRow) == 0:
         return None, None
 
-    completenessFilePath = os.path.join(startup.config['productsDir'], 'completeness', 'completeness_%s.txt' %(radCatName.split('_srl_bdsfcat')[0]))
-    if os.path.exists(completenessFilePath):
-        completenessTab = atpy.Table.read(completenessFilePath, format='ascii')
-        completenessFluxJy = completenessTab['FluxBinCentre_Jy']
-        completenessVal = completenessTab['MeanCompleteness']
-        completenessSources = np.interp(zmaxTab['Total_flux_rad'], completenessFluxJy, completenessVal)
-        zmaxTab['completeness_rad'] = completenessSources
-    else:
-        zmaxTab['completeness_rad'] = -99 # undefined completeness
+    # Radio completeness: as a function of flux density and size if the 2D completeness is available,
+    # otherwise as a function of flux density only
+    radCatBaseName = radCatName.split('_srl_bdsfcat')[0]
+    completenessDir = _findSourceInjectionDir(os.path.join(DRDir, 'sinjection'), radCatBaseName)
+    sizeMajArcsec = _getSizeArcsec(zmaxTab, [('DC_Maj_rad', 3600.0), ('sizeMajAsec_rad', 1.0), ('sizeMajAsec', 1.0)])
+    completenessSources, completenessType = assignRadioCompleteness(zmaxTab['Total_flux_rad'], sizeMajArcsec,
+                                                                    completenessDir, radCatBaseName)
+    zmaxTab['completeness_rad'] = completenessSources
+    zmaxTab['completenessType_rad'] = np.int8(completenessType)   # 2: flux + size, 1: flux only, 0: not available
+    if completenessType == 0:
+        print("Radio completeness is not available for %s" % radCatName)
 
     # Calculating optical completeness
     # Given by the fraction of radio sources in a flux bin
@@ -490,6 +492,7 @@ def builddr(dataRelease='EDR', includeBands=None, includeQuality=None, removeDup
     globalTabsDict = {band: None for band in includeBands}
 
     completenessDone = False
+    completenessTypeCounts = {0: 0, 1: 0, 2: 0}
     tabFilesList=sorted(glob.glob(DRCatDir+os.path.sep+'*_bdsfcat.fits'))
     for t in tabFilesList:
 
@@ -521,17 +524,18 @@ def builddr(dataRelease='EDR', includeBands=None, includeQuality=None, removeDup
             # assigning completeness
             tabFlux = tab['Total_flux'] # in Jy
             tabBaseName = os.path.basename(t).split('_bdsfcat.fits')[0]
-            completenessFilePath = os.path.join(startup.config['productsDir'], 'completeness_resolved', 'completeness_%s.txt' %(tabBaseName))
-            if os.path.exists(completenessFilePath):
-                completenessTab = atpy.Table.read(completenessFilePath, format='ascii')
-                completenessFluxJy = completenessTab['FluxBinCentre_Jy']
-                completenessVal = completenessTab['MeanCompleteness']
-                completenessSources = np.interp(tabFlux, completenessFluxJy, completenessVal)
-                tab['completeness_rad'] = completenessSources
+            # (flux density and size if the 2D completeness is available, otherwise flux density only)
+            completenessDir = _findSourceInjectionDir(os.path.join(DRDir, 'sinjection'), tabBaseName)
+            sizeMajArcsec = _getSizeArcsec(tab, [('DC_Maj', 3600.0), ('sizeMajAsec', 1.0)])
+            completenessSources, completenessType = assignRadioCompleteness(tabFlux, sizeMajArcsec,
+                                                                            completenessDir, tabBaseName)
+            tab['completeness_rad'] = completenessSources
+            tab['completenessType_rad'] = np.int8(completenessType)   # 2: flux + size, 1: flux only, 0: not available
+            completenessTypeCounts[completenessType] += 1
+            if completenessType > 0:
                 completenessDone = True
             else:
                 print("\nCompleteness information is not available for %s." %(t))
-                tab['completeness_rad'] = -99 # undefined completeness
 
             tab.meta.clear()
             if globalTabsDict[bandKey] is None:
@@ -539,6 +543,8 @@ def builddr(dataRelease='EDR', includeBands=None, includeQuality=None, removeDup
             else:
                 globalTabsDict[bandKey]=atpy.vstack([globalTabsDict[bandKey], tab])
 
+    print("\nRadio completeness assigned using flux density and size for %d catalogues, flux density only for %d,"
+          " and not available for %d." %(completenessTypeCounts[2], completenessTypeCounts[1], completenessTypeCounts[0]))
     if completenessDone is False:
         print("\nCompleteness information is not available for some catalogues in this data release."
               " Consider running the source injection task to compute completeness,"
@@ -1254,8 +1260,155 @@ def report():
     sys.exit()
 
 #------------------------------------------------------------------------------------------------------------
-def estimateCompleteness(beginImage=0, endImage=None, nInjectionSources=5000, nRepetitions=50, minFluxJyInj=1e-5, maxFluxJyInj=1.0, radiusFactorToInject=0.95):
-    """Estimate completeness...
+def _getSizeArcsec(tab, candidates):
+    """Returns the deconvolved major-axis size of each source in arcsec, or None if no usable column exists.
+
+    Args:
+        tab (astropy.table.Table): Table with the radio sources.
+        candidates (list of tuple): (column name, factor that converts the column to arcsec), in order of preference.
+
+    Returns:
+        numpy.ndarray or None: Size in arcsec for each row of the table (NaN where undefined).
+    """
+    for colName, toArcsec in candidates:
+        if colName in tab.colnames:
+            sizes = np.ma.filled(np.ma.asarray(tab[colName], dtype=float), np.nan)
+            return np.asarray(sizes, dtype=float) * toArcsec
+    return None
+
+#------------------------------------------------------------------------------------------------------------
+def _loadCompleteness2D(path2D):
+    """Loads a flux density x size completeness grid (written by sourceinjection) and builds an interpolator.
+
+    Cells without enough injected sources are NaN in the file; they are filled with the value of the nearest
+    valid cell. Queries outside the grid are clamped to the grid edge (as np.interp does for the 1D curve).
+
+    Returns:
+        dict with the interpolator and grid limits, or None if the grid has no valid cell.
+    """
+    from scipy.interpolate import RegularGridInterpolator
+    from scipy.ndimage import distance_transform_edt
+
+    with np.load(path2D) as grid:
+        fluxEdges = np.asarray(grid['fluxEdgesJy'], dtype=float)
+        sizeEdges = np.asarray(grid['sizeEdgesArcsec'], dtype=float)
+        comp = np.array(grid['completeness'], dtype=float)
+        spacing = str(grid['sizeSpacing']) if 'sizeSpacing' in grid.files else None
+
+    if spacing is None:   # older files: infer the spacing of the size axis
+        steps = np.diff(sizeEdges)
+        spacing = 'linear' if np.allclose(steps, steps[0]) else 'log'
+    logSize = (spacing == 'log')
+
+    fluxCen = np.sqrt(fluxEdges[:-1] * fluxEdges[1:])
+    sizeCen = np.sqrt(sizeEdges[:-1] * sizeEdges[1:]) if logSize else 0.5 * (sizeEdges[:-1] + sizeEdges[1:])
+
+    valid = np.isfinite(comp)
+    if not valid.any():
+        return None
+    if not valid.all():
+        nearest = distance_transform_edt(~valid, return_distances=False, return_indices=True)
+        comp = comp[tuple(nearest)]
+
+    xFlux = np.log10(fluxCen)
+    ySize = np.log10(sizeCen) if logSize else sizeCen
+    interp = RegularGridInterpolator((xFlux, ySize), comp, method='linear', bounds_error=False, fill_value=None)
+
+    return {'interp': interp, 'logSize': logSize,
+            'xRange': (xFlux.min(), xFlux.max()), 'yRange': (ySize.min(), ySize.max())}
+
+#------------------------------------------------------------------------------------------------------------
+def _findSourceInjectionDir(sinjectRoot, baseName):
+    """Finds the source injection folder of a radio catalogue, i.e. <sinjectRoot>/sinjected_<type>_<baseName>_<N>sources_<R>reps.
+
+    Folders from injections with random sizes ('extended') are preferred over point-source-only ones
+    ('unresolved'). Only folders that contain completeness files for this catalogue are considered. If there
+    are several (e.g. runs with different numbers of sources or repetitions), the most recent one is used.
+
+    Args:
+        sinjectRoot (str): Directory with the source injection folders (e.g. <DRDir>/sinjection).
+        baseName (str): Name of the radio catalogue without suffix.
+
+    Returns:
+        str or None: Path to the folder, or None if no suitable folder exists.
+    """
+    for sourceType in ('extended', 'unresolved'):
+        pattern = os.path.join(glob.escape(sinjectRoot),
+                               'sinjected_%s_%s_*sources_*reps' % (sourceType, glob.escape(baseName)))
+        dirs = [d for d in glob.glob(pattern)
+                if os.path.exists(os.path.join(d, 'completeness_%s.txt' % baseName))
+                or os.path.exists(os.path.join(d, 'completeness2D_%s.npz' % baseName))]
+        if len(dirs) > 0:
+            dirs.sort(key=os.path.getmtime)
+            if len(dirs) > 1:
+                print("Several '%s' source injection folders found for %s; using the most recent: %s"
+                      % (sourceType, baseName, os.path.basename(dirs[-1])))
+            return dirs[-1]
+    return None
+
+#------------------------------------------------------------------------------------------------------------
+def assignRadioCompleteness(fluxJy, sizeMajAsec, completenessDir, baseName):
+    """Assigns the radio source detection completeness to each source.
+
+    If the flux density x size completeness grid (completeness2D_<baseName>.npz) exists and the sizes are
+    available, the completeness is interpolated in both flux density and deconvolved size. Otherwise the
+    1D completeness as a function of flux density (completeness_<baseName>.txt) is used.
+
+    Args:
+        fluxJy (array): Flux density of each source in Jy.
+        sizeMajAsec (array or None): Deconvolved major-axis FWHM of each source in arcsec (0 for unresolved
+            sources). None if sizes are not available.
+        completenessDir (str or None): Directory with the completeness files (None if there is none).
+        baseName (str): Name of the radio catalogue without suffix (as used in the completeness file names).
+
+    Returns:
+        tuple: (completeness, completenessType). completeness is an array (-99 if no completeness information
+            is available). completenessType is 2 for flux + size, 1 for flux only and 0 if not available.
+    """
+
+    fluxJy = np.asarray(fluxJy, dtype=float)
+    if completenessDir is None:
+        return np.full(len(fluxJy), -99.0), 0
+    path1D = os.path.join(completenessDir, 'completeness_%s.txt' % baseName)
+    path2D = os.path.join(completenessDir, 'completeness2D_%s.npz' % baseName)
+
+    comp1D = None
+    if os.path.exists(path1D):
+        tab1D = atpy.Table.read(path1D, format='ascii')
+        comp1D = np.interp(fluxJy, np.asarray(tab1D['FluxBinCentre_Jy'], dtype=float),
+                           np.asarray(tab1D['MeanCompleteness'], dtype=float))
+
+    if sizeMajAsec is not None and os.path.exists(path2D):
+        grid = _loadCompleteness2D(path2D)
+        if grid is not None:
+            size = np.asarray(sizeMajAsec, dtype=float)
+            sizeOK = np.isfinite(size)
+            size = np.where(sizeOK, size, 0.0)
+
+            x = np.log10(np.clip(fluxJy, 1e-30, None))
+            y = np.log10(np.clip(size, 1e-3, None)) if grid['logSize'] else size   # size 0 -> smallest size bin
+            x = np.clip(x, *grid['xRange'])
+            y = np.clip(y, *grid['yRange'])
+
+            comp2D = np.full(len(fluxJy), np.nan)
+            ok = np.isfinite(fluxJy)
+            comp2D[ok] = grid['interp'](np.column_stack([x[ok], y[ok]]))
+            if comp1D is not None:   # sources without a size: flux only
+                comp2D[~sizeOK] = comp1D[~sizeOK]
+            return np.clip(comp2D, 0.0, 1.0), 2
+
+    if comp1D is not None:
+        return comp1D, 1
+
+    return np.full(len(fluxJy), -99.0), 0
+
+#------------------------------------------------------------------------------------------------------------
+def estimateCompleteness(beginImage=0, endImage=None, nInjectionSources=5000, nRepetitions=50, minFluxJyInj=1e-5, maxFluxJyInj=1.0, radiusFactorToInject=0.95,
+                         minSizeArcsec=1.0, maxSizeArcsec=60.0, minAxisRatio=0.3, crowdingFactor=5.0):
+    """Estimate completeness as a function of flux density and source size by source injection.
+
+    Sources with random deconvolved sizes (log-uniform between minSizeArcsec and maxSizeArcsec) are injected
+    into the residual image of each pointing and recovered with PyBDSF. See sourceinjection.executeSingle.
 
     """
 
@@ -1280,6 +1433,9 @@ def estimateCompleteness(beginImage=0, endImage=None, nInjectionSources=5000, nR
             maxFluxJyInj=maxFluxJyInj,
             radiusFactorToInject=radiusFactorToInject,
             outDir=sinjectDirPath,
-            injectUnresolvedOnly=False)
+            injectUnresolvedOnly=False,
+            minSizeArcsec=minSizeArcsec,
+            maxSizeArcsec=maxSizeArcsec,
+            minAxisRatio=minAxisRatio,
+            crowdingFactor=crowdingFactor)
         print("\n" + "═" * 70)
-

@@ -11,6 +11,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib.ticker as ticker
 import copy
+import warnings
 import astropy.io.fits as fits
 from astropy.wcs import WCS
 from astropy.table import Table, hstack
@@ -199,6 +200,43 @@ def makeExtendedGaussian(localX, localY, x0, y0, sourceMajDeg, sourceMinDeg, sou
 
     return peakJyBeam * np.exp(-0.5 * exponent)
 
+ARCSEC_TO_DEG = 1.0 / 3600.0
+
+def drawRandomSourceSize(rng, sizeCfg):
+    """
+    Draws the intrinsic (deconvolved) size of one injected source.
+
+    Args:
+        rng: numpy random Generator.
+        sizeCfg: None for a point source, otherwise a dict with the keys
+            - minSizeArcsec, maxSizeArcsec: range of the deconvolved major-axis FWHM (arcsec).
+            - spacing: 'log' (default, uniform in log10) or 'linear'.
+            - minAxisRatio: the minor/major axis ratio is drawn uniformly in [minAxisRatio, 1].
+            The position angle is drawn uniformly in [0, 180) degrees.
+
+    Returns:
+        (major axis FWHM [deg], minor axis FWHM [deg], position angle [deg])
+    """
+    if sizeCfg is None:
+        return 0.0, 0.0, 0.0
+
+    lo, hi = sizeCfg['minSizeArcsec'], sizeCfg['maxSizeArcsec']
+    if sizeCfg.get('spacing', 'log') == 'log':
+        majArcsec = 10 ** rng.uniform(np.log10(lo), np.log10(hi))
+    else:
+        majArcsec = rng.uniform(lo, hi)
+    axisRatio = rng.uniform(sizeCfg.get('minAxisRatio', 0.3), 1.0)
+    paDeg = rng.uniform(0.0, 180.0)
+
+    return majArcsec * ARCSEC_TO_DEG, majArcsec * axisRatio * ARCSEC_TO_DEG, paDeg
+
+def _sizeBinEdges(sizeCfg, nSizeBins):
+    """Bin edges (arcsec) for the size axis of the 2D completeness grid."""
+    lo, hi = sizeCfg['minSizeArcsec'], sizeCfg['maxSizeArcsec']
+    if sizeCfg.get('spacing', 'log') == 'log':
+        return np.logspace(np.log10(lo), np.log10(hi), nSizeBins + 1)
+    return np.linspace(lo, hi, nSizeBins + 1)
+
 def _runSingleInjectionToResidual(args):
     """
     Runs a single injection of fake sources to the residual image and saves the injected image and the corresponding fake source catalogue.
@@ -224,7 +262,7 @@ def _runSingleInjectionToResidual(args):
     (rep, img, hdr, beam, nInjectionSources,
      fieldRACentre, fieldDecCentre,
      injectRadius, minFluxJyInj, maxFluxJyInj,
-     sinjectDir, imageBaseName, rCutOff, sourceSizes) = args
+     sinjectDir, imageBaseName, rCutOff, sizeCfg, crowdingFactor) = args
 
     rng = np.random.default_rng(seed=rep)
 
@@ -250,10 +288,11 @@ def _runSingleInjectionToResidual(args):
 
         logMin = np.log10(minFluxJyInj)
         logMax = np.log10(maxFluxJyInj)
+        beamMajDeg = max(hdr["BMAJ"], hdr["BMIN"])
 
         # to keep track of previously injected sources to avoid crowding
         injectedCoords = []
-        injectedSizes = []
+        injectedObsFwhmDeg = []   # observed (beam-convolved) FWHM of each injected source
 
         nSourcesInjected = 0
 
@@ -276,29 +315,22 @@ def _runSingleInjectionToResidual(args):
 
             randomRA, randomDec = crossmatch.randomPointsInCircleExactNPoints(fieldRACentre, fieldDecCentre, injectRadius, 1, rng=rng)
 
-            sourceMajDeg, sourceMinDeg, sourcePADeg = sourceSizes[rng.integers(len(sourceSizes))]
+            # Random intrinsic (deconvolved) size of this source, drawn from the configured range
+            sourceMajDeg, sourceMinDeg, sourcePADeg = drawRandomSourceSize(rng, sizeCfg)
+            obsFwhmDeg = float(np.hypot(beamMajDeg, sourceMajDeg))   # observed major-axis FWHM
 
-            randPostCoord = SkyCoord(ra=randomRA[0]*u.deg, dec=randomDec[0]*u.deg)
+            # Minimum separation to the sources injected so far. It scales with the observed
+            # size of both sources: crowdingFactor * (FWHM_i + FWHM_j) / 2, so that two point
+            # sources are separated by crowdingFactor beams. (Flat-sky approximation.)
             if len(injectedCoords) > 0:
-                prevCoords = SkyCoord(ra=np.array(injectedCoords)[:,0]*u.deg,
-                dec=np.array(injectedCoords)[:,1]*u.deg)
-                prevSizes = np.array(injectedSizes)
-                seps = randPostCoord.separation(prevCoords).deg
-
-                beamMajDeg = max(hdr["BMAJ"], hdr["BMIN"])
-                currentSize = max(sourceMajDeg, beamMajDeg)  # effective size of current source
-                prevEffSizes = np.maximum(prevSizes[:, 0], beamMajDeg)  # effective sizes of previous sources
-
-                minSeps = 5.0 * (currentSize + prevEffSizes)  # factor 2 for FWHM to full extent
-
+                prev = np.asarray(injectedCoords)
+                dRA = (prev[:, 0] - randomRA[0] + 180.0) % 360.0 - 180.0
+                dRA = dRA * np.cos(np.deg2rad(randomDec[0]))
+                dDec = prev[:, 1] - randomDec[0]
+                seps = np.hypot(dRA, dDec)
+                minSeps = crowdingFactor * 0.5 * (obsFwhmDeg + np.asarray(injectedObsFwhmDeg))
                 if np.any(seps < minSeps):
                     continue
-
-
-                # 5 times the the beam size
-                # if seps.min() < (5 * max(hdr["BMAJ"], hdr["BMIN"]) * u.deg):
-                #     continue
-
 
             xPix, yPix = wcsObj.wcs_world2pix(randomRA, randomDec, 0)
 
@@ -314,7 +346,7 @@ def _runSingleInjectionToResidual(args):
                 continue # source fell outside the image
 
             injectedCoords.append([randomRA[0], randomDec[0]])
-            injectedSizes.append([sourceMajDeg, sourceMinDeg, sourcePADeg])  # track sizes
+            injectedObsFwhmDeg.append(obsFwhmDeg)
 
             randomFlux = 10 ** rng.uniform(logMin, logMax)
 
@@ -364,7 +396,7 @@ def _runSingleInjectionToResidual(args):
 
 def injectImage(imageToInjectFileName, fieldRACentre, fieldDecCentre, injectRadius,
                 sinjectDir, imageBaseName, nInjectionSources=100,
-                minFluxJyInj=1E-5, maxFluxJyInj=1.0, nRepetitions=100, sourceSizes=None):
+                minFluxJyInj=1E-5, maxFluxJyInj=1.0, nRepetitions=100, sizeCfg=None, crowdingFactor=5.0):
     """
     Injects fake sources into the residual image and saves the injected images and the corresponding fake source catalogues.
 
@@ -400,8 +432,8 @@ def injectImage(imageToInjectFileName, fieldRACentre, fieldDecCentre, injectRadi
     bminDeg = hdr["BMIN"]     # Beam minor axis (deg)
     bpaDeg  = hdr["BPA"]      # Beam position angle (deg)
     pixelScale = min(abs(hdr["CDELT1"]), abs(hdr["CDELT2"]))
-    if sourceSizes is not None and len(sourceSizes) > 0:
-        maxSourceMajDeg = np.max(sourceSizes[:, 0])
+    if sizeCfg is not None:
+        maxSourceMajDeg = sizeCfg['maxSizeArcsec'] * ARCSEC_TO_DEG
     else:
         maxSourceMajDeg = 0.0
     maxObservedFwhmDeg = np.sqrt(bmajDeg**2 + maxSourceMajDeg**2)
@@ -426,7 +458,7 @@ def injectImage(imageToInjectFileName, fieldRACentre, fieldDecCentre, injectRadi
 
     argsList = [
         (rep, img, hdr, beam, nInjectionSources, fieldRACentre, fieldDecCentre, injectRadius,
-         minFluxJyInj, maxFluxJyInj, sinjectDir, imageBaseName, rCutOff, sourceSizes)
+         minFluxJyInj, maxFluxJyInj, sinjectDir, imageBaseName, rCutOff, sizeCfg, crowdingFactor)
         for rep in range(nRepetitions)
     ]
 
@@ -463,7 +495,7 @@ def matchFakeToRecovered(fakeTab, recovTab, matchRadDeg, fluxTolerance=0.5):
     idx, sep2d, _ = catFake.match_to_catalog_sky(catRecov)
 
     # Position match
-    matchRadiusAngle = matchRadDeg * u.deg
+    matchRadiusAngle = np.asarray(matchRadDeg, dtype=float) * u.deg   # scalar or one value per fake source
     withinRadius = sep2d < matchRadiusAngle
 
     # Flux match
@@ -516,9 +548,17 @@ def getBeamParamsFromFits(fitsFile):
     return bmaj, bmin
 
 def calculateCompleteness(sInjectedCatList, pybdsfCat, imageName, sinjectDir,
-                        minFluxJyInj, maxFluxJyInj, nJyBins=30):
+                          minFluxJyInj, maxFluxJyInj, nJyBins=30, sizeCfg=None,
+                          nFluxBins2D=40, nSizeBins=15, minCountPerCell=10,
+                          nSizeGroups=4, sizePlotFluxRangesJy=None,
+                          matchRadiusScalesWithSize=True):
     """
-    Calculates the completeness (fraction of injected sources recovered) as a function of flux density, and also the flux recovery ratio.
+    Calculates the completeness (fraction of injected sources recovered) as a function of flux density
+    and, if sources with random sizes were injected, also as a function of source size.
+
+    Note that when sizes are random the 1D completeness vs flux density is averaged over the injected
+    size distribution, so it depends on the chosen size range.
+
     Args:
         sInjectedCatList: List of file paths to the PyBDSF catalogues of the injected images.
         pybdsfCat: The PyBDSF catalogue of the original image (without injections).
@@ -526,7 +566,17 @@ def calculateCompleteness(sInjectedCatList, pybdsfCat, imageName, sinjectDir,
         sinjectDir: Directory where the injection results are stored (used for saving plots).
         minFluxJyInj: Minimum flux density of injected sources in Jy.
         maxFluxJyInj: Maximum flux density of injected sources in Jy.
-        nJyBins: Number of flux bins to use for completeness calculation.
+        nJyBins: Number of flux bins to use for the 1D completeness curve.
+        sizeCfg: Size configuration used for the injection (None for point sources). If given, the 2D
+            (flux density x size) completeness is also computed and plotted.
+        nFluxBins2D, nSizeBins: Number of flux and size bins of the 2D grid.
+        minCountPerCell: Cells of the 2D grid with fewer injected sources (summed over all repetitions) are masked.
+        nSizeGroups: Number of size groups for the "completeness vs flux density in size bins" plot.
+        sizePlotFluxRangesJy: List of (min, max) flux ranges in Jy for the "completeness vs size" plot.
+            Default: four octaves starting at half the flux density where the size-averaged completeness reaches 50%.
+        matchRadiusScalesWithSize: If True, the radius for matching an injected to a recovered source is
+            max(beam major axis, 0.5 * observed FWHM of the injected source), so that large sources whose fitted
+            centroid is offset from the injected position are not counted as missed. Unchanged for point sources.
 
     Returns:
         meanFraction: Array of mean completeness values for each flux bin.
@@ -534,13 +584,31 @@ def calculateCompleteness(sInjectedCatList, pybdsfCat, imageName, sinjectDir,
         allBinCentres: Array of flux bin centre values.
     """
 
-
     allFractionRecovered = []
     allBinCentres        = None
 
     fluxBins    = np.logspace(np.log10(minFluxJyInj), np.log10(maxFluxJyInj), nJyBins + 1)
     binCentres  = np.sqrt(fluxBins[:-1] * fluxBins[1:])
     allBinCentres = binCentres
+
+    # 2D (flux density x size) bookkeeping, one array per injection run
+    allInj2D, allRec2D = [], []
+    fluxEdges2D = sizeEdges = None
+    if sizeCfg is not None:
+        fluxEdges2D = np.logspace(np.log10(minFluxJyInj), np.log10(maxFluxJyInj), nFluxBins2D + 1)
+        sizeEdges = _sizeBinEdges(sizeCfg, nSizeBins)
+    beamMajArcsec = None
+
+    def accumulate2D(fakeTab, recoveredMask):
+        if sizeCfg is None:
+            return
+        fluxInj = np.asarray(fakeTab["fluxJy_injected"], dtype=float)
+        sizeInj = np.asarray(fakeTab["sourceMajDeg_injected"], dtype=float) * 3600.0   # arcsec
+        nInj, _, _ = np.histogram2d(fluxInj, sizeInj, bins=[fluxEdges2D, sizeEdges])
+        nRec, _, _ = np.histogram2d(fluxInj[recoveredMask], sizeInj[recoveredMask],
+                                    bins=[fluxEdges2D, sizeEdges])
+        allInj2D.append(nInj)
+        allRec2D.append(nRec)
 
     for catIdx, sInjectedCatFile in enumerate(sInjectedCatList):
 
@@ -560,6 +628,7 @@ def calculateCompleteness(sInjectedCatList, pybdsfCat, imageName, sinjectDir,
         if len(recovTab) == 0:
             print("No sources recovered by PyBDSF - skipping.")
             allFractionRecovered.append(np.zeros(nJyBins))
+            accumulate2D(fakeTab, np.zeros(len(fakeTab), dtype=bool))
             continue
 
         try:
@@ -567,9 +636,13 @@ def calculateCompleteness(sInjectedCatList, pybdsfCat, imageName, sinjectDir,
         except ValueError as e:
             print("Error: %s - skipping." % e)
             continue
+        beamMajArcsec = beamMajor * 3600.0
 
         # in case we want to inject sources to an inner area of the image #TODO
         matchRadDeg = max(beamMajor, beamMinor)
+        if matchRadiusScalesWithSize:
+            obsFwhmDeg = np.hypot(beamMajor, np.asarray(fakeTab["sourceMajDeg_injected"], dtype=float))
+            matchRadDeg = np.maximum(matchRadDeg, 0.5 * obsFwhmDeg)   # one radius per fake source
 
         # injectedRecoveredMask : boolean mask for the injected source table that were recovered by PyBDSF
         # matchedFakeTab : subset of the injected source table that were recovered by PyBDSF
@@ -577,6 +650,8 @@ def calculateCompleteness(sInjectedCatList, pybdsfCat, imageName, sinjectDir,
 
         nRecovered = injectedRecoveredMask.sum()
         print("%d / %d injected fake sources recovered" % (nRecovered, len(fakeTab)))
+
+        accumulate2D(fakeTab, injectedRecoveredMask)
 
         # Sky plot: injected but NOT recovered
         brightMask = fakeTab["fluxJy_injected"] > 1e-2   # Jy
@@ -636,7 +711,11 @@ def calculateCompleteness(sInjectedCatList, pybdsfCat, imageName, sinjectDir,
     ax.set_ylim(-0.05, 1.15)
     ax.set_xlabel("Flux density S / Jy", fontsize=13)
     ax.set_ylabel("Completeness  (recovered / injected)", fontsize=13)
-    ax.set_title(os.path.basename(imageName), fontsize=10)
+    title = os.path.basename(imageName)
+    if sizeCfg is not None:
+        title += "\n(averaged over sizes %s-uniform in %.1f-%.1f arcsec)" % (
+            sizeCfg.get('spacing', 'log'), sizeCfg['minSizeArcsec'], sizeCfg['maxSizeArcsec'])
+    ax.set_title(title, fontsize=10)
     ax.xaxis.set_major_formatter(ticker.LogFormatterSciNotation())
     plotName = os.path.join(sinjectDir, "complPlot_%s.png" %os.path.basename(imageName))
     print(plotName)
@@ -652,10 +731,164 @@ def calculateCompleteness(sInjectedCatList, pybdsfCat, imageName, sinjectDir,
             f.write(f"{centre:.6e} {mean:.6f} {std:.6f}\n")
     print("\nCompleteness data saved to %s" % completenessDataFile)
 
+    if sizeCfg is not None and len(allInj2D) > 0:
+        analyse2DCompleteness(allInj2D, allRec2D, fluxEdges2D, sizeEdges, sizeCfg, imageName, sinjectDir,
+                              beamMajArcsec=beamMajArcsec, minCountPerCell=minCountPerCell,
+                              nSizeGroups=nSizeGroups, sizePlotFluxRangesJy=sizePlotFluxRangesJy)
+
     return meanFraction, stdFraction, allBinCentres
 
+def analyse2DCompleteness(allInj2D, allRec2D, fluxEdges, sizeEdges, sizeCfg, imageName, sinjectDir,
+                          beamMajArcsec=None, minCountPerCell=10, nSizeGroups=4, sizePlotFluxRangesJy=None):
+    """
+    Completeness as a function of flux density and source size.
+
+    Saves (i) the 2D grid (.npz and a plain text table), (ii) a heatmap of completeness in the flux density -
+    size plane, (iii) completeness vs flux density in groups of source size and (iv) completeness vs size in
+    ranges of flux density.
+
+    Args:
+        allInj2D, allRec2D: Lists with one (nFluxBins, nSizeBins) array per injection run, with the number of
+            injected and recovered sources.
+        fluxEdges, sizeEdges: Bin edges of the grid (flux density in Jy, deconvolved major-axis FWHM in arcsec).
+        sizeCfg: Size configuration used for the injection.
+        beamMajArcsec: Beam major axis in arcsec. If given, a second y axis shows the size in units of the beam.
+        minCountPerCell: Cells with fewer injected sources (summed over runs) are masked in the heatmap.
+        nSizeGroups: Number of size groups for plot (iii).
+        sizePlotFluxRangesJy: List of (min, max) flux ranges (Jy) for plot (iv). Default: four octaves starting
+            at half the flux density where the size-averaged completeness reaches 50%.
+    """
+
+    inj = np.asarray(allInj2D)      # (nRuns, nFlux, nSize)
+    rec = np.asarray(allRec2D)
+    logSize = sizeCfg.get('spacing', 'log') == 'log'
+
+    fluxCen = np.sqrt(fluxEdges[:-1] * fluxEdges[1:])
+    sizeCen = np.sqrt(sizeEdges[:-1] * sizeEdges[1:]) if logSize else 0.5 * (sizeEdges[:-1] + sizeEdges[1:])
+
+    # Pooled completeness (sum over runs): more stable than averaging per-run fractions in sparse cells
+    injTot, recTot = inj.sum(axis=0), rec.sum(axis=0)
+    comp = np.full(injTot.shape, np.nan)
+    good = injTot >= minCountPerCell
+    comp[good] = recTot[good] / injTot[good]
+    compMasked = np.ma.masked_invalid(comp)
+
+    baseName = os.path.basename(imageName)
+
+    # ---- save the grid
+    npzFile = os.path.join(sinjectDir, "completeness2D_%s.npz" % baseName)
+    np.savez(npzFile, fluxEdgesJy=fluxEdges, sizeEdgesArcsec=sizeEdges, nInjected=injTot,
+             nRecovered=recTot, completeness=comp)
+    txtFile = os.path.join(sinjectDir, "completeness2D_%s.txt" % baseName)
+    with open(txtFile, "w") as f:
+        f.write("# FluxCentre_Jy  SizeCentre_arcsec(deconvolved major FWHM)  N_injected  N_recovered  Completeness\n")
+        for i in range(len(fluxCen)):
+            for j in range(len(sizeCen)):
+                f.write("%.6e %.4f %d %d %.6f\n" % (fluxCen[i], sizeCen[j], injTot[i, j], recTot[i, j], comp[i, j]))
+    print("\n2D completeness saved to %s and %s" % (npzFile, txtFile))
+
+    def meanStd(numer, denom):
+        """Mean and scatter over runs of the per-run completeness numer/denom; arrays (nRuns, nBins)."""
+        with np.errstate(invalid="ignore", divide="ignore"):
+            frac = np.where(denom > 0, numer / denom, np.nan)
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", RuntimeWarning)
+            return np.nanmean(frac, axis=0), np.nanstd(frac, axis=0)
+
+    # ---- (ii) heatmap
+    fig, ax = plt.subplots(figsize=(8.5, 6.5))
+    pcm = ax.pcolormesh(fluxEdges, sizeEdges, compMasked.T, cmap="viridis", vmin=0.0, vmax=1.0,
+                        shading="flat")
+    cbar = fig.colorbar(pcm, ax=ax, pad=0.14)
+    cbar.set_label("Completeness  (recovered / injected)", fontsize=12)
+    try:
+        cs = ax.contour(fluxCen, sizeCen, compMasked.T, levels=[0.5, 0.9], colors=["w", "k"], linewidths=1.3)
+        ax.clabel(cs, fmt="%.1f", fontsize=9)
+    except Exception as e:
+        print("Could not draw completeness contours: %s" % e)
+    ax.set_xscale("log")
+    if logSize:
+        ax.set_yscale("log")
+    ax.set_xlabel("Injected flux density S / Jy", fontsize=13)
+    ax.set_ylabel("Deconvolved major axis (FWHM) / arcsec", fontsize=13)
+    ax.set_title(baseName, fontsize=10)
+    if beamMajArcsec is not None and beamMajArcsec > 0:
+        secAx = ax.secondary_yaxis("right", functions=(lambda x: x / beamMajArcsec,
+                                                       lambda x: x * beamMajArcsec))
+        secAx.set_ylabel(r"$\theta_{\rm maj}$ / beam major axis", fontsize=12)
+    heatName = os.path.join(sinjectDir, "complHeatmap_%s.png" % baseName)
+    fig.savefig(heatName, dpi=150, bbox_inches="tight")
+    plt.close(fig)
+    print("Completeness heatmap saved to %s" % heatName)
+
+    # ---- (iii) completeness vs flux density in groups of size
+    groups = np.array_split(np.arange(len(sizeCen)), nSizeGroups)
+    colours = plt.cm.viridis(np.linspace(0.0, 0.9, len(groups)))
+    fig, ax = plt.subplots(figsize=(8, 6))
+    for idx, col in zip(groups, colours):
+        if len(idx) == 0:
+            continue
+        mean, std = meanStd(rec[:, :, idx].sum(axis=2), inj[:, :, idx].sum(axis=2))
+        lab = "%.1f - %.1f arcsec" % (sizeEdges[idx[0]], sizeEdges[idx[-1] + 1])
+        ax.plot(fluxCen, mean, color=col, lw=2, label=lab)
+        ax.fill_between(fluxCen, mean - std, mean + std, color=col, alpha=0.2)
+    mean, std = meanStd(rec.sum(axis=2), inj.sum(axis=2))
+    ax.plot(fluxCen, mean, color="k", lw=2, ls="--", label="all sizes")
+    ax.axhline(1.0, linestyle=":", color="k", lw=1)
+    ax.set_xscale("log")
+    ax.set_ylim(-0.05, 1.1)
+    ax.set_xlabel("Injected flux density S / Jy", fontsize=13)
+    ax.set_ylabel("Completeness  (recovered / injected)", fontsize=13)
+    ax.legend(title="Deconvolved major axis", frameon=False)
+    ax.set_title(baseName, fontsize=10)
+    ax.xaxis.set_major_formatter(ticker.LogFormatterSciNotation())
+    byName = os.path.join(sinjectDir, "complVsFluxBySize_%s.png" % baseName)
+    fig.savefig(byName, dpi=150, bbox_inches="tight")
+    plt.close(fig)
+    print("Completeness vs flux density in size groups saved to %s" % byName)
+
+    # ---- (iv) completeness vs size in ranges of flux density
+    if sizePlotFluxRangesJy is None:
+        allFrac = rec.sum(axis=(0, 2)) / np.maximum(inj.sum(axis=(0, 2)), 1.0)   # size-averaged, pooled
+        above = np.where(allFrac >= 0.5)[0]
+        if len(above) == 0:
+            print("Size-averaged completeness never reaches 50%: skipping completeness vs size plot.")
+            return
+        i = above[0]
+        if i == 0 or allFrac[i] == allFrac[i - 1]:
+            f50 = fluxCen[i]
+        else:
+            lf = np.log10(fluxCen[i - 1:i + 1])
+            c0, c1 = allFrac[i - 1], allFrac[i]
+            f50 = 10 ** (lf[0] + (0.5 - c0) * (lf[1] - lf[0]) / (c1 - c0))
+        sizePlotFluxRangesJy = [(f50 * 2.0 ** k, f50 * 2.0 ** (k + 1)) for k in range(-1, 3)]
+        print("Size-averaged completeness reaches 50%% at S = %.3g Jy" % f50)
+
+    colours = plt.cm.plasma(np.linspace(0.0, 0.85, len(sizePlotFluxRangesJy)))
+    fig, ax = plt.subplots(figsize=(8, 6))
+    for (lo, hi), col in zip(sizePlotFluxRangesJy, colours):
+        sel = (fluxCen >= lo) & (fluxCen < hi)
+        if sel.sum() == 0:
+            continue
+        mean, std = meanStd(rec[:, sel, :].sum(axis=1), inj[:, sel, :].sum(axis=1))
+        ax.plot(sizeCen, mean, "-o", ms=3, color=col, lw=1.8,
+                label="%.3g - %.3g mJy" % (lo * 1e3, hi * 1e3))
+        ax.fill_between(sizeCen, mean - std, mean + std, color=col, alpha=0.2)
+    if logSize:
+        ax.set_xscale("log")
+    ax.set_ylim(-0.05, 1.1)
+    ax.set_xlabel("Deconvolved major axis (FWHM) / arcsec", fontsize=13)
+    ax.set_ylabel("Completeness  (recovered / injected)", fontsize=13)
+    ax.legend(title="Injected flux density", frameon=False)
+    ax.set_title(baseName, fontsize=10)
+    sizeName = os.path.join(sinjectDir, "complVsSize_%s.png" % baseName)
+    fig.savefig(sizeName, dpi=150, bbox_inches="tight")
+    plt.close(fig)
+    print("Completeness vs size saved to %s" % sizeName)
+
 def executeSingle(imageName, nInjectionSources=5000, nRepetitions=1, minFluxJyInj=1e-5, maxFluxJyInj=1.0,
-                  radiusFactorToInject=0.95, outDir=None, injectUnresolvedOnly=False):
+                  radiusFactorToInject=0.95, outDir=None, injectUnresolvedOnly=False,
+                  minSizeArcsec=1.0, maxSizeArcsec=60.0, minAxisRatio=0.3, crowdingFactor=5.0):
     """
     Executes the source injection and completeness analysis for a single image.
 
@@ -667,7 +900,10 @@ def executeSingle(imageName, nInjectionSources=5000, nRepetitions=1, minFluxJyIn
     - maxFluxJyInj: Maximum flux density of injected sources in Jy (default: 1.0).
     - radiusFactorToInject: Factor to multiply the band radius for defining the injection area (default: 0.95).
     - outDir: Path to the directory to save source injection files. Default: current working directory
-    - injectUnresolvedOnly: If True, only unresolved sources will be injected. If False, resolved sources will be injected (default: False).
+    - injectUnresolvedOnly: If True, only unresolved sources will be injected. If False, sources with random sizes are injected (default: False).
+    - minSizeArcsec, maxSizeArcsec: range of the injected deconvolved major-axis FWHM in arcsec; sizes are drawn log-uniformly (default: 1-60).
+    - minAxisRatio: minor/major axis ratio is drawn uniformly in [minAxisRatio, 1] (default: 0.3). The position angle is uniform in [0, 180) deg.
+    - crowdingFactor: minimum separation between injected sources in units of their mean observed FWHM (default: 5).
     """
 
     currentDir = os.getcwd()
@@ -748,7 +984,7 @@ def executeSingle(imageName, nInjectionSources=5000, nRepetitions=1, minFluxJyIn
     if injectUnresolvedOnly is True:
         sourceType = 'unresolved'
     else:
-        sourceType = 'resolved'
+        sourceType = 'extended'
 
     if outDir is None:
         outDir = os.getcwd()
@@ -779,29 +1015,14 @@ def executeSingle(imageName, nInjectionSources=5000, nRepetitions=1, minFluxJyIn
     radiusToInject = bandRadius * radiusFactorToInject
 
     if injectUnresolvedOnly is True:
-        sourceSizes = np.zeros((1, 3), dtype=float)
+        sizeCfg = None   # point sources only
     else:
-        # Getting size distribution
-        sizeCols = ['DC_Maj', 'DC_Min', 'DC_PA']
-        sizeTab = pybdsfCat[sizeCols]
-
-        valid = np.ones(len(sizeTab), dtype=bool)
-
-        for col in sizeCols:
-            valid &= np.isfinite(sizeTab[col])
-
-        valid &= (sizeTab['DC_Maj'] >= 0)
-        valid &= (sizeTab['DC_Min'] >= 0)
-        valid &= (sizeTab['DC_Min'] <= sizeTab['DC_Maj'])
-
-        sourceSizes = np.column_stack([
-            np.asarray(sizeTab['DC_Maj'][valid], dtype=float),
-            np.asarray(sizeTab['DC_Min'][valid], dtype=float),
-            np.asarray(sizeTab['DC_PA'][valid], dtype=float),
-        ])
-
-        if len(sourceSizes) == 0:
-            raise ValueError("No valid deconvolved source sizes found")
+        sizeCfg = {
+            'minSizeArcsec': minSizeArcsec,
+            'maxSizeArcsec': maxSizeArcsec,
+            'spacing': 'log',
+            'minAxisRatio': minAxisRatio,
+        }
 
     injectImage(
         residualFileName,
@@ -811,7 +1032,8 @@ def executeSingle(imageName, nInjectionSources=5000, nRepetitions=1, minFluxJyIn
         minFluxJyInj=minFluxJyInj,
         maxFluxJyInj=maxFluxJyInj,
         nRepetitions=nRepetitions,
-        sourceSizes=sourceSizes,
+        sizeCfg=sizeCfg,
+        crowdingFactor=crowdingFactor,
     )
 
     # Run PyBDSF on each injected image
@@ -845,10 +1067,12 @@ def executeSingle(imageName, nInjectionSources=5000, nRepetitions=1, minFluxJyIn
         minFluxJyInj,
         maxFluxJyInj,
         nJyBins=100,
+        sizeCfg=sizeCfg,
     )
 
 
-def execute(imageName=None, nInjectionSources=5000, nRepetitions=1, minFluxJyInj=1e-5, maxFluxJyInj=1.0, radiusFactorToInject=0.95, injectUnresolvedOnly=False):
+def execute(imageName=None, nInjectionSources=5000, nRepetitions=1, minFluxJyInj=1e-5, maxFluxJyInj=1.0, radiusFactorToInject=0.95, injectUnresolvedOnly=False,
+            minSizeArcsec=1.0, maxSizeArcsec=60.0, minAxisRatio=0.3, crowdingFactor=5.0):
     """
     Main function to execute the source injection and completeness analysis.
 
@@ -863,11 +1087,14 @@ def execute(imageName=None, nInjectionSources=5000, nRepetitions=1, minFluxJyInj
     - minFluxJyInj: Minimum flux density of injected sources in Jy (default: 1e-5).
     - maxFluxJyInj: Maximum flux density of injected sources in Jy (default: 1.0).
     - radiusFactorToInject: Factor to multiply the band radius for defining the injection area (default: 0.95).
-    - injectUnresolvedOnly: If True, only unresolved sources will be injected. If False, resolved sources will be injected (default: False).
+    - injectUnresolvedOnly: If True, only unresolved sources will be injected. If False, sources with random sizes are injected (default: False).
+    - minSizeArcsec, maxSizeArcsec: range of the injected deconvolved major-axis FWHM in arcsec; sizes are drawn log-uniformly (default: 1-60).
+    - minAxisRatio: minor/major axis ratio is drawn uniformly in [minAxisRatio, 1] (default: 0.3). The position angle is uniform in [0, 180) deg.
+    - crowdingFactor: minimum separation between injected sources in units of their mean observed FWHM (default: 5).
     """
 
     if imageName is not None:
-        executeSingle(imageName, nInjectionSources, nRepetitions, minFluxJyInj, maxFluxJyInj, radiusFactorToInject, None, injectUnresolvedOnly)
+        executeSingle(imageName, nInjectionSources, nRepetitions, minFluxJyInj, maxFluxJyInj, radiusFactorToInject, None, injectUnresolvedOnly, minSizeArcsec=minSizeArcsec, maxSizeArcsec=maxSizeArcsec, minAxisRatio=minAxisRatio, crowdingFactor=crowdingFactor)
         return
 
     print("No imageName provided. Searching for FITS images in current directory...\n")
@@ -886,7 +1113,7 @@ def execute(imageName=None, nInjectionSources=5000, nRepetitions=1, minFluxJyInj
         print("Working on %s" % imageFile)
 
         try:
-            executeSingle(imageFile, nInjectionSources, nRepetitions, minFluxJyInj, maxFluxJyInj, radiusFactorToInject, None, injectUnresolvedOnly)
+            executeSingle(imageFile, nInjectionSources, nRepetitions, minFluxJyInj, maxFluxJyInj, radiusFactorToInject, None, injectUnresolvedOnly, minSizeArcsec=minSizeArcsec, maxSizeArcsec=maxSizeArcsec, minAxisRatio=minAxisRatio, crowdingFactor=crowdingFactor)
         except Exception as e:
             print("Error processing %s: %s" % (imageFile, e))
             print("Skipping this file and moving on...\n")

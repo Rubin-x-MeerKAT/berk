@@ -10,6 +10,7 @@ import subprocess
 import glob
 import datetime
 import astropy.table as atpy
+from astropy.io import fits
 from astropy.table import Column
 from . import startup, jobs, catalogs, images,  __version__, crossmatch, summaryPlots, sourceinjection
 import shlex
@@ -281,7 +282,7 @@ def processVmaxForXmatchFile(args):
     completenessSources, completenessType = assignRadioCompleteness(zmaxTab['Total_flux_rad'], sizeMajArcsec,
                                                                     completenessDir, radCatBaseName)
     zmaxTab['completeness_rad'] = completenessSources
-    zmaxTab['completenessType_rad'] = np.int8(completenessType)   # 2: flux + size, 1: flux only, 0: not available
+    zmaxTab['completenessType_rad'] = np.int16(completenessType)   # 2: flux + size, 1: flux only, 0: not available
     if completenessType == 0:
         print("Radio completeness is not available for %s" % radCatName)
 
@@ -530,7 +531,7 @@ def builddr(dataRelease='EDR', includeBands=None, includeQuality=None, removeDup
             completenessSources, completenessType = assignRadioCompleteness(tabFlux, sizeMajArcsec,
                                                                             completenessDir, tabBaseName)
             tab['completeness_rad'] = completenessSources
-            tab['completenessType_rad'] = np.int8(completenessType)   # 2: flux + size, 1: flux only, 0: not available
+            tab['completenessType_rad'] = np.int16(completenessType)   # 2: flux + size, 1: flux only, 0: not available
             completenessTypeCounts[completenessType] += 1
             if completenessType > 0:
                 completenessDone = True
@@ -1439,3 +1440,255 @@ def estimateCompleteness(beginImage=0, endImage=None, nInjectionSources=5000, nR
             minAxisRatio=minAxisRatio,
             crowdingFactor=crowdingFactor)
         print("\n" + "═" * 70)
+
+
+#------------------------------------------------------------------------------------------------------------
+def xmatchSummary(dataRelease='EDR', optSurveyTag='DECaLSDR10', optBand='r', outFileName=None):
+    """Collects the likelihood-ratio cross-matching statistics of every cross-matched radio catalogue.
+
+    For each <DRDir>/xmatches_<optSurveyTag>/xmatch_<radio catalogue>_<optSurveyTag>_<optBand>band folder it reads
+    LR_THR, REL and COMP (the LR threshold at which reliability and completeness balance, and their values) from
+    the header of xmatchtable_bestmatches_*.fits, and Q0 from Q0_*.txt, which is stored separately and is not in
+    the header. The search radius (SEAR_RAD) and the number of radio sources with an accepted counterpart
+    (rows of the best-matches table) are also recorded.
+
+    Args:
+        dataRelease (str): Data release, default is 'EDR'.
+        optSurveyTag (str): Tag of the optical survey used in the folder names, default is 'DECaLSDR10'.
+        optBand (str): Optical band used for the cross-match, default is 'r'.
+        outFileName (str): Output file (FITS). Default: <DRDir>/xmatch_summary_<optSurveyTag>_<optBand>band.fits.
+            A CSV copy with the same name is also written.
+
+    Returns:
+        astropy.table.Table: One row per cross-matched radio catalogue.
+    """
+
+    DRDir = os.path.join(startup.config['rootDir'], dataRelease)
+    xmatchRoot = os.path.join(DRDir, 'xmatches_%s' % optSurveyTag)
+    suffix = '_%s_%sband' % (optSurveyTag, optBand)
+
+    xmatchDirs = sorted(d for d in glob.glob(os.path.join(glob.escape(xmatchRoot), 'xmatch_*' + suffix))
+                        if os.path.isdir(d))   # symlinks to the product directory are followed
+    print("\nFound %d cross-match folders in %s" % (len(xmatchDirs), xmatchRoot))
+
+    rows = []
+    for xmatchDir in xmatchDirs:
+        outSubscript = os.path.basename(xmatchDir)[len('xmatch_'):]
+        radCatName = outSubscript[:-len(suffix)] if outSubscript.endswith(suffix) else outSubscript
+
+        bestFile = os.path.join(xmatchDir, 'xmatchtable_bestmatches_%s.fits' % outSubscript)
+        q0File = os.path.join(xmatchDir, 'Q0_%s.txt' % outSubscript)
+
+        lrThr = rel = comp = searchRadArcsec = np.nan
+        nMatched = -1
+        if os.path.exists(bestFile):
+            hdr = fits.getheader(bestFile, ext=1)   # table meta is stored in the header of the binary table
+            lrThr = float(hdr.get('LR_THR', np.nan))
+            rel = float(hdr.get('REL', np.nan))
+            comp = float(hdr.get('COMP', np.nan))
+            if 'SEAR_RAD' in hdr:
+                searchRadArcsec = float(str(hdr['SEAR_RAD']).split()[0])
+            nMatched = int(hdr.get('NAXIS2', -1))
+        else:
+            print("No best-matches table in %s" % xmatchDir)
+
+        q0 = np.nan
+        if os.path.exists(q0File):
+            q0 = float(np.atleast_1d(np.loadtxt(q0File))[0])
+        else:
+            print("No Q0 file in %s" % xmatchDir)
+
+        rows.append((radCatName, lrThr, rel, comp, q0, searchRadArcsec, nMatched))
+
+    if len(rows) == 0:
+        print("\nNo cross-matched catalogues found.")
+        return None
+
+    summaryTab = atpy.Table(rows=rows, names=('radCatName', 'LR_THR', 'REL', 'COMP', 'Q0', 'SEAR_RAD_arcsec', 'nMatched'),
+                            dtype=('U200', 'f8', 'f8', 'f8', 'f8', 'f8', 'i8'))
+
+    if outFileName is None:
+        outFileName = os.path.join(DRDir, 'xmatch_summary_%s_%sband.fits' % (optSurveyTag, optBand))
+    summaryTab.write(outFileName, overwrite=True)
+    summaryTab.write(os.path.splitext(outFileName)[0] + '.csv', format='ascii.csv', overwrite=True)
+
+    print("\nWrote %s (and .csv)" % outFileName)
+    print("\n%-17s %9s %9s %9s %9s" % ('', 'min', 'median', 'max', 'N valid'))
+    for col in ('LR_THR', 'REL', 'COMP', 'Q0', 'SEAR_RAD_arcsec'):
+        vals = np.asarray(summaryTab[col], dtype=float)
+        vals = vals[np.isfinite(vals)]
+        if len(vals) > 0:
+            print("%-17s %9.3f %9.3f %9.3f %9d" % (col, vals.min(), np.median(vals), vals.max(), len(vals)))
+    nBadQ0 = int(np.sum(np.isfinite(summaryTab['Q0']) & ((summaryTab['Q0'] <= 0) | (summaryTab['Q0'] > 1))))
+    if nBadQ0 > 0:
+        print("\nWarning: Q0 is outside (0, 1] for %d catalogues. It comes from an unconstrained linear fit, so it can "
+              "leave the physical range." % nBadQ0)
+
+    return summaryTab
+
+
+#------------------------------------------------------------------------------------------------------------
+def _normaliseCatName(name):
+    """Radio catalogue name without directory and without the .fits, _srl_bdsfcat or _bdsfcat suffixes."""
+    name = os.path.basename(str(name).strip())
+    for suffix in ('.fits', '_srl_bdsfcat', '_bdsfcat'):
+        if name.endswith(suffix):
+            name = name[:-len(suffix)]
+    return name
+
+def _readCatNameList(listFile):
+    """Set of normalised catalogue names listed (one per line) in a text file; empty set if the file is missing."""
+    if not os.path.exists(listFile):
+        print("Warning: %s not found" % listFile)
+        return set()
+    with open(listFile, 'r', encoding='utf-8') as infile:
+        return set(_normaliseCatName(line.split()[0]) for line in infile if line.strip() and not line.startswith('#'))
+
+def _unitVectors(raDeg, decDeg):
+    """Cartesian unit vectors of sky positions (no RA wrapping issues)."""
+    ra, dec = np.deg2rad(raDeg), np.deg2rad(decDeg)
+    return np.column_stack([np.cos(dec) * np.cos(ra), np.cos(dec) * np.sin(ra), np.sin(dec)])
+
+#------------------------------------------------------------------------------------------------------------
+def xmatchCoverage(dataRelease='EDR', optSurveyTag='DECaLSDR10', optBand='r', radioBand='L',
+                   maxSepArcsec=30.0, maxSearchArcsec=300.0, partialMinFraction=0.01, fullFraction=0.99,
+                   nIdentified=None):
+    """Finds which unique radio sources lie outside the optical (DECaLS) coverage, fully or partially.
+
+    Coverage is decided from positions. The optical sources fetched for each pointing (the file
+    <optSurveyTag>_sources_<radio catalogue>.fits in each xmatch folder, which covers about 4 times the area
+    of the pointing) trace the optical footprint. A unique radio source is covered if the nearest optical source
+    of ANY pointing's fetch is closer than maxSepArcsec. Positions, not pointings, are used, so this handles
+    pointings that are partly covered, pointings without any optical source (listed in
+    <DR>_no_<survey>_sources.txt, which have no xmatch folder), pointings with optical sources but no
+    overlap (listed in <DR>_no_counterparts_<survey>_<band>band.txt), and overlapping pointings.
+
+    Args:
+        dataRelease (str): Data release, default is 'EDR'.
+        optSurveyTag (str): Tag of the optical survey used in file and folder names, default is 'DECaLSDR10'.
+        optBand (str): Optical band used for the cross-match, default is 'r'.
+        radioBand (str): Radio band of the survey catalogue, default is 'L'.
+        maxSepArcsec (float): A radio source is covered if an optical source lies within this distance.
+            Check the distribution of nearest-neighbour separations in the plot written by this function: inside the
+            footprint it peaks at a few arcsec, outside it grows with the distance to the footprint edge.
+        maxSearchArcsec (float): Distances are only computed up to this value (larger means 'no optical source nearby').
+        partialMinFraction, fullFraction (float): A pointing is called partially covered if the fraction of its unique
+            sources outside the coverage is between partialMinFraction and fullFraction, and not covered above that.
+        nIdentified (int): Optional number of unique radio sources with an optical counterpart, to print the
+            identification fraction among all and among covered sources.
+
+    Returns:
+        tuple: (table with one row per unique radio source, table with one row per pointing).
+    """
+    from scipy.spatial import cKDTree
+    from matplotlib.figure import Figure
+
+    DRDir = os.path.join(startup.config['rootDir'], dataRelease)
+    xmatchRoot = os.path.join(DRDir, 'xmatches_%s' % optSurveyTag)
+    suffix = '_%s_%sband' % (optSurveyTag, optBand)
+
+    uniq = atpy.Table.read(os.path.join(DRDir, 'survey_catalog_%s_unique_%s.fits' % (radioBand, dataRelease)))
+    nUniq = len(uniq)
+    uniqXYZ = _unitVectors(np.asarray(uniq['RA'], dtype=float), np.asarray(uniq['DEC'], dtype=float))
+    pointingOfSource = np.array([_normaliseCatName(pth) for pth in uniq['radCatPath']])
+
+    noSourcesList = _readCatNameList(os.path.join(DRDir, '%s_no_%s_sources.txt' % (dataRelease, optSurveyTag)))
+    noCounterpartsList = _readCatNameList(os.path.join(DRDir, '%s_no_counterparts_%s_%sband.txt'
+                                                       % (dataRelease, optSurveyTag, optBand)))
+
+    chordMax = 2.0 * np.sin(np.deg2rad(maxSearchArcsec / 3600.0) / 2.0)
+    minSepArcsec = np.full(nUniq, np.inf)
+
+    xmatchDirs = sorted(d for d in glob.glob(os.path.join(glob.escape(xmatchRoot), 'xmatch_*' + suffix))
+                        if os.path.isdir(d))
+    print("\nFound %d cross-match folders in %s" % (len(xmatchDirs), xmatchRoot))
+
+    xmatchedPointings = set()
+    for xmatchDir in xmatchDirs:
+        outSubscript = os.path.basename(xmatchDir)[len('xmatch_'):]
+        radCatName = outSubscript[:-len(suffix)] if outSubscript.endswith(suffix) else outSubscript
+        xmatchedPointings.add(_normaliseCatName(radCatName))
+
+        optFile = os.path.join(xmatchDir, '%s_sources_%s.fits' % (optSurveyTag, radCatName))
+        if not os.path.exists(optFile):
+            print("No %s sources file in %s" % (optSurveyTag, xmatchDir))
+            continue
+
+        with fits.open(optFile, memmap=True) as hdul:   # only the two position columns are read
+            optRA = np.asarray(hdul[1].data['RADeg'], dtype=float)
+            optDec = np.asarray(hdul[1].data['decDeg'], dtype=float)
+        if len(optRA) == 0:
+            continue
+
+        tree = cKDTree(_unitVectors(optRA, optDec))
+        chord, _ = tree.query(uniqXYZ, k=1, distance_upper_bound=chordMax, workers=-1)
+        found = np.isfinite(chord)
+        sepArcsec = np.full(nUniq, np.inf)
+        sepArcsec[found] = np.degrees(2.0 * np.arcsin(chord[found] / 2.0)) * 3600.0
+        minSepArcsec = np.minimum(minSepArcsec, sepArcsec)
+
+    covered = minSepArcsec <= maxSepArcsec
+
+    category = np.where(np.isin(pointingOfSource, list(noSourcesList)), 'noOpticalSources',
+               np.where(np.isin(pointingOfSource, list(noCounterpartsList)), 'noCounterparts',
+               np.where(np.isin(pointingOfSource, list(xmatchedPointings)), 'xmatched', 'notProcessed')))
+
+    # ---- per-source table
+    sourceTab = atpy.Table()
+    sourceTab['radCatPath'] = uniq['radCatPath']
+    sourceTab['RA'] = uniq['RA']
+    sourceTab['DEC'] = uniq['DEC']
+    sourceTab['minSepOptical_arcsec'] = np.where(np.isfinite(minSepArcsec), minSepArcsec, np.nan)
+    sourceTab['hasOpticalCoverage'] = covered
+    sourceTab['pointingCategory'] = category
+
+    # ---- per-pointing table
+    names, inverse = np.unique(pointingOfSource, return_inverse=True)
+    nPerPointing = np.bincount(inverse)
+    nUncPerPointing = np.bincount(inverse, weights=(~covered).astype(float)).astype(int)
+    fracUnc = nUncPerPointing / np.maximum(nPerPointing, 1)
+    catPerPointing = np.array([category[np.where(inverse == i)[0][0]] for i in range(len(names))])
+    status = np.where(fracUnc >= fullFraction, 'notCovered',
+             np.where(fracUnc >= partialMinFraction, 'partiallyCovered', 'covered'))
+    pointingTab = atpy.Table({'pointing': names, 'category': catPerPointing, 'nUniqueSources': nPerPointing,
+                              'nOutsideCoverage': nUncPerPointing, 'fractionOutsideCoverage': fracUnc,
+                              'coverageStatus': status})
+
+    outBase = os.path.join(DRDir, 'xmatch_coverage_%s_%sband' % (optSurveyTag, optBand))
+    sourceTab.write(outBase + '.fits', overwrite=True)
+    pointingTab.write(outBase + '_by_pointing.csv', format='ascii.csv', overwrite=True)
+
+    # ---- histogram of the nearest-neighbour separations (to choose maxSepArcsec)
+    fig = Figure(figsize=(7, 4.5))
+    ax = fig.subplots()
+    sepForPlot = np.where(np.isfinite(minSepArcsec), minSepArcsec, maxSearchArcsec * 1.05)
+    ax.hist(sepForPlot, bins=np.linspace(0, maxSearchArcsec * 1.05, 120), color='steelblue')
+    ax.axvline(maxSepArcsec, color='r', ls='--', label='maxSepArcsec = %.0f"' % maxSepArcsec)
+    ax.set_yscale('log')
+    ax.set_xlabel('Distance to the nearest %s source / arcsec (last bin: none within %.0f")' % (optSurveyTag, maxSearchArcsec))
+    ax.set_ylabel('Number of unique radio sources')
+    ax.legend(frameon=False)
+    fig.savefig(outBase + '_nnsep.png', dpi=150, bbox_inches='tight')
+
+    # ---- report
+    nUnc = int((~covered).sum())
+    print("\nUnique radio sources                       : %d" % nUniq)
+    print("  with %s coverage                    : %d (%.1f%%)" % (optSurveyTag, nUniq - nUnc, 100.0 * (nUniq - nUnc) / nUniq))
+    print("  outside the coverage                     : %d (%.1f%%)" % (nUnc, 100.0 * nUnc / nUniq))
+    print("\n%-17s %9s %9s %9s %9s" % ('pointing group', 'pointings', 'sources', 'outside', 'covered'))
+    for cat in ('noOpticalSources', 'noCounterparts', 'xmatched', 'notProcessed'):
+        inCat = category == cat
+        if inCat.any():
+            print("%-17s %9d %9d %9d %9d" % (cat, int((catPerPointing == cat).sum()), int(inCat.sum()),
+                                             int((inCat & ~covered).sum()), int((inCat & covered).sum())))
+    print("\nPointings by coverage (fraction of their unique sources outside the coverage; partial: %.2f-%.2f):"
+          % (partialMinFraction, fullFraction))
+    for st in ('notCovered', 'partiallyCovered', 'covered'):
+        print("  %-17s %d" % (st, int((status == st).sum())))
+    if nIdentified is not None:
+        print("\nIdentified sources: %d -> fraction of all unique sources %.1f%%, of covered sources %.1f%%"
+              % (nIdentified, 100.0 * nIdentified / nUniq, 100.0 * nIdentified / max(nUniq - nUnc, 1)))
+    print("\nWrote %s.fits, %s_by_pointing.csv and %s_nnsep.png" % (outBase, outBase, outBase))
+    print("Check the histogram: the threshold should separate the peak of covered sources from the outside tail.")
+
+    return sourceTab, pointingTab

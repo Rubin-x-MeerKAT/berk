@@ -512,7 +512,7 @@ def builddr(dataRelease='EDR', includeBands=None, includeQuality=None, removeDup
             bminCatDeg = float(tab.meta['BMIN']) # in degrees
             tab['beamMajDeg'] = bmajCatDeg
             tab['beamMinDeg'] = bminCatDeg
-            resolved = (tab['Maj'] - bmajCatDeg) >= 2 * tab['E_Maj'] # Eq. 6 Heywood et al. 2021
+            resolved = (tab['Maj'] - bmajCatDeg) >= 2 * tab['E_Maj'] # Eq. 6 Heywood et al. 2022
             tab['resolvedFlag_axes'] = resolved.astype(int)
             # Size calculation
             tab['sizeMajAsec'] = np.sqrt(np.clip(tab['Maj']**2 - tab['beamMajDeg']**2, 0, None)) * 3600
@@ -521,7 +521,7 @@ def builddr(dataRelease='EDR', includeBands=None, includeQuality=None, removeDup
             # assigning completeness
             tabFlux = tab['Total_flux'] # in Jy
             tabBaseName = os.path.basename(t).split('_bdsfcat.fits')[0]
-            completenessFilePath = os.path.join(startup.config['productsDir'], 'completeness', 'completeness_%s.txt' %(tabBaseName))
+            completenessFilePath = os.path.join(startup.config['productsDir'], 'completeness_resolved', 'completeness_%s.txt' %(tabBaseName))
             if os.path.exists(completenessFilePath):
                 completenessTab = atpy.Table.read(completenessFilePath, format='ascii')
                 completenessFluxJy = completenessTab['FluxBinCentre_Jy']
@@ -682,7 +682,7 @@ def builddb():
             bminCatDeg = float(tab.meta['BMIN']) # in degrees
             tab['beamMajDeg'] = bmajCatDeg
             tab['beamMinDeg'] = bminCatDeg
-            resolved = (tab['Maj'] - float(bmajCatDeg)) >= 2 * tab['E_Maj'] # Eq. 6 Heywood et al. 2021
+            resolved = (tab['Maj'] - float(bmajCatDeg)) >= 2 * tab['E_Maj'] # Eq. 6 Heywood et al. 2022
             tab['resolvedFlag_axes'] = resolved.astype(int)
 
             #tab.meta=None # It'd be good to clear this... but the catalog matching stuff wants many things from here

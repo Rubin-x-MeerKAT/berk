@@ -1405,7 +1405,7 @@ def assignRadioCompleteness(fluxJy, sizeMajAsec, completenessDir, baseName):
 
 #------------------------------------------------------------------------------------------------------------
 def estimateCompleteness(beginImage=0, endImage=None, nInjectionSources=5000, nRepetitions=50, minFluxJyInj=1e-5, maxFluxJyInj=1.0, radiusFactorToInject=0.95,
-                         minSizeArcsec=1.0, maxSizeArcsec=60.0, minAxisRatio=0.3, crowdingFactor=5.0):
+                         minSizeArcsec=1.0, maxSizeArcsec=60.0, minAxisRatio=0.3, crowdingFactor=5.0, sinjectionDirName='sinjection'):
     """Estimate completeness as a function of flux density and source size by source injection.
 
     Sources with random deconvolved sizes (log-uniform between minSizeArcsec and maxSizeArcsec) are injected
@@ -1415,7 +1415,7 @@ def estimateCompleteness(beginImage=0, endImage=None, nInjectionSources=5000, nR
 
     tabFilesList=sorted(glob.glob(os.path.join(startup.config['rootDir'], 'EDR', 'catalogs', '*srl_bdsfcat.fits')))
 
-    sinjectDirPath = os.path.join(startup.config['rootDir'], 'EDR', 'sinjection')
+    sinjectDirPath = os.path.join(startup.config['rootDir'], 'EDR', sinjectionDirName)
     os.makedirs(sinjectDirPath, exist_ok = True)
 
     if endImage is None:

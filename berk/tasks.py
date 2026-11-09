@@ -1404,6 +1404,101 @@ def assignRadioCompleteness(fluxJy, sizeMajAsec, completenessDir, baseName):
     return np.full(len(fluxJy), -99.0), 0
 
 #------------------------------------------------------------------------------------------------------------
+def _fitsImageIsComplete(path):
+    """True if the FITS image exists and is not truncated, i.e. the file holds all the data its header declares."""
+    if not os.path.exists(path) or os.path.getsize(path) == 0:
+        return False
+    try:
+        with fits.open(path, memmap=True) as hdul:
+            hdu = hdul[0]
+            hdr = hdu.header
+            nBytes = abs(hdr['BITPIX']) // 8 * int(np.prod([hdr['NAXIS%d' % k] for k in range(1, hdr['NAXIS'] + 1)]))
+            return os.path.getsize(path) >= hdu._data_offset + nBytes
+    except Exception:
+        return False
+
+#------------------------------------------------------------------------------------------------------------
+def _findEDRImage(baseName):
+    """Finds the radio image of an EDR pointing in <rootDir>/EDR/images, given the name of its PyBDSF catalogue
+    (without the _srl_bdsfcat.fits suffix)."""
+    imageDir = os.path.join(startup.config['rootDir'], 'EDR', 'images')
+    matches = sorted(glob.glob(os.path.join(glob.escape(imageDir), glob.escape(baseName) + '.*image.fits')))
+    if len(matches) == 0:
+        matches = sorted(glob.glob(os.path.join(glob.escape(imageDir), glob.escape(baseName) + '*image.fits')))
+    if len(matches) != 1:
+        raise FileNotFoundError("Expected one image matching '%s*image.fits' in %s, found %d: %s"
+                                % (baseName, imageDir, len(matches), [os.path.basename(m) for m in matches]))
+    return matches[0]
+
+#------------------------------------------------------------------------------------------------------------
+def _ensurePyBDSFMaps(baseName, mapsDir):
+    """Makes sure that a complete PyBDSF catalogue and complete residual, rms and mean maps exist for an image.
+
+    They are taken from the products directory if all four files are there and not truncated. Otherwise PyBDSF
+    is run again on the image in <rootDir>/EDR/images (with the parameters in sourceinjection.pybdsfArgs) and the
+    four files are written to mapsDir. sourceinjection.executeSingle looks in the current directory before the
+    products directory, so estimateCompleteness runs with mapsDir as the current directory.
+
+    Args:
+        baseName (str): Name of the PyBDSF catalogue without the _srl_bdsfcat.fits suffix.
+        mapsDir (str): Directory for re-extracted files.
+    """
+
+    prodDir = startup.config['productsDir']
+    catFile = baseName + '_srl_bdsfcat.fits'
+    mapFiles = {'residual': baseName + '_gaus_resid.fits', 'rms': baseName + '_rms.fits', 'mean': baseName + '_mean.fits'}
+
+    def complete(directories):
+        """Names of the files that are missing or truncated; directories maps each file type to a folder."""
+        bad = []
+        if not os.path.exists(os.path.join(directories['catalogs'], catFile)):
+            bad.append(catFile)
+        for kind, name in mapFiles.items():
+            if not _fitsImageIsComplete(os.path.join(directories[kind], name)):
+                bad.append(name)
+        return bad
+
+    badInMaps = complete({k: mapsDir for k in ('catalogs', 'residual', 'rms', 'mean')})
+    if len(badInMaps) == 0:
+        print("Using the PyBDSF catalogue and maps re-extracted earlier in %s" % mapsDir)
+        return
+
+    # leftovers of an interrupted extraction must not be picked up (files in the current directory are used first)
+    for name in list(mapFiles.values()) + [catFile]:
+        if os.path.lexists(os.path.join(mapsDir, name)):
+            os.remove(os.path.join(mapsDir, name))
+
+    badInProducts = complete({k: os.path.join(prodDir, k) for k in ('catalogs', 'residual', 'rms', 'mean')})
+    if len(badInProducts) == 0:
+        print("Complete PyBDSF catalogue and maps found in the products directory.")
+        return
+
+    print("Missing or truncated in the products directory: %s" % badInProducts)
+    imagePath = _findEDRImage(baseName)
+    linkPath = os.path.join(mapsDir, os.path.basename(imagePath))   # PyBDSF writes its log next to the image it is given
+    if os.path.lexists(linkPath):
+        os.remove(linkPath)
+    os.symlink(os.path.realpath(imagePath), linkPath)
+
+    print("Re-running PyBDSF on %s" % imagePath)
+    sourceinjection.sourceExtract(imageFile=linkPath, pybdsfBaseName=baseName, saveRMSMeanResidualMaps=True, outDir=mapsDir)
+
+    badAfter = complete({k: mapsDir for k in ('catalogs', 'residual', 'rms', 'mean')})
+    if len(badAfter) > 0:
+        raise RuntimeError("PyBDSF re-extraction failed for %s (missing or truncated: %s). See the messages above."
+                           % (baseName, badAfter))
+
+    # the re-extracted catalogue should be the one in the products directory
+    prodCat = os.path.join(prodDir, 'catalogs', catFile)
+    if os.path.exists(prodCat):
+        nNew = len(atpy.Table.read(os.path.join(mapsDir, catFile)))
+        nOld = len(atpy.Table.read(prodCat))
+        print("Re-extracted catalogue has %d sources, the products catalogue has %d" % (nNew, nOld))
+        if nOld > 0 and abs(nNew - nOld) > 0.01 * nOld:
+            print("WARNING: the numbers differ by more than 1%. The PyBDSF parameters in sourceinjection.pybdsfArgs "
+                  "may differ from those used for the products catalogue.")
+
+#------------------------------------------------------------------------------------------------------------
 def estimateCompleteness(beginImage=0, endImage=None, nInjectionSources=5000, nRepetitions=50, minFluxJyInj=1e-5, maxFluxJyInj=1.0, radiusFactorToInject=0.95,
                          minSizeArcsec=1.0, maxSizeArcsec=60.0, minAxisRatio=0.3, crowdingFactor=5.0, sinjectionDirName='sinjection'):
     """Estimate completeness as a function of flux density and source size by source injection.
@@ -1423,23 +1518,34 @@ def estimateCompleteness(beginImage=0, endImage=None, nInjectionSources=5000, nR
     else:
         selectedTabs = tabFilesList[beginImage:endImage]
 
-    for tab in selectedTabs:
-        baseName = tab.split('_srl_bdsfcat.fits')[0]
-        print("\n" + "═" * 70)
-        print("║ Estimating completeness for %s ║" %baseName)
-        sourceinjection.executeSingle(imageName=baseName,
-            nInjectionSources=nInjectionSources,
-            nRepetitions=nRepetitions,
-            minFluxJyInj=minFluxJyInj,
-            maxFluxJyInj=maxFluxJyInj,
-            radiusFactorToInject=radiusFactorToInject,
-            outDir=sinjectDirPath,
-            injectUnresolvedOnly=False,
-            minSizeArcsec=minSizeArcsec,
-            maxSizeArcsec=maxSizeArcsec,
-            minAxisRatio=minAxisRatio,
-            crowdingFactor=crowdingFactor)
-        print("\n" + "═" * 70)
+    # Re-extracted PyBDSF files go to mapsDir, which is also the current directory while the images are processed
+    # (sourceinjection.executeSingle looks in the current directory first and in the products directory second)
+    mapsDir = os.path.join(sinjectDirPath, 'pybdsf_maps')
+    os.makedirs(mapsDir, exist_ok = True)
+
+    originalDir = os.getcwd()
+    os.chdir(mapsDir)
+    try:
+        for tab in selectedTabs:
+            baseName = tab.split('_srl_bdsfcat.fits')[0]
+            print("\n" + "═" * 70)
+            print("║ Estimating completeness for %s ║" %baseName)
+            _ensurePyBDSFMaps(os.path.basename(baseName), mapsDir)
+            sourceinjection.executeSingle(imageName=baseName,
+                nInjectionSources=nInjectionSources,
+                nRepetitions=nRepetitions,
+                minFluxJyInj=minFluxJyInj,
+                maxFluxJyInj=maxFluxJyInj,
+                radiusFactorToInject=radiusFactorToInject,
+                outDir=sinjectDirPath,
+                injectUnresolvedOnly=False,
+                minSizeArcsec=minSizeArcsec,
+                maxSizeArcsec=maxSizeArcsec,
+                minAxisRatio=minAxisRatio,
+                crowdingFactor=crowdingFactor)
+            print("\n" + "═" * 70)
+    finally:
+        os.chdir(originalDir)
 
 
 #------------------------------------------------------------------------------------------------------------

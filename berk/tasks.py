@@ -234,7 +234,7 @@ def processVmaxForXmatchFile(args):
     zMaxDirPath = os.path.join(DRDir, zmaxDirName)
     os.makedirs(zMaxDirPath, exist_ok = True)
 
-    zmaxFilePath = os.path.join(zMaxDirPath, 'zmax_%s.fits' %radCatName.split('_srl_bdsfcat')[0])
+    zmaxFilePath = os.path.join(zMaxDirPath, 'zmax_%s.fits' %_normaliseCatName(radCatName))
 
     if os.path.exists(zmaxFilePath):
         zmaxTab = atpy.Table().read(zmaxFilePath)
@@ -261,7 +261,7 @@ def processVmaxForXmatchFile(args):
 
     # Finding effective area based on RMS area coverage curve
 
-    rmsAreaFileName = radCatName.replace('_srl_bdsfcat.fits', '_rms_rmshist.txt')
+    rmsAreaFileName = _normaliseCatName(radCatName) + '_rms_rmshist.txt'
     rmsAreaFile = os.path.join(DRDir, 'rms', rmsAreaFileName)
     rmsHistFromFile = np.loadtxt(rmsAreaFile)
     rmsBinsCentres, cumArea = rmsHistFromFile[:, 0], rmsHistFromFile[:, 4]
@@ -269,14 +269,15 @@ def processVmaxForXmatchFile(args):
                                                    rmsBinsCentres, cumArea, sigmaDetection=5.0)
     zmaxTab['WholeAreaSqDeg'] = np.max(cumArea)
 
-    DRImageRow = DRImages[DRImages['radioCatPath'] == 'catalogs/'+radCatName]
+    # radioCatPath may hold the catalogue name with or without 'srl' (older images tables): compare base names
+    DRImageRow = DRImages[np.array([_normaliseCatName(p) == _normaliseCatName(radCatName) for p in DRImages['radioCatPath']])]
 
     if len(DRImageRow) == 0:
         return None, None
 
     # Radio completeness: as a function of flux density and size if the 2D completeness is available,
     # otherwise as a function of flux density only
-    radCatBaseName = radCatName.split('_srl_bdsfcat')[0]
+    radCatBaseName = _normaliseCatName(radCatName)
     completenessDir = _findSourceInjectionDir(os.path.join(DRDir, 'sinjection'), radCatBaseName)
     sizeMajArcsec = _getSizeArcsec(zmaxTab, [('DC_Maj_rad', 3600.0), ('sizeMajAsec_rad', 1.0), ('sizeMajAsec', 1.0)])
     completenessSources, completenessType = assignRadioCompleteness(zmaxTab['Total_flux_rad'], sizeMajArcsec,
@@ -455,7 +456,7 @@ def builddr(dataRelease='EDR', includeBands=None, includeQuality=None, removeDup
         pngFile = fitsFile.replace('.fits','.png')
 
 
-        pybdsfCommonName = os.path.basename(row['radioCatPath']).split('_srl_bdsfcat')[0]
+        pybdsfCommonName = _normaliseCatName(row['radioCatPath'])
 
         catFile = os.path.join(startup.config['productsDir'], 'catalogs', pybdsfCommonName+'_bdsfcat.fits')
         srlCatFile = os.path.join(startup.config['productsDir'], 'catalogs', pybdsfCommonName+'_srl_bdsfcat.fits')
@@ -464,7 +465,7 @@ def builddr(dataRelease='EDR', includeBands=None, includeQuality=None, removeDup
 
         xmatchDir = os.path.join(startup.config['productsDir'],
                                  'xmatches_DECaLSDR10',
-                                 'xmatch_%s_srl_bdsfcat_DECaLSDR10_rband' %pybdsfCommonName)
+                                 'xmatch_%s_bdsfcat_DECaLSDR10_rband' %pybdsfCommonName)
 
         if os.path.exists(fitsFile) and not os.path.exists(os.path.join(DRDir, row['path'])):
             fitsFileRelPath = os.path.relpath(fitsFile, start=DRImageDir)
@@ -641,7 +642,8 @@ def builddr(dataRelease='EDR', includeBands=None, includeQuality=None, removeDup
             print("\nRemoving pointings that are not well covered by optical survey...\n")
             for plotName in plotNamesInAvoidDir:
                 catAvoidName = os.path.basename(plotName).split('RadOptSkyPlot_')[1].replace('_DECaLSDR10_rband.png', '.fits')
-                DRzmaxTabUniqueBest = DRzmaxTabUniqueBest[DRzmaxTabUniqueBest['radCatName'] != 'catalogs/'+catAvoidName]
+                keep = np.array([_normaliseCatName(c) != _normaliseCatName(catAvoidName) for c in DRzmaxTabUniqueBest['radCatName']])
+                DRzmaxTabUniqueBest = DRzmaxTabUniqueBest[keep]
                 print("Removed %s from zmax table." %catAvoidName)
 
     DRzmaxUniqueBestFile = os.path.join(DRDir, 'zmaxCatUniqueBest_%s.fits' % dataRelease)
@@ -752,7 +754,7 @@ def builddb():
         imgFileName = pathName.split(os.path.sep)[-1]
         commonFilenamePart = imgFileName.split('.ms_pcalmask-MFS-image.fits')[0]
         commonFilenamePartForCat = commonFilenamePart.split(".")[0]
-        radCatName = "catalogs"+os.path.sep+commonFilenamePartForCat+"_srl_bdsfcat.fits"
+        radCatName = "catalogs"+os.path.sep+commonFilenamePartForCat+"_bdsfcat.fits"
         radCatPath = startup.config['productsDir']+os.path.sep+radCatName
 
         if not os.path.exists(radCatPath):
@@ -912,7 +914,8 @@ def xmatch(optSurveyInput='decalsdr10'):
     globalBestXmatchTabName=startup.config['productsDir']+os.path.sep+"xmatchCat_%s_%sband.fits" %(optSurvey, optBandToMatch)
 
     globalBestXmatchTab=None
-    radCatFilesList=sorted(glob.glob(startup.config['productsDir']+os.path.sep+'catalogs'+os.path.sep+'*srl_bdsfcat.fits'))
+    radCatFilesList=sorted([f for f in glob.glob(startup.config['productsDir']+os.path.sep+'catalogs'+os.path.sep+'*_bdsfcat.fits')
+                            if 'srl_bdsfcat' not in os.path.basename(f)])
 
     args = [(radCat, optSurvey, optBandToMatch, optPosErrAsecValue) for radCat in radCatFilesList]
 
@@ -1420,7 +1423,7 @@ def _fitsImageIsComplete(path):
 #------------------------------------------------------------------------------------------------------------
 def _findEDRImage(baseName):
     """Finds the radio image of an EDR pointing in <rootDir>/EDR/images, given the name of its PyBDSF catalogue
-    (without the _srl_bdsfcat.fits suffix)."""
+    (without the _bdsfcat.fits suffix)."""
     imageDir = os.path.join(startup.config['rootDir'], 'EDR', 'images')
     matches = sorted(glob.glob(os.path.join(glob.escape(imageDir), glob.escape(baseName) + '.*image.fits')))
     if len(matches) == 0:
@@ -1432,45 +1435,48 @@ def _findEDRImage(baseName):
 
 #------------------------------------------------------------------------------------------------------------
 def _ensurePyBDSFMaps(baseName, mapsDir):
-    """Makes sure that a complete PyBDSF catalogue and complete residual, rms and mean maps exist for an image.
+    """Makes sure that complete residual, rms and mean maps exist for an image, next to its catalogue.
 
-    They are taken from the products directory if all four files are there and not truncated. Otherwise PyBDSF
-    is run again on the image in <rootDir>/EDR/images (with the parameters in sourceinjection.pybdsfArgs) and the
-    four files are written to mapsDir. sourceinjection.executeSingle looks in the current directory before the
-    products directory, so estimateCompleteness runs with mapsDir as the current directory.
+    The catalogue with the source names (<baseName>_bdsfcat.fits) and the three maps are taken from the products
+    directory if they are all there and the maps are not truncated. Otherwise PyBDSF is run again on the image in
+    <rootDir>/EDR/images (with the parameters in sourceinjection.pybdsfArgs) and the maps, together with the raw PyBDSF
+    catalogue (<baseName>_srl_bdsfcat.fits, which has no source names and only serves to check that the extraction
+    finished and to compare the number of sources), are written to mapsDir. sourceinjection.executeSingle looks in
+    the current directory before the products directory, so estimateCompleteness runs with mapsDir as the current
+    directory. The catalogue with the source names must exist in the products directory: it cannot be re-created here.
 
     Args:
-        baseName (str): Name of the PyBDSF catalogue without the _srl_bdsfcat.fits suffix.
+        baseName (str): Name of the radio catalogue without the _bdsfcat.fits suffix.
         mapsDir (str): Directory for re-extracted files.
     """
 
     prodDir = startup.config['productsDir']
-    catFile = baseName + '_srl_bdsfcat.fits'
+    namedCat = baseName + '_bdsfcat.fits'        # catalogue with source names (products directory)
+    rawCat = baseName + '_srl_bdsfcat.fits'      # raw PyBDSF catalogue (written by the re-extraction)
     mapFiles = {'residual': baseName + '_gaus_resid.fits', 'rms': baseName + '_rms.fits', 'mean': baseName + '_mean.fits'}
 
-    def complete(directories):
-        """Names of the files that are missing or truncated; directories maps each file type to a folder."""
-        bad = []
-        if not os.path.exists(os.path.join(directories['catalogs'], catFile)):
-            bad.append(catFile)
-        for kind, name in mapFiles.items():
-            if not _fitsImageIsComplete(os.path.join(directories[kind], name)):
-                bad.append(name)
-        return bad
+    def badMaps(directories):
+        """Names of the maps that are missing or truncated; directories maps each map type to a folder."""
+        return [name for kind, name in mapFiles.items() if not _fitsImageIsComplete(os.path.join(directories[kind], name))]
 
-    badInMaps = complete({k: mapsDir for k in ('catalogs', 'residual', 'rms', 'mean')})
+    if not os.path.exists(os.path.join(prodDir, 'catalogs', namedCat)):
+        raise FileNotFoundError("The catalogue with source names %s is missing in %s"
+                                % (namedCat, os.path.join(prodDir, 'catalogs')))
+
+    # maps re-extracted earlier (the raw catalogue is written last, so it shows that the extraction finished)
+    badInMaps = badMaps({k: mapsDir for k in mapFiles}) + ([] if os.path.exists(os.path.join(mapsDir, rawCat)) else [rawCat])
     if len(badInMaps) == 0:
-        print("Using the PyBDSF catalogue and maps re-extracted earlier in %s" % mapsDir)
+        print("Using the maps re-extracted earlier in %s" % mapsDir)
         return
 
     # leftovers of an interrupted extraction must not be picked up (files in the current directory are used first)
-    for name in list(mapFiles.values()) + [catFile]:
+    for name in list(mapFiles.values()) + [rawCat]:
         if os.path.lexists(os.path.join(mapsDir, name)):
             os.remove(os.path.join(mapsDir, name))
 
-    badInProducts = complete({k: os.path.join(prodDir, k) for k in ('catalogs', 'residual', 'rms', 'mean')})
+    badInProducts = badMaps({k: os.path.join(prodDir, k) for k in mapFiles})
     if len(badInProducts) == 0:
-        print("Complete PyBDSF catalogue and maps found in the products directory.")
+        print("Complete catalogue and maps found in the products directory.")
         return
 
     print("Missing or truncated in the products directory: %s" % badInProducts)
@@ -1483,20 +1489,18 @@ def _ensurePyBDSFMaps(baseName, mapsDir):
     print("Re-running PyBDSF on %s" % imagePath)
     sourceinjection.sourceExtract(imageFile=linkPath, pybdsfBaseName=baseName, saveRMSMeanResidualMaps=True, outDir=mapsDir)
 
-    badAfter = complete({k: mapsDir for k in ('catalogs', 'residual', 'rms', 'mean')})
+    badAfter = badMaps({k: mapsDir for k in mapFiles}) + ([] if os.path.exists(os.path.join(mapsDir, rawCat)) else [rawCat])
     if len(badAfter) > 0:
         raise RuntimeError("PyBDSF re-extraction failed for %s (missing or truncated: %s). See the messages above."
                            % (baseName, badAfter))
 
-    # the re-extracted catalogue should be the one in the products directory
-    prodCat = os.path.join(prodDir, 'catalogs', catFile)
-    if os.path.exists(prodCat):
-        nNew = len(atpy.Table.read(os.path.join(mapsDir, catFile)))
-        nOld = len(atpy.Table.read(prodCat))
-        print("Re-extracted catalogue has %d sources, the products catalogue has %d" % (nNew, nOld))
-        if nOld > 0 and abs(nNew - nOld) > 0.01 * nOld:
-            print("WARNING: the numbers differ by more than 1%. The PyBDSF parameters in sourceinjection.pybdsfArgs "
-                  "may differ from those used for the products catalogue.")
+    # the re-extracted sources should be those of the catalogue in the products directory
+    nNew = len(atpy.Table.read(os.path.join(mapsDir, rawCat)))
+    nOld = len(atpy.Table.read(os.path.join(prodDir, 'catalogs', namedCat)))
+    print("Re-extracted catalogue has %d sources, the products catalogue has %d" % (nNew, nOld))
+    if nOld > 0 and abs(nNew - nOld) > 0.01 * nOld:
+        print("WARNING: the numbers differ by more than 1%. The PyBDSF parameters in sourceinjection.pybdsfArgs "
+              "may differ from those used for the products catalogue.")
 
 #------------------------------------------------------------------------------------------------------------
 def estimateCompleteness(beginImage=0, endImage=None, nInjectionSources=5000, nRepetitions=50, minFluxJyInj=1e-5, maxFluxJyInj=1.0, radiusFactorToInject=0.95,
@@ -1508,7 +1512,9 @@ def estimateCompleteness(beginImage=0, endImage=None, nInjectionSources=5000, nR
 
     """
 
-    tabFilesList=sorted(glob.glob(os.path.join(startup.config['rootDir'], 'EDR', 'catalogs', '*srl_bdsfcat.fits')))
+    # the catalogues with the source names (not the raw PyBDSF ones, which have 'srl' in their names)
+    tabFilesList=sorted([f for f in glob.glob(os.path.join(startup.config['rootDir'], 'EDR', 'catalogs', '*_bdsfcat.fits'))
+                         if 'srl_bdsfcat' not in os.path.basename(f)])
 
     sinjectDirPath = os.path.join(startup.config['rootDir'], 'EDR', sinjectionDirName)
     os.makedirs(sinjectDirPath, exist_ok = True)
@@ -1527,7 +1533,7 @@ def estimateCompleteness(beginImage=0, endImage=None, nInjectionSources=5000, nR
     os.chdir(mapsDir)
     try:
         for tab in selectedTabs:
-            baseName = tab.split('_srl_bdsfcat.fits')[0]
+            baseName = tab.split('_bdsfcat.fits')[0]
             print("\n" + "═" * 70)
             print("║ Estimating completeness for %s ║" %baseName)
             _ensurePyBDSFMaps(os.path.basename(baseName), mapsDir)
@@ -1586,7 +1592,7 @@ def xmatchSummary(dataRelease='EDR', optSurveyTag='DECaLSDR10', optBand='r', out
         q0File = os.path.join(xmatchDir, 'Q0_%s.txt' % outSubscript)
 
         lrThr = rel = comp = searchRadArcsec = np.nan
-        nMatched = -1
+        nMatched = nRadio = nOptical = -1
         if os.path.exists(bestFile):
             hdr = fits.getheader(bestFile, ext=1)   # table meta is stored in the header of the binary table
             lrThr = float(hdr.get('LR_THR', np.nan))
@@ -1604,14 +1610,23 @@ def xmatchSummary(dataRelease='EDR', optSurveyTag='DECaLSDR10', optBand='r', out
         else:
             print("No Q0 file in %s" % xmatchDir)
 
-        rows.append((radCatName, lrThr, rel, comp, q0, searchRadArcsec, nMatched))
+        # LRStats_*.ecsv (written by the cross-match) holds all of these for every pointing, also those without a
+        # best-matches table; when it exists it takes precedence
+        statsFile = os.path.join(xmatchDir, 'LRStats_%s.ecsv' % outSubscript)
+        if os.path.exists(statsFile):
+            stats = atpy.Table.read(statsFile, format='ascii.ecsv')
+            lrThr, rel, comp, q0 = [float(stats[c][0]) for c in ('LR_THR', 'REL', 'COMP', 'Q0')]
+            searchRadArcsec = float(stats['SEAR_RAD_arcsec'][0])
+            nRadio, nOptical, nMatched = [int(stats[c][0]) for c in ('N_RADIO', 'N_OPT', 'N_BEST')]
+
+        rows.append((radCatName, lrThr, rel, comp, q0, searchRadArcsec, nMatched, nRadio, nOptical))
 
     if len(rows) == 0:
         print("\nNo cross-matched catalogues found.")
         return None
 
-    summaryTab = atpy.Table(rows=rows, names=('radCatName', 'LR_THR', 'REL', 'COMP', 'Q0', 'SEAR_RAD_arcsec', 'nMatched'),
-                            dtype=('U200', 'f8', 'f8', 'f8', 'f8', 'f8', 'i8'))
+    summaryTab = atpy.Table(rows=rows, names=('radCatName', 'LR_THR', 'REL', 'COMP', 'Q0', 'SEAR_RAD_arcsec', 'nMatched', 'nRadio', 'nOptical'),
+                            dtype=('U200', 'f8', 'f8', 'f8', 'f8', 'f8', 'i8', 'i8', 'i8'))
 
     if outFileName is None:
         outFileName = os.path.join(DRDir, 'xmatch_summary_%s_%sband.fits' % (optSurveyTag, optBand))

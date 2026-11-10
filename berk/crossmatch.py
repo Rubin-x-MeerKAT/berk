@@ -378,6 +378,16 @@ def getValueFromMagBins(magnitude, magBins, binValues):
         return binValues[binIndex]
     return np.nan
 
+def _baseCatName(name):
+    """Name of a radio catalogue without directory and without the .fits, _srl_bdsfcat or _bdsfcat suffixes,
+    so that the names with and without 'srl' are treated as the same catalogue."""
+    name = os.path.basename(str(name).strip())
+    for suffix in ('.fits', '_srl_bdsfcat', '_bdsfcat'):
+        if name.endswith(suffix):
+            name = name[:-len(suffix)]
+    return name
+
+#------------------------------------------------------------------------------------------------------------
 def getCentreRadiusFromImagesTab(radioCatFilePath):
     """
     Retrieve the pointing centre coordinates and radius
@@ -400,7 +410,7 @@ def getCentreRadiusFromImagesTab(radioCatFilePath):
     bandRadiusDict={'L': 0.8, 'UHF': 1.2, 'S': 0.6}
 
     catalogName = radioCatFilePath.split(os.path.sep)[-1]
-    commonFilenamePart = catalogName.split('_srl')[0]
+    commonFilenamePart = _baseCatName(catalogName)
 
     globalImagesFileName = startup.config['productsDir']+os.path.sep+"images.fits"
     globalImagesTab = Table.read(globalImagesFileName)
@@ -734,6 +744,51 @@ def getFRAsymErr(rOffsetDeg, radioSource, opticalSource, radRACol, radDecCol, ra
 
     return probDistR  # f(r)
 
+def writeLRCurves(xmatchIndividualDirPath, outSubscript, LRThreshValues, completenessValues, reliabilityValues,
+                  Q0, nRadio, LRThreshold, reliability, completeness):
+    """Saves completeness and reliability as a function of the LR threshold for one pointing.
+
+    Args:
+        xmatchIndividualDirPath (:obj:`str`): Folder of the cross-match of this pointing.
+        outSubscript (:obj:`str`): Name tag of this cross-match (used in the file name).
+        LRThreshValues, completenessValues, reliabilityValues (array-like): The curves.
+        Q0, nRadio: Q0 and number of radio sources used to compute the curves.
+        LRThreshold, reliability, completeness (:obj:`float`): The chosen LR threshold (where completeness and
+            reliability balance) and the values there.
+
+    Returns:
+        str: Path of the file, LRRelComp_<outSubscript>.ecsv (read it with astropy.table.Table.read).
+    """
+    curveTab = Table({'LR_thr': np.asarray(LRThreshValues, dtype=float),
+                      'completeness': np.asarray(completenessValues, dtype=float),
+                      'reliability': np.asarray(reliabilityValues, dtype=float)})
+    curveTab.meta.update({'Q0': float(Q0), 'N_RADIO': int(nRadio), 'LR_THR': float(LRThreshold),
+                          'REL': float(reliability), 'COMP': float(completeness)})
+    outPath = os.path.join(xmatchIndividualDirPath, 'LRRelComp_%s.ecsv' % outSubscript)
+    curveTab.write(outPath, format='ascii.ecsv', overwrite=True)
+    return outPath
+
+#------------------------------------------------------------------------------------------------------------
+def writeLRStats(xmatchIndividualDirPath, outSubscript, radCatName, Q0, LRThreshold, reliability, completeness,
+                 searchRadiusArcsec, nRadio, nOptical, nBest, optSurvey, optMagCol):
+    """Saves the main cross-match numbers of one pointing in a one-row table, so that they are available for every
+    pointing, including those with no match above the LR threshold (which have no best-matches table).
+
+    Columns: radCatName, OPT_SURVEY, OPT_BAND, Q0, LR_THR, REL, COMP, SEAR_RAD_arcsec, N_RADIO (radio sources),
+    N_OPT (optical sources used), N_BEST (radio sources with an accepted counterpart).
+
+    Returns:
+        str: Path of the file, LRStats_<outSubscript>.ecsv (read it with astropy.table.Table.read).
+    """
+    statsTab = Table({'radCatName': [str(radCatName)], 'OPT_SURVEY': [str(optSurvey)], 'OPT_BAND': [str(optMagCol)],
+                      'Q0': [float(Q0)], 'LR_THR': [float(LRThreshold)], 'REL': [float(reliability)],
+                      'COMP': [float(completeness)], 'SEAR_RAD_arcsec': [float(searchRadiusArcsec)],
+                      'N_RADIO': [int(nRadio)], 'N_OPT': [int(nOptical)], 'N_BEST': [int(nBest)]})
+    outPath = os.path.join(xmatchIndividualDirPath, 'LRStats_%s.ecsv' % outSubscript)
+    statsTab.write(outPath, format='ascii.ecsv', overwrite=True)
+    return outPath
+
+#------------------------------------------------------------------------------------------------------------
 def computeRelCompl(LRTab, Q0, NRadio, LRThreshold):
     """
     Compute the completeness and reliability for a given likelihood ratio (LR) threshold.
@@ -935,7 +990,7 @@ def xmatchRadioOptical(radioCatFilePath, radioBand, xmatchDirPath, optSurvey, op
 
     radCatName = radioCatFilePath.split(os.path.sep)[-1]
     captureBlockId = radCatName.split('_')[3]
-    targetName = (radCatName.split('_1024ch_')[1]).split('_srl_')[0]
+    targetName = _baseCatName(radCatName.split('_1024ch_')[1])
     xmatchIndividualDirPath = os.path.join(xmatchDirPath, 'xmatch_%s' %outSubscript)
     xmatchTabName = xmatchIndividualDirPath+os.path.sep+"xmatchtable_%s" %outSubscript+".fits"
     xmatchBestMatchTabName = xmatchIndividualDirPath+os.path.sep+"xmatchtable_bestmatches_%s" %outSubscript+".fits"
@@ -952,7 +1007,7 @@ def xmatchRadioOptical(radioCatFilePath, radioBand, xmatchDirPath, optSurvey, op
     if os.path.exists(noOptSourcesFilename):
         with open(noOptSourcesFilename, 'r', encoding="utf-8") as infile:
             noOptSourcesCatNames = [line.strip() for line in infile]
-        if radCatName in noOptSourcesCatNames:
+        if _baseCatName(radCatName) in [_baseCatName(n) for n in noOptSourcesCatNames if n]:
             return None
 
     # checking if this catalog is listed as having no optical counterparts in the optical
@@ -962,7 +1017,7 @@ def xmatchRadioOptical(radioCatFilePath, radioBand, xmatchDirPath, optSurvey, op
     if os.path.exists(noOptCounterpartsFilename):
         with open(noOptCounterpartsFilename, 'r', encoding="utf-8") as infile:
             noOptCounterpartsCatNames = [line.strip() for line in infile]
-        if radCatName in noOptCounterpartsCatNames:
+        if _baseCatName(radCatName) in [_baseCatName(n) for n in noOptCounterpartsCatNames if n]:
             return None
 
     print("\n" + "-" * 100)
@@ -1136,10 +1191,16 @@ def xmatchRadioOptical(radioCatFilePath, radioBand, xmatchDirPath, optSurvey, op
     print("\nLR threshold with almost equal reliability (%0.2f) and completeness (%0.2f) = %0.2f"
           %(CRBalanceRel, CRBalanceComp, CRBalanceLRThreshold))
 
+    # Saving completeness and reliability as a function of the LR threshold
+    writeLRCurves(xmatchIndividualDirPath, outSubscript, LRThreshValues, completenessValues, reliabilityValues,
+                  Q0, nRadio, CRBalanceLRThreshold, CRBalanceRel, CRBalanceComp)
+
     xmatchLRThresholdTable = xmatchTable[xmatchTable['LR'] >= CRBalanceLRThreshold]
 
     if len(xmatchLRThresholdTable) == 0:
         print("\nNo cross-matched sources above LR threshold!")
+        writeLRStats(xmatchIndividualDirPath, outSubscript, radCatName, Q0, CRBalanceLRThreshold, CRBalanceRel, CRBalanceComp,
+                     searchRadiusArcsec, nRadio, len(opticalSources), 0, optSurvey, optMagCol)
         catalogs.listCatalogInFile(radCatName, noOptCounterpartsFilename)
         return None
 
@@ -1155,6 +1216,10 @@ def xmatchRadioOptical(radioCatFilePath, radioBand, xmatchDirPath, optSurvey, op
     xmatchBestMatchTable.meta['LR_THR']=CRBalanceLRThreshold
     xmatchBestMatchTable.meta['REL']=CRBalanceRel
     xmatchBestMatchTable.meta['COMP']=CRBalanceComp
+
+    # Saving the main numbers of this pointing (Q0, LR threshold, reliability, completeness, numbers of sources)
+    writeLRStats(xmatchIndividualDirPath, outSubscript, radCatName, Q0, CRBalanceLRThreshold, CRBalanceRel, CRBalanceComp,
+                 searchRadiusArcsec, nRadio, len(opticalSources), len(xmatchBestMatchTable), optSurvey, optMagCol)
 
     # Saving the results
 

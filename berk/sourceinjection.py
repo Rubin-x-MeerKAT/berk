@@ -462,7 +462,8 @@ def injectImage(imageToInjectFileName, fieldRACentre, fieldDecCentre, injectRadi
         for rep in range(nRepetitions)
     ]
 
-    nProcesses = int(os.cpu_count())
+    # Respect the number of processes set by the launcher or batch system (NCPUS); default: all cores of the machine
+    nProcesses = int(os.environ.get('NCPUS', os.cpu_count()))
     with Pool(processes=nProcesses) as pool:
         pool.map(_runSingleInjectionToResidual, argsList)
 
@@ -914,7 +915,8 @@ def executeSingle(imageName, nInjectionSources=5000, nRepetitions=1, minFluxJyIn
 
     needExtraction = False
 
-    pybdsfCatFileName = "%s_srl_bdsfcat.fits" %catBaseName
+    pybdsfCatFileName = "%s_bdsfcat.fits" %catBaseName         # catalogue with the source names
+    rawCatFileName = "%s_srl_bdsfcat.fits" %catBaseName        # raw PyBDSF catalogue, written by the extraction fallback below
     residualFileName = "%s_gaus_resid.fits" %catBaseName
     rmsFileName  = "%s_rms.fits" %catBaseName
     meanFileName = "%s_mean.fits" %catBaseName
@@ -927,6 +929,9 @@ def executeSingle(imageName, nInjectionSources=5000, nRepetitions=1, minFluxJyIn
     elif os.path.exists(os.path.join(localProdDir, "catalogs", pybdsfCatFileName)):
         pybdsfCatFilePath = os.path.join(localProdDir, "catalogs", pybdsfCatFileName)
         print("\nUsing existing PyBDSF catalogue from berk products directory: %s\n" % pybdsfCatFilePath)
+    elif os.path.exists(os.path.join(currentDir, rawCatFileName)):
+        pybdsfCatFilePath = os.path.join(currentDir, rawCatFileName)
+        print("\nUsing existing raw PyBDSF catalogue from current directory: %s\n" % pybdsfCatFilePath)
     else:
         needExtraction = True
 
@@ -960,7 +965,7 @@ def executeSingle(imageName, nInjectionSources=5000, nRepetitions=1, minFluxJyIn
     if needExtraction is True:
         try:
             sourceExtract(imageFile=imageName, pybdsfBaseName=imageBaseName, saveRMSMeanResidualMaps=True, outDir=currentDir, rmsFileName=None, meanFileName=None)
-            pybdsfCatFilePath = os.path.join(currentDir, pybdsfCatFileName)
+            pybdsfCatFilePath = os.path.join(currentDir, rawCatFileName)
             residualFilePath = os.path.join(currentDir, residualFileName)
             rmsFilePath = os.path.join(currentDir, rmsFileName)
             meanFilePath = os.path.join(currentDir, meanFileName)

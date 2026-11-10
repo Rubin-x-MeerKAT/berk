@@ -412,7 +412,7 @@ def plotRMSAreaCoverageCumulativeUnique(rmsDirPath, areaCoveragePlotOutName, ban
             rmsFile = os.path.join(
                 rmsDirPath,
                 os.path.basename(imagesTab['radioCatPath'][i])
-                .replace('_srl_bdsfcat.fits', '_rms.fits')
+                .replace('_srl_bdsfcat.fits', '_rms.fits').replace('_bdsfcat.fits', '_rms.fits')
             )
 
             countsInBins, areaSqDegInBins = getRMSAreaCoverage(rmsFile=rmsFile, rmsBins=rmsBins)
@@ -429,7 +429,7 @@ def plotRMSAreaCoverageCumulativeUnique(rmsDirPath, areaCoveragePlotOutName, ban
     for band, overlapGroups in overlapGroupsByBand.items():
         for gi, group in enumerate(overlapGroups):
 
-            rmsFileList = [os.path.join(rmsDirPath, os.path.basename(imagesTab['radioCatPath'][i]).replace('_srl_bdsfcat.fits', '_rms.fits')) for i in group]
+            rmsFileList = [os.path.join(rmsDirPath, os.path.basename(imagesTab['radioCatPath'][i]).replace('_srl_bdsfcat.fits', '_rms.fits').replace('_bdsfcat.fits', '_rms.fits')) for i in group]
 
             mosaicFilesDir = os.path.join(rmsDirPath, "mosaics")
             os.makedirs(mosaicFilesDir, exist_ok=True)

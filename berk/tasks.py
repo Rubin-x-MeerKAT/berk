@@ -1949,9 +1949,9 @@ def _summarizeEDRXmatches(dataBase, imagesTab):
     The lists written by the cross-match in the products directory cover all processed pointings, so here they are
     cut down to the pointings of this data release. All files go to <rootDir>/<dataBase>/:
 
-        <DR>_no_DECaLSDR10_sources.txt              pointings with no DECaLS source in the region
-        <DR>_no_counterparts_DECaLSDR10_rband.txt   pointings with DECaLS sources but no counterpart in the search radius
-        <DR>_no_DECaLSDR10_coverage.txt             the two lists together: pointings without optical coverage
+        <DR>_no_DECaLSDR10_sources.txt              pointings with no DECaLS source inside the pointing
+        <DR>_no_counterparts_DECaLSDR10_rband.txt   pointings that DECaLS overlaps but with no match (no candidate
+                                                    in the search radius, or none above the LR threshold)
         <DR>_partial_DECaLSDR10_coverage.txt        pointings where only part of the radio sources lie inside the
                                                     DECaLS footprint (decided by position, see xmatchCoverage)
         <DR>_xmatch_statistics.fits                 one row per pointing: status of the cross-match, Q0, LR threshold,
@@ -1996,7 +1996,6 @@ def _summarizeEDRXmatches(dataBase, imagesTab):
                          if n in drNames)
     writeList('%s_no_DECaLSDR10_sources.txt' % dataBase, noSources)
     writeList('%s_no_counterparts_DECaLSDR10_rband.txt' % dataBase, noCounterparts)
-    writeList('%s_no_DECaLSDR10_coverage.txt' % dataBase, noSources | noCounterparts)
 
     # ---- 2. partial coverage, by position (xmatchCoverage reads the two lists written above)
     covTab = None

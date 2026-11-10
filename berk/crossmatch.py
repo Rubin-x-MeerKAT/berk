@@ -454,6 +454,29 @@ def getCentreRadiusFromCatalog(radioCat, radRACol, radDecCol):
 
     return centerRA, centerDec, radiusDegMax
 
+def countOpticalInRadioFootprint(radioCat, opticalCat, radRACol, radDecCol, optRACol, optDecCol):
+    """Counts the optical sources that lie inside the footprint of a radio catalogue.
+
+    The footprint is the circle around the centre of the radio catalogue (bounding-box centre) that reaches the
+    furthest radio source, see getCentreRadiusFromCatalog. This tells apart a pointing that the optical survey does not
+    overlap at all (the optical catalogue is fetched for a region about four times larger than the pointing, so it can
+    have sources around the pointing but none inside it) from one that is overlapped but has no counterparts.
+
+    Args:
+        radioCat (:obj:`~astropy.table.Table`): Radio catalogue.
+        opticalCat (:obj:`~astropy.table.Table`): Optical catalogue.
+        radRACol, radDecCol (:obj:`str`): Position columns of the radio catalogue (degrees).
+        optRACol, optDecCol (:obj:`str`): Position columns of the optical catalogue (degrees).
+
+    Returns:
+        tuple: (number of optical sources inside the footprint, footprint radius in degrees).
+    """
+    centreRA, centreDec, radiusDeg = getCentreRadiusFromCatalog(radioCat, radRACol, radDecCol)
+    centre = SkyCoord(ra=centreRA * u.deg, dec=centreDec * u.deg, frame='icrs')
+    optCoords = SkyCoord(ra=catalogs.getUnitlessValues(opticalCat[optRACol]) * u.deg,
+                         dec=catalogs.getUnitlessValues(opticalCat[optDecCol]) * u.deg, frame='icrs')
+    return int(np.sum(centre.separation(optCoords).deg <= radiusDeg)), radiusDeg
+
 def getDECaLSSkyAreaSqDeg(decalsCat, healPixNSide=4096, healPixCountCol='nest4096'):
     """
     Calculates the effective sky area using a HEALPix-based method.
@@ -1056,6 +1079,13 @@ def xmatchRadioOptical(radioCatFilePath, radioBand, xmatchDirPath, optSurvey, op
 
     if os.path.exists(optCatFileName):
         opticalSources = Table.read(optCatFileName, format='fits')
+
+        nOptInFootprint, footprintRadiusDeg = countOpticalInRadioFootprint(radioSources, opticalSources, radRACol, radDecCol, optRACol, optDecCol)
+        if nOptInFootprint == 0:
+            print("\n%s: %s sources exist around the pointing but none inside its footprint (radius %.2f deg)...!" %(radCatName, optSurvey, footprintRadiusDeg))
+            catalogs.listCatalogInFile(radCatName, noOptSourcesFilename)
+            return None
+
         # getting sky area covered by the optical catalogue (DECaLS for now!) 
         opticalSkyAreaSqDeg = getDECaLSSkyAreaSqDeg(opticalSources, healPixNSide=4096, healPixCountCol='nest4096')
     else:
@@ -1082,7 +1112,14 @@ def xmatchRadioOptical(radioCatFilePath, radioBand, xmatchDirPath, optSurvey, op
             print("\n%s: No optical sources with reliable %s-magnitude found in %s database...!" %(radCatName, optMagCol, optSurvey))
             catalogs.listCatalogInFile(radCatName, noOptSourcesFilename)
             return None
-        
+
+        # the region fetched is about four times the area of the pointing: are there sources inside the pointing itself?
+        nOptInFootprint, footprintRadiusDeg = countOpticalInRadioFootprint(radioSources, opticalSources, radRACol, radDecCol, optRACol, optDecCol)
+        if nOptInFootprint == 0:
+            print("\n%s: %s sources exist around the pointing but none inside its footprint (radius %.2f deg)...!" %(radCatName, optSurvey, footprintRadiusDeg))
+            catalogs.listCatalogInFile(radCatName, noOptSourcesFilename)
+            return None
+
         os.makedirs(xmatchIndividualDirPath, exist_ok = True)
 
         # getting sky area covered by the optical catalogue (DECaLS for now!)

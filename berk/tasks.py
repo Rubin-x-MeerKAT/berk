@@ -1152,8 +1152,12 @@ def analyse(captureBlockId):
 def summarize(dataBase='PARENT'):
     """Summarize the progress in berk processing.
 
+    Prints a summary and makes plots (sky coverage, RMS area coverage, source counts). For the EDR it also writes the
+    lists of pointings without or with only partial optical (DECaLS) coverage and the cross-match statistics (Q0,
+    LR threshold, reliability, completeness) of every pointing, see _summarizeEDRXmatches.
+
     Args:
-            dataRelease (str): The name of the data release to build, default is 'EDR'.
+            dataBase (str): 'PARENT' for all the processed data, or 'EDR' for the early data release.
 
     """
 
@@ -1230,6 +1234,16 @@ def summarize(dataBase='PARENT'):
 
     sourceCountPlotName = dataBaseDir+os.path.sep+'MeerKAT_sourcecount%s.png' % subScript
     summaryPlots.plotSourceCounts(dataBaseDir, catSubScript=subScript, fluxCol='Total_flux', fluxMin=1E-5, fluxMax=1.0, nFluxBins=39, bandColorDict=bandColorDict, plotOutPath=sourceCountPlotName)
+
+
+    # Cross-match lists and statistics of the EDR pointings
+    if dataBase == 'EDR':
+        try:
+            _summarizeEDRXmatches(dataBase, imagesTab)
+        except Exception as e:
+            import traceback
+            traceback.print_exc()
+            print("\nCould not write the EDR cross-match lists and statistics: %s" % e)
 
 #------------------------------------------------------------------------------------------------------------
 def report():
@@ -1813,3 +1827,148 @@ def xmatchCoverage(dataRelease='EDR', optSurveyTag='DECaLSDR10', optBand='r', ra
     print("Check the histogram: the threshold should separate the peak of covered sources from the outside tail.")
 
     return sourceTab, pointingTab
+
+
+#------------------------------------------------------------------------------------------------------------
+def _summarizeEDRXmatches(dataBase, imagesTab):
+    """Writes, for the pointings of a data release (e.g. 'EDR'), the lists of pointings without and with partial optical
+    (DECaLS) coverage, and a table with the cross-match statistics of every pointing.
+
+    The lists written by the cross-match in the products directory cover all processed pointings, so here they are
+    cut down to the pointings of this data release. All files go to <rootDir>/<dataBase>/:
+
+        <DR>_no_DECaLSDR10_sources.txt              pointings with no DECaLS source in the region
+        <DR>_no_counterparts_DECaLSDR10_rband.txt   pointings with DECaLS sources but no counterpart in the search radius
+        <DR>_no_DECaLSDR10_coverage.txt             the two lists together: pointings without optical coverage
+        <DR>_partial_DECaLSDR10_coverage.txt        pointings where only part of the radio sources lie inside the
+                                                    DECaLS footprint (decided by position, see xmatchCoverage)
+        <DR>_xmatch_statistics.fits and .csv        one row per pointing: status of the cross-match, Q0, LR threshold,
+                                                    reliability, completeness, search radius, numbers of sources,
+                                                    coverage
+        <DR>_xmatch_LRcurves.fits                   completeness and reliability against LR threshold, all pointings
+        xmatch_summary_*.fits/.csv, xmatch_coverage_*  (written by xmatchSummary and xmatchCoverage)
+
+    Existing lists with these names are kept as <name>.bak if their content changes.
+
+    Args:
+        dataBase (str): Name of the data release.
+        imagesTab (astropy.table.Table): Images table of the data release (images_<DR>.fits).
+    """
+    import shutil
+
+    DRDir = os.path.join(startup.config['rootDir'], dataBase)
+    xmatchRoot = os.path.join(startup.config['productsDir'], 'xmatches_DECaLSDR10')
+
+    names = [_normaliseCatName(pth) for pth in imagesTab['radioCatPath'] if str(pth).strip() not in ('-', '')]
+    drNames = set(names)
+
+    def writeList(fileName, listNames):
+        path = os.path.join(DRDir, fileName)
+        text = ''.join('%s_bdsfcat.fits\n' % n for n in sorted(listNames))
+        if os.path.exists(path):
+            with open(path, 'r', encoding='utf-8') as infile:
+                old = infile.read()
+            if old != text and not os.path.exists(path + '.bak'):
+                shutil.copy2(path, path + '.bak')
+        with open(path, 'w', encoding='utf-8') as outfile:
+            outfile.write(text)
+        print("Wrote %s (%d pointings)" % (path, len(listNames)))
+
+    print("\n" + "═" * 50)
+    print((" CROSS-MATCH LISTS AND STATISTICS OF %s " % dataBase).center(50, '═'))
+    print("═" * 50)
+
+    # ---- 1. lists restricted to this data release
+    noSources = set(n for n in _readCatNameList(os.path.join(xmatchRoot, 'no_DECaLSDR10_sources.txt')) if n in drNames)
+    noCounterparts = set(n for n in _readCatNameList(os.path.join(xmatchRoot, 'no_counterparts_DECaLSDR10_rband.txt'))
+                         if n in drNames)
+    writeList('%s_no_DECaLSDR10_sources.txt' % dataBase, noSources)
+    writeList('%s_no_counterparts_DECaLSDR10_rband.txt' % dataBase, noCounterparts)
+    writeList('%s_no_DECaLSDR10_coverage.txt' % dataBase, noSources | noCounterparts)
+
+    # ---- 2. partial coverage, by position (xmatchCoverage reads the two lists written above)
+    covTab = None
+    try:
+        _, covTab = xmatchCoverage(dataRelease=dataBase)
+    except Exception as e:
+        print("\nThe coverage by position could not be computed: %s" % e)
+    partial = set()
+    if covTab is not None:
+        partial = set(str(n) for n in covTab['pointing'][covTab['coverageStatus'] == 'partiallyCovered'])
+        notCoveredByPosition = set(str(n) for n in covTab['pointing'][covTab['coverageStatus'] == 'notCovered'])
+        writeList('%s_partial_DECaLSDR10_coverage.txt' % dataBase, partial)
+        onlyLists = (noSources | noCounterparts) - notCoveredByPosition
+        onlyPosition = notCoveredByPosition - (noSources | noCounterparts)
+        if onlyLists or onlyPosition:
+            print("Note: %d pointings are in the no-coverage lists but not 'notCovered' by position, and %d are "
+                  "'notCovered' by position but not in the lists" % (len(onlyLists), len(onlyPosition)))
+
+    # ---- 3. statistics of every pointing
+    sumTab = xmatchSummary(dataRelease=dataBase)
+    sumBy = {} if sumTab is None else {_normaliseCatName(r['radCatName']): r for r in sumTab}
+    covBy = {} if covTab is None else {str(r['pointing']): r for r in covTab}
+
+    rows = []
+    for img in imagesTab:
+        base = _normaliseCatName(img['radioCatPath'])
+        if base in ('-', ''):
+            continue
+        if base in noSources:
+            status = 'no_optical_sources'
+        elif base in noCounterparts:
+            status = 'no_counterparts'
+        elif base in sumBy:
+            status = 'matched'
+        else:
+            status = 'not_run'
+        sm, cv = sumBy.get(base), covBy.get(base)
+        rows.append((base, str(img['object']), str(img['captureBlockId']), float(img['centre_RADeg']),
+                     float(img['centre_decDeg']), float(img['skyArea_sqDeg']), float(img['RMS_uJy/beam']),
+                     int(img['nRadioSources']), status,
+                     float(sm['Q0']) if sm is not None else np.nan, float(sm['LR_THR']) if sm is not None else np.nan,
+                     float(sm['REL']) if sm is not None else np.nan, float(sm['COMP']) if sm is not None else np.nan,
+                     float(sm['SEAR_RAD_arcsec']) if sm is not None else np.nan,
+                     int(sm['nOptical']) if sm is not None else -1, int(sm['nMatched']) if sm is not None else -1,
+                     int(cv['nUniqueSources']) if cv is not None else -1,
+                     float(cv['fractionOutsideCoverage']) if cv is not None else np.nan,
+                     str(cv['coverageStatus']) if cv is not None else ''))
+    statNames = ('pointing', 'object', 'captureBlockId', 'centre_RADeg', 'centre_decDeg', 'skyArea_sqDeg', 'RMS_uJy/beam',
+                 'nRadioSources', 'xmatchStatus', 'Q0', 'LR_THR', 'REL', 'COMP', 'SEAR_RAD_arcsec', 'nOptical', 'nMatched',
+                 'nUniqueSources', 'fractionOutsideCoverage', 'coverageStatus')
+    statDtypes = ('U200', 'U100', 'U30', 'f8', 'f8', 'f8', 'f8', 'i8', 'U30', 'f8', 'f8', 'f8', 'f8', 'f8', 'i8', 'i8', 'i8',
+                  'f8', 'U30')
+    statTab = atpy.Table(rows=rows, names=statNames, dtype=statDtypes)
+    statBase = os.path.join(DRDir, '%s_xmatch_statistics' % dataBase)
+    statTab.write(statBase + '.fits', overwrite=True)
+    statTab.write(statBase + '.csv', format='ascii.csv', overwrite=True)
+    print("Wrote %s.fits and .csv (%d pointings)" % (statBase, len(statTab)))
+
+    # ---- 4. completeness and reliability against the LR threshold, all pointings in one table
+    curves = []
+    for curveFile in sorted(glob.glob(os.path.join(DRDir, 'xmatches_DECaLSDR10', 'xmatch_*', 'LRRelComp_*.ecsv'))):
+        curveName = os.path.basename(curveFile)[len('LRRelComp_'):-len('.ecsv')]
+        curveName = _normaliseCatName(curveName.split('_DECaLSDR10_')[0])
+        curveTab = atpy.Table.read(curveFile, format='ascii.ecsv')
+        curveTab.meta = {}
+        curveTab.add_column(atpy.Column([curveName] * len(curveTab), name='pointing'), index=0)
+        curves.append(curveTab)
+    if curves:
+        curvesFile = os.path.join(DRDir, '%s_xmatch_LRcurves.fits' % dataBase)
+        atpy.vstack(curves).write(curvesFile, overwrite=True)
+        print("Wrote %s (%d pointings)" % (curvesFile, len(curves)))
+    else:
+        print("No LRRelComp_*.ecsv files found: run the cross-match with the current version to get the LR curves")
+
+    # ---- 5. summary
+    print("\nCross-match status of the %d pointings of the %s:" % (len(statTab), dataBase))
+    for status in ('matched', 'no_counterparts', 'no_optical_sources', 'not_run'):
+        print("  %-20s %d" % (status, int(np.sum(statTab['xmatchStatus'] == status))))
+    if covTab is not None:
+        print("Coverage by position:")
+        for status in ('covered', 'partiallyCovered', 'notCovered'):
+            print("  %-20s %d" % (status, int(np.sum(statTab['coverageStatus'] == status))))
+    for col in ('Q0', 'LR_THR', 'REL', 'COMP'):
+        vals = np.asarray(statTab[col], dtype=float)
+        vals = vals[np.isfinite(vals)]
+        if len(vals) > 0:
+            print("  %-7s median %.3f, range %.3f to %.3f (%d pointings)" % (col, np.median(vals), vals.min(), vals.max(), len(vals)))

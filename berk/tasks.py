@@ -617,6 +617,13 @@ def builddr(dataRelease='EDR', includeBands=None, includeQuality=None, removeDup
         DRXmatchTab.write(DRXmatchFile, overwrite=True)
         print("\nWrote %s" % (DRXmatchFile))
 
+        # Unique version (duplicates from overlapping pointings removed)
+        DRXmatchTabUnique = catalogs.removeDuplicateSources(DRXmatchTab, matchRadius_arcsec=6.0, raCol='RA_rad', decCol='DEC_rad',
+                                                            fluxCol='Total_flux_rad', fluxErrCol='E_Total_flux_rad')
+        DRXmatchUniqueFile = os.path.join(DRDir, 'xmatchCatUnique_DECaLSDR10_r_%s.fits' % dataRelease)
+        DRXmatchTabUnique.write(DRXmatchUniqueFile, overwrite=True)
+        print("\nWrote %s" % (DRXmatchUniqueFile))
+
     if DRzmaxTab is not None:
         DRzmaxFile = os.path.join(DRDir, 'zmaxCat_%s.fits' % dataRelease)
         DRzmaxTab.write(DRzmaxFile, overwrite=True)
@@ -946,6 +953,17 @@ def xmatch(optSurveyInput='decalsdr10'):
 
     print("\n" + "-" * 100)
     print("\nWrote %s" % (globalBestXmatchTabName))
+    print("\n" + "-" * 100)
+
+    # Unique version: a radio source detected in overlapping pointings is kept once (the detection with the higher
+    # signal-to-noise ratio of its flux density), as for the survey catalogue
+    globalBestXmatchUniqueTabName = startup.config['productsDir']+os.path.sep+"xmatchCatUnique_%s_%sband.fits" %(optSurvey, optBandToMatch)
+    globalBestXmatchUniqueTab = catalogs.removeDuplicateSources(globalBestXmatchTab, matchRadius_arcsec=6.0,
+                                                                raCol='RA_rad', decCol='DEC_rad',
+                                                                fluxCol='Total_flux_rad', fluxErrCol='E_Total_flux_rad')
+    globalBestXmatchUniqueTab.write(globalBestXmatchUniqueTabName, overwrite=True)
+
+    print("\nWrote %s" % (globalBestXmatchUniqueTabName))
     print("\n" + "-" * 100)
 
 #------------------------------------------------------------------------------------------------------------

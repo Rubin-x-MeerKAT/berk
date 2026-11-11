@@ -181,7 +181,7 @@ def plotSourceCounts(surveyCatDir, catSubScript, fluxCol='Total_flux', fluxMin=N
         catalogTab['%s_1p4GHz' %fluxCol] = catalogs.convertFluxFreq(catalogTab[fluxCol].value, catalogTab['freqGHz'].value, 1.4, alpha=0.7)
         fluxVals = catalogTab['%s_1p4GHz' %fluxCol].value
         fluxUnitLabel = catalogTab[fluxCol].unit
-        completeness = catalogTab['completeness'] if 'completeness' in catalogTab.colnames else np.ones_like(fluxVals)
+        completeness = catalogTab['completeness_rad'] if 'completeness' in catalogTab.colnames else np.ones_like(fluxVals)
 
         fluxMin = np.min(fluxVals) if fluxMin is None else fluxMin
         fluxMax = np.max(fluxVals) if fluxMax is None else fluxMax

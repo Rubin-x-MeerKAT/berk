@@ -238,6 +238,11 @@ def processVmaxForXmatchFile(args):
 
     if os.path.exists(zmaxFilePath):
         zmaxTab = atpy.Table().read(zmaxFilePath)
+        # CHANGED: zmax files made before the resolved-flag columns existed get the columns here (the file on disk is not changed)
+        if 'resolvedFlag_axes_rad' not in zmaxTab.colnames or 'resolvedFlag_axes_rad' not in xmatchTab.colnames:
+            radCatMeta = atpy.Table().read(os.path.join(DRDir, 'catalogs', radCatName)).meta
+            _addResolvedColumns(xmatchTab, radCatMeta)
+            _addResolvedColumns(zmaxTab, radCatMeta)
         return xmatchTab, zmaxTab
 
     print("\nProcessing Vmax for %s..." % xmatchFile)
@@ -250,6 +255,10 @@ def processVmaxForXmatchFile(args):
                                                     (xmatchTab['zspec_opt'] != -99),
                                                     xmatchTab['zspec_opt'],
                                                     xmatchTab['zphoto_median_opt'])
+
+    # CHANGED: frequency, beam, sizes and resolved flag of each radio source (as in the survey catalogue), in the
+    # cross-match and in the zmax tables. The zmax table below is taken from this table, so it gets them too.
+    _addResolvedColumns(xmatchTab, atpy.Table().read(os.path.join(DRDir, 'catalogs', radCatName)).meta)
 
     zmaxTab = xmatchTab[xmatchTab[zColName] != -99]
 
@@ -1324,6 +1333,34 @@ def _getSizeArcsec(tab, candidates):
     return None
 
 #------------------------------------------------------------------------------------------------------------
+def _addResolvedColumns(tab, meta, suffix='_rad'):
+    """CHANGED: adds the observing frequency, restoring beam, deconvolved sizes and resolved flag of the survey catalogue
+    to a table that has the radio columns Maj<suffix>, E_Maj<suffix> and Min<suffix> (degrees).
+
+    The values are computed as in the survey catalogue (see builddr): a source is resolved when
+    Maj - BMAJ >= 2 * E_Maj (Heywood et al. 2022, Eq. 6), and the beam and frequency come from the header
+    keywords BMAJ, BMIN and FREQ0 of the pointing catalogue.
+
+    Args:
+        tab (astropy.table.Table): Table with the radio columns of the sources of one pointing (modified in place).
+        meta (dict): Header of the pointing catalogue (needs FREQ0, BMAJ and BMIN).
+        suffix (str): Suffix of the radio columns in the table.
+    """
+    if 'resolvedFlag_axes' + suffix in tab.colnames:
+        return
+    bmajDeg = float(meta['BMAJ'])
+    bminDeg = float(meta['BMIN'])
+    maj = np.ma.filled(np.ma.asarray(tab['Maj' + suffix], dtype=float), np.nan)
+    eMaj = np.ma.filled(np.ma.asarray(tab['E_Maj' + suffix], dtype=float), np.nan)
+    minAx = np.ma.filled(np.ma.asarray(tab['Min' + suffix], dtype=float), np.nan)
+    tab['freqGHz' + suffix] = float(meta['FREQ0']) / 1e9
+    tab['beamMajDeg' + suffix] = bmajDeg
+    tab['beamMinDeg' + suffix] = bminDeg
+    tab['resolvedFlag_axes' + suffix] = ((maj - bmajDeg) >= 2 * eMaj).astype(int)
+    tab['sizeMajAsec' + suffix] = np.sqrt(np.clip(maj**2 - bmajDeg**2, 0, None)) * 3600
+    tab['sizeMinAsec' + suffix] = np.sqrt(np.clip(minAx**2 - bminDeg**2, 0, None)) * 3600
+
+#------------------------------------------------------------------------------------------------------------
 def _loadCompleteness2D(path2D):
     """Loads a flux density x size completeness grid (written by sourceinjection) and builds an interpolator.
 
@@ -1546,6 +1583,18 @@ def _ensurePyBDSFMaps(baseName, mapsDir):
               "may differ from those used for the products catalogue.")
 
 #------------------------------------------------------------------------------------------------------------
+def _edrCatalogueBaseNames():
+    """Sorted names (without directory and without _bdsfcat.fits) of the catalogues of the EDR pointings.
+
+    EDR/catalogs can hold links to the catalogues with source names (<name>_bdsfcat.fits), to the raw PyBDSF catalogues
+    (<name>_srl_bdsfcat.fits), or to both, depending on the version of builddr that made it. Either kind of link gives the
+    name of the pointing; the catalogue itself is read from the products directory. The position in this list is the image
+    index used by estimateCompleteness."""
+    files = glob.glob(os.path.join(startup.config['rootDir'], 'EDR', 'catalogs', '*_bdsfcat.fits'))
+    return sorted(set(_normaliseCatName(f) for f in files))
+
+
+#------------------------------------------------------------------------------------------------------------
 def estimateCompleteness(beginImage=0, endImage=None, nInjectionSources=5000, nRepetitions=50, minFluxJyInj=1e-5, maxFluxJyInj=1.0, radiusFactorToInject=0.95,
                          minSizeArcsec=1.0, maxSizeArcsec=60.0, minAxisRatio=0.3, crowdingFactor=5.0, sinjectionDirName='sinjection'):
     """Estimate completeness as a function of flux density and source size by source injection.
@@ -1555,17 +1604,22 @@ def estimateCompleteness(beginImage=0, endImage=None, nInjectionSources=5000, nR
 
     """
 
-    # the catalogues with the source names (not the raw PyBDSF ones, which have 'srl' in their names)
-    tabFilesList=sorted([f for f in glob.glob(os.path.join(startup.config['rootDir'], 'EDR', 'catalogs', '*_bdsfcat.fits'))
-                         if 'srl_bdsfcat' not in os.path.basename(f)])
+    # the pointings of the EDR, from the links in EDR/catalogs (named or raw PyBDSF catalogues)
+    catBaseNames = _edrCatalogueBaseNames()
+    catDir = os.path.join(startup.config['rootDir'], 'EDR', 'catalogs')
 
     sinjectDirPath = os.path.join(startup.config['rootDir'], 'EDR', sinjectionDirName)
     os.makedirs(sinjectDirPath, exist_ok = True)
 
     if endImage is None:
-        selectedTabs = tabFilesList[beginImage:]
+        selectedNames = catBaseNames[beginImage:]
     else:
-        selectedTabs = tabFilesList[beginImage:endImage]
+        selectedNames = catBaseNames[beginImage:endImage]
+    if len(selectedNames) == 0:
+        raise ValueError("No image selected: beginImage=%s, endImage=%s, but %d catalogues were found in %s"
+                         % (beginImage, endImage, len(catBaseNames), catDir))
+    print("Estimating completeness for %d of the %d EDR pointings (indices %d to %d)"
+          % (len(selectedNames), len(catBaseNames), beginImage, beginImage + len(selectedNames) - 1))
 
     # Re-extracted PyBDSF files go to mapsDir, which is also the current directory while the images are processed
     # (sourceinjection.executeSingle looks in the current directory first and in the products directory second)
@@ -1575,8 +1629,8 @@ def estimateCompleteness(beginImage=0, endImage=None, nInjectionSources=5000, nR
     originalDir = os.getcwd()
     os.chdir(mapsDir)
     try:
-        for tab in selectedTabs:
-            baseName = tab.split('_bdsfcat.fits')[0]
+        for name in selectedNames:
+            baseName = os.path.join(catDir, name)
             print("\n" + "═" * 70)
             print("║ Estimating completeness for %s ║" %baseName)
             _ensurePyBDSFMaps(os.path.basename(baseName), mapsDir)

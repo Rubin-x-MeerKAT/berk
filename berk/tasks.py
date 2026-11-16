@@ -673,7 +673,7 @@ def builddr(dataRelease='EDR', includeBands=None, includeQuality=None, removeDup
                 print("Removed %s from zmax table." %catAvoidName)
 
     DRzmaxUniqueBestFile = os.path.join(DRDir, 'zmaxCatUniqueBest_%s.fits' % dataRelease)
-    _writeWithUnits(DRzmaxTabUniqueBest, DRzmaxUniqueBestFile, '_rad')
+    #_writeWithUnits(DRzmaxTabUniqueBest, DRzmaxUniqueBestFile, '_rad')
 
     print("\n" + "═" * 40)
     print("Successfully built %s ║" %dataRelease)

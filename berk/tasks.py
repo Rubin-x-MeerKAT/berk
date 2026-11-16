@@ -251,7 +251,7 @@ def processVmaxForXmatchFile(args):
             radCatMeta = atpy.Table().read(os.path.join(DRDir, 'catalogs', radCatName)).meta
             _addResolvedColumns(xmatchTab, radCatMeta)
             _addResolvedColumns(zmaxTab, radCatMeta)
-        zmaxTab = _moveColumnsAfter(zmaxTab, _RESOLVED_COLUMNS, zColName)
+        zmaxTab = catalogs.moveColumnsAfter(zmaxTab, _RESOLVED_COLUMNS, zColName)
         return xmatchTab, zmaxTab
 
     print("\nProcessing Vmax for %s..." % xmatchFile)
@@ -1370,17 +1370,8 @@ def _addResolvedColumns(tab, meta, suffix='_rad'):
 #------------------------------------------------------------------------------------------------------------
 _RESOLVED_COLUMNS = ['freqGHz_rad', 'beamMajDeg_rad', 'beamMinDeg_rad', 'resolvedFlag_axes_rad', 'sizeMajAsec_rad', 'sizeMinAsec_rad']
 
-def _moveColumnsAfter(tab, columns, after):
-    columns = [c for c in columns if c in tab.colnames]
-    if len(columns) == 0 or after not in tab.colnames:
-        return tab
-    order = [c for c in tab.colnames if c not in columns]
-    i = order.index(after) + 1
-    order[i:i] = columns
-    return tab if order == list(tab.colnames) else tab[order]
-
 #------------------------------------------------------------------------------------------------------------
-_RADIO_NO_UNIT = {'Pointing_id', 'Source_name', 'Source_id', 'Isl_id', 'S_Code', 'Quality_flag'}
+_RADIO_NO_UNIT = {'Pointing_id', 'Source_name', 'Source_id', 'Isl_id', 'S_Code', 'Quality_flag', 'FluxErrRatio'}
 _RADIO_JY = {'Total_flux', 'E_Total_flux', 'Isl_Total_flux', 'E_Isl_Total_flux'}
 _RADIO_JY_BEAM = {'Peak_flux', 'E_Peak_flux', 'Isl_rms', 'Isl_mean', 'Resid_Isl_rms', 'Resid_Isl_mean'}
 _RADIO_DEG = re.compile(r'^(E_)?(RA|DEC|RA_max|DEC_max|Maj|Min|PA|DC_Maj|DC_Min|DC_PA)(_img_plane)?$|^Sep_PC$')
@@ -1419,15 +1410,11 @@ def _writeWithUnits(tab, path, suffix=''):
 
 #------------------------------------------------------------------------------------------------------------
 def _setColumnUnits(tab, suffix=''):
-    """Sets the units of the columns, in place, so that they are written to the FITS header. Fixes the units that
-    came from the arithmetic on the columns: sizeMajAsec and sizeMinAsec were declared as deg (the values are in arcsec) and
-    FluxErrRatio as Jy (it is a ratio)."""
+    """Sets the units of the columns, in place, so that they are written to the FITS header."""
     for name in tab.colnames:
         unitText = _columnUnit(name, suffix)
         if unitText is not None:
             tab[name].unit = u.Unit(unitText)
-    if 'FluxErrRatio' in tab.colnames:
-        tab['FluxErrRatio'].unit = None
 
 #------------------------------------------------------------------------------------------------------------
 def _loadCompleteness2D(path2D):

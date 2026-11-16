@@ -922,3 +922,12 @@ def convertLuminosityFreq(luminosity1, nu1, nu2, alpha=0.7):
     luminosity2 = luminosity1 * (nu2 / nu1) ** (-alpha)
 
     return luminosity2
+
+def moveColumnsAfter(tab, columns, after):
+    columns = [c for c in columns if c in tab.colnames]
+    if len(columns) == 0 or after not in tab.colnames:
+        return tab
+    order = [c for c in tab.colnames if c not in columns]
+    i = order.index(after) + 1
+    order[i:i] = columns
+    return tab if order == list(tab.colnames) else tab[order]

@@ -8,6 +8,7 @@ import os
 import sys
 import subprocess
 import glob
+import re
 import datetime
 import astropy.table as atpy
 from astropy.io import fits
@@ -238,11 +239,19 @@ def processVmaxForXmatchFile(args):
 
     if os.path.exists(zmaxFilePath):
         zmaxTab = atpy.Table().read(zmaxFilePath)
-        # CHANGED: zmax files made before the resolved-flag columns existed get the columns here (the file on disk is not changed)
+        if 'radCatName' not in xmatchTab.colnames:
+            xmatchTab['radCatName'] = 'catalogs'+os.path.sep+radCatName
+        if zColName not in xmatchTab.colnames:
+            xmatchTab[zColName] = np.where(np.isfinite(xmatchTab['zspec_opt']) &
+                                           (xmatchTab['zspec_opt'] != -99),
+                                           xmatchTab['zspec_opt'],
+                                           xmatchTab['zphoto_median_opt'])
+        # frequency, beam, sizes and resolved flag
         if 'resolvedFlag_axes_rad' not in zmaxTab.colnames or 'resolvedFlag_axes_rad' not in xmatchTab.colnames:
             radCatMeta = atpy.Table().read(os.path.join(DRDir, 'catalogs', radCatName)).meta
             _addResolvedColumns(xmatchTab, radCatMeta)
             _addResolvedColumns(zmaxTab, radCatMeta)
+        zmaxTab = _moveColumnsAfter(zmaxTab, _RESOLVED_COLUMNS, zColName)
         return xmatchTab, zmaxTab
 
     print("\nProcessing Vmax for %s..." % xmatchFile)
@@ -256,8 +265,6 @@ def processVmaxForXmatchFile(args):
                                                     xmatchTab['zspec_opt'],
                                                     xmatchTab['zphoto_median_opt'])
 
-    # CHANGED: frequency, beam, sizes and resolved flag of each radio source (as in the survey catalogue), in the
-    # cross-match and in the zmax tables. The zmax table below is taken from this table, so it gets them too.
     _addResolvedColumns(xmatchTab, atpy.Table().read(os.path.join(DRDir, 'catalogs', radCatName)).meta)
 
     zmaxTab = xmatchTab[xmatchTab[zColName] != -99]
@@ -315,7 +322,6 @@ def processVmaxForXmatchFile(args):
     Slim_Jypbeam = sigmaTimes*RMS_uJypbeam*1e-6 # flux limit in Jy/beam
 
     zMaxList = []
-    VMaxList = []
     VMaxEffAreaList = []
     VMaxWholeAreaList = []
     optCompList = []
@@ -334,17 +340,14 @@ def processVmaxForXmatchFile(args):
         Slim_uJypbeam = Slim_Jypbeam*1E6
 
         zMax = catalogs.calculateZmax(galRedshift, galLum_WHz, Slim_uJypbeam, alpha=0.7, zmaxLimit=1E10,cosmology=cosmologyDR)
-        VMax_h3Mpc3 = catalogs.calculateComovingVolBetweenZ_h3Mpc3(skyArea_sqDeg, zMin=0.0, zMax=zMax, cosmology=cosmologyDR)
         VMax_h3Mpc3_effarea = catalogs.calculateComovingVolBetweenZ_h3Mpc3(galEffArea, zMin=0.0, zMax=zMax, cosmology=cosmologyDR)
         VMax_h3Mpc3_wholearea = catalogs.calculateComovingVolBetweenZ_h3Mpc3(galWholeArea, zMin=0.0, zMax=zMax, cosmology=cosmologyDR)
 
         zMaxList.append(zMax)
-        VMaxList.append(VMax_h3Mpc3)
         VMaxEffAreaList.append(VMax_h3Mpc3_effarea)
         VMaxWholeAreaList.append(VMax_h3Mpc3_wholearea)
 
     zmaxTab['zmax_rad'] = zMaxList
-    zmaxTab['Vmax_rad_h3Mpc3'] = VMaxList
     zmaxTab['Vmax_rad_h3Mpc3_effarea'] = VMaxEffAreaList
     zmaxTab['Vmax_rad_h3Mpc3_wholearea'] = VMaxWholeAreaList
     zmaxTab['completeness_opt'] = optCompList
@@ -571,16 +574,18 @@ def builddr(dataRelease='EDR', includeBands=None, includeQuality=None, removeDup
             globalTabsDict[bandKey].sort('RA')
             globalTabsDict[bandKey].meta['DR']=dataRelease
             globalTabsDict[bandKey].meta['BAND']=bandKey
-            globalTabsDict[bandKey].meta['QTYVALS'] = includeQuality
+            globalTabsDict[bandKey].meta['QTYVALS'] = ','.join(str(q) for q in includeQuality)
             globalTabsDict[bandKey].meta['BERKVER']=__version__
             globalTabsDict[bandKey].meta['DATEMADE']=datetime.date.today().isoformat()
             globalTabsDict[bandKey].write(outFileName, overwrite = True)
+            _writeWithUnits(globalTabsDict[bandKey], outFileName, '')
 
             # Removing source-level duplicates (due to overlapping pointings)
             DRGlobalCatUnique = catalogs.removeDuplicateSources(globalTabsDict[bandKey], matchRadius_arcsec=6.0, raCol='RA', decCol='DEC',
                                                       fluxCol='Total_flux', fluxErrCol='E_Total_flux')
             DRGlobalCatUniqueFile = os.path.join(DRDir, "survey_catalog_%s_unique_%s.fits" % (bandKey, dataRelease))
-            DRGlobalCatUnique.write(DRGlobalCatUniqueFile, overwrite=True)
+            #DRGlobalCatUnique.write(DRGlobalCatUniqueFile, overwrite=True)
+            _writeWithUnits(DRGlobalCatUnique, DRGlobalCatUniqueFile, '')
 
             catalogs.catalog2DS9(globalTabsDict[bandKey], outFileName.replace(".fits", ".reg"),
                                  idKeyToUse = 'Source_name', RAKeyToUse = 'RA', decKeyToUse = 'DEC')
@@ -615,30 +620,32 @@ def builddr(dataRelease='EDR', includeBands=None, includeQuality=None, removeDup
     DRXmatchTab = None
     DRzmaxTab = None
     for xmatchTab, zmaxTab in results:
+        if xmatchTab is None:
+            continue
         if 'ref_cat_opt' in zmaxTab.colnames:
             zmaxTab.remove_column('ref_cat_opt')
         if 'ref_cat_opt' in xmatchTab.colnames:
             xmatchTab.remove_column('ref_cat_opt')
-        if xmatchTab is None:
-            continue
         DRXmatchTab = xmatchTab if DRXmatchTab is None else atpy.vstack([DRXmatchTab, xmatchTab])
         DRzmaxTab   = zmaxTab if DRzmaxTab is None else atpy.vstack([DRzmaxTab, zmaxTab])
 
     if DRXmatchTab is not None:
         DRXmatchFile = os.path.join(DRDir, 'xmatchCat_DECaLSDR10_r_%s.fits' % dataRelease)
-        DRXmatchTab.write(DRXmatchFile, overwrite=True)
+        #DRXmatchTab.write(DRXmatchFile, overwrite=True)
+        _writeWithUnits(DRXmatchTab, DRXmatchFile, '_rad')
         print("\nWrote %s" % (DRXmatchFile))
 
         # Unique version (duplicates from overlapping pointings removed)
         DRXmatchTabUnique = catalogs.removeDuplicateSources(DRXmatchTab, matchRadius_arcsec=6.0, raCol='RA_rad', decCol='DEC_rad',
                                                             fluxCol='Total_flux_rad', fluxErrCol='E_Total_flux_rad')
         DRXmatchUniqueFile = os.path.join(DRDir, 'xmatchCatUnique_DECaLSDR10_r_%s.fits' % dataRelease)
-        DRXmatchTabUnique.write(DRXmatchUniqueFile, overwrite=True)
+        #DRXmatchTabUnique.write(DRXmatchUniqueFile, overwrite=True)
+        _writeWithUnits(DRXmatchTabUnique, DRXmatchUniqueFile, '_rad')
         print("\nWrote %s" % (DRXmatchUniqueFile))
 
     if DRzmaxTab is not None:
         DRzmaxFile = os.path.join(DRDir, 'zmaxCat_%s.fits' % dataRelease)
-        DRzmaxTab.write(DRzmaxFile, overwrite=True)
+        _writeWithUnits(DRzmaxTab, DRzmaxFile, '_rad')
         print("\nWrote %s" % (DRzmaxFile))
 
     # Removing source-level duplicates (due to overlapping pointings)
@@ -647,7 +654,7 @@ def builddr(dataRelease='EDR', includeBands=None, includeQuality=None, removeDup
                                                       fluxCol='Total_flux_rad', fluxErrCol='E_Total_flux_rad')
 
     DRzmaxUniqueFile = os.path.join(DRDir, 'zmaxCatUnique_%s.fits' % dataRelease)
-    DRzmaxTabUnique.write(DRzmaxUniqueFile, overwrite=True)
+    _writeWithUnits(DRzmaxTabUnique, DRzmaxUniqueFile, '_rad')
 
     # Removing pointings that are not well covered by opticalsurvey.
     # Visually checking the sky coverage of cross-matches using the RadOptSyPlot*.png in each crossmatch dir.
@@ -666,7 +673,7 @@ def builddr(dataRelease='EDR', includeBands=None, includeQuality=None, removeDup
                 print("Removed %s from zmax table." %catAvoidName)
 
     DRzmaxUniqueBestFile = os.path.join(DRDir, 'zmaxCatUniqueBest_%s.fits' % dataRelease)
-    DRzmaxTabUniqueBest.write(DRzmaxUniqueBestFile, overwrite=True)
+    _writeWithUnits(DRzmaxTabUniqueBest, DRzmaxUniqueBestFile, '_rad')
 
     print("\n" + "═" * 40)
     print("Successfully built %s ║" %dataRelease)
@@ -1334,7 +1341,7 @@ def _getSizeArcsec(tab, candidates):
 
 #------------------------------------------------------------------------------------------------------------
 def _addResolvedColumns(tab, meta, suffix='_rad'):
-    """CHANGED: adds the observing frequency, restoring beam, deconvolved sizes and resolved flag of the survey catalogue
+    """Adds the observing frequency, restoring beam, deconvolved sizes and resolved flag of the survey catalogue
     to a table that has the radio columns Maj<suffix>, E_Maj<suffix> and Min<suffix> (degrees).
 
     The values are computed as in the survey catalogue (see builddr): a source is resolved when
@@ -1359,6 +1366,68 @@ def _addResolvedColumns(tab, meta, suffix='_rad'):
     tab['resolvedFlag_axes' + suffix] = ((maj - bmajDeg) >= 2 * eMaj).astype(int)
     tab['sizeMajAsec' + suffix] = np.sqrt(np.clip(maj**2 - bmajDeg**2, 0, None)) * 3600
     tab['sizeMinAsec' + suffix] = np.sqrt(np.clip(minAx**2 - bminDeg**2, 0, None)) * 3600
+
+#------------------------------------------------------------------------------------------------------------
+_RESOLVED_COLUMNS = ['freqGHz_rad', 'beamMajDeg_rad', 'beamMinDeg_rad', 'resolvedFlag_axes_rad', 'sizeMajAsec_rad', 'sizeMinAsec_rad']
+
+def _moveColumnsAfter(tab, columns, after):
+    columns = [c for c in columns if c in tab.colnames]
+    if len(columns) == 0 or after not in tab.colnames:
+        return tab
+    order = [c for c in tab.colnames if c not in columns]
+    i = order.index(after) + 1
+    order[i:i] = columns
+    return tab if order == list(tab.colnames) else tab[order]
+
+#------------------------------------------------------------------------------------------------------------
+_RADIO_NO_UNIT = {'Pointing_id', 'Source_name', 'Source_id', 'Isl_id', 'S_Code', 'Quality_flag'}
+_RADIO_JY = {'Total_flux', 'E_Total_flux', 'Isl_Total_flux', 'E_Isl_Total_flux'}
+_RADIO_JY_BEAM = {'Peak_flux', 'E_Peak_flux', 'Isl_rms', 'Isl_mean', 'Resid_Isl_rms', 'Resid_Isl_mean'}
+_RADIO_DEG = re.compile(r'^(E_)?(RA|DEC|RA_max|DEC_max|Maj|Min|PA|DC_Maj|DC_Min|DC_PA)(_img_plane)?$|^Sep_PC$')
+_EDR_COLUMN_UNITS = {
+    'freqGHz': 'GHz', 'beamMajDeg': 'deg', 'beamMinDeg': 'deg', 'sizeMajAsec': 'arcsec', 'sizeMinAsec': 'arcsec',
+    'freqGHz_rad': 'GHz', 'beamMajDeg_rad': 'deg', 'beamMinDeg_rad': 'deg', 'sizeMajAsec_rad': 'arcsec', 'sizeMinAsec_rad': 'arcsec',
+    'RADeg_opt': 'deg', 'decDeg_opt': 'deg', 'pos_err_deg_opt': 'deg', 'rad_opt_sep_deg': 'deg',
+    'parallax_opt': 'mas', 'parallax_ivar_opt': 'mas-2', 'pmra_opt': 'mas/yr', 'pmra_ivar_opt': 'mas-2 yr2', 'pmdec_opt': 'mas/yr',
+    'g_opt': 'mag', 'gErr_opt': 'mag', 'r_opt': 'mag', 'rErr_opt': 'mag', 'i_opt': 'mag', 'iErr_opt': 'mag',
+    'z_opt': 'mag', 'zErr_opt': 'mag', 'w1_opt': 'mag', 'w1Err_opt': 'mag', 'w2_opt': 'mag', 'w2Err_opt': 'mag',
+    'f_r': 'deg-2', 'n_m': 'deg-2',
+    'LuminosityWHz_rad': 'W/Hz', 'EffectiveAreaSqDeg': 'deg2', 'WholeAreaSqDeg': 'deg2',
+    'Vmax_rad_h3Mpc3_effarea': 'h-3Mpc-3', 'Vmax_rad_h3Mpc3_wholearea': 'h-3Mpc-3',
+}
+
+def _columnUnit(name, suffix):
+    if name in _EDR_COLUMN_UNITS:
+        return _EDR_COLUMN_UNITS[name]
+    base = name[:-len(suffix)] if suffix and name.endswith(suffix) else (name if not suffix else None)
+    if base is None:
+        return None
+    if base in _RADIO_NO_UNIT:
+        return None
+    if base in _RADIO_JY:
+        return 'Jy'
+    if base in _RADIO_JY_BEAM:
+        return 'Jy/beam'
+    if _RADIO_DEG.match(base):
+        return 'deg'
+    return None
+
+def _writeWithUnits(tab, path, suffix=''):
+    out = tab.copy()
+    _setColumnUnits(out, suffix)
+    out.write(path, overwrite=True)
+
+#------------------------------------------------------------------------------------------------------------
+def _setColumnUnits(tab, suffix=''):
+    """Sets the units of the columns, in place, so that they are written to the FITS header. Fixes the units that
+    came from the arithmetic on the columns: sizeMajAsec and sizeMinAsec were declared as deg (the values are in arcsec) and
+    FluxErrRatio as Jy (it is a ratio)."""
+    for name in tab.colnames:
+        unitText = _columnUnit(name, suffix)
+        if unitText is not None:
+            tab[name].unit = u.Unit(unitText)
+    if 'FluxErrRatio' in tab.colnames:
+        tab['FluxErrRatio'].unit = None
 
 #------------------------------------------------------------------------------------------------------------
 def _loadCompleteness2D(path2D):

@@ -18,9 +18,14 @@ from collections import defaultdict
 from astropy.units import Quantity
 import requests
 import pyvo as vo
+# The Data Lab client (dl) is optional - it is only needed for retrieving DECaLS catalogues (see DLLogin)
+ac = None
 on_rtd=os.environ.get('READTHEDOCS', None)
 if on_rtd is None:
-    from dl import authClient as ac
+    try:
+        from dl import authClient as ac
+    except ImportError:
+        pass
 from getpass import getpass
 from astropy_healpix import HEALPix
 
@@ -37,6 +42,9 @@ def DLLogin(username=None, password=None, max_attempts=3):
     If not running interactively (e.g., in a batch job), the user is never prompted - instead, an
     exception is raised if no valid login can be made.
     """
+    if ac is None:
+        raise ImportError("The Data Lab client (dl module; https://github.com/astro-datalab/datalab) is needed to retrieve DECaLS catalogues - install it with: pip install --upgrade astro-datalab")
+
     username = settings.get('DL_USERNAME', username, required = False)
     password = settings.get('DL_PASSWORD', password, required = False, secret = True)
 

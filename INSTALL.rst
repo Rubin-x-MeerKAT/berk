@@ -18,6 +18,15 @@ need (e.g., `PyBDSF <https://pybdsf.readthedocs.io/en/latest/>`_), plus:
 
 For the moment, not all Python dependencies may be installed automatically by ``pip``.
 
+Cross-matching with DECaLS also needs the `Data Lab client <https://github.com/astro-datalab/datalab>`_,
+which can be installed with:
+
+.. code-block::
+
+   pip install --upgrade astro-datalab
+
+(or by installing **Berk** with ``pip install berk[decals]``).
+
 Note that ``Oxkat`` and the ``Image-processing`` scripts will be installed by
 **Berk** when it is first run (specific versions are fetched from GitHub).
 

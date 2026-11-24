@@ -23,6 +23,9 @@ from astropy.cosmology import FlatLambdaCDM
 from multiprocessing import Pool
 from scipy.interpolate import PchipInterpolator
 
+# Tasks require the full set-up (BERK_* env vars, directories, oxkat etc.)
+startup.initialise()
+
 #------------------------------------------------------------------------------------------------------------
 def fetch(captureBlockId):
     """Fetch...
@@ -864,7 +867,7 @@ def builddb():
 #------------------------------------------------------------------------------------------------------------
 def _processXmatchOnRadioCatalogue(args):
 
-    radCat, optSurvey, optBandToMatch, optPosErrAsecValue = args
+    radCat, optSurvey, optBandToMatch, optPosErrAsecValue, retrieverOptions = args
 
     catalogName = radCat.split(os.path.sep)[-1]
 
@@ -905,7 +908,9 @@ def _processXmatchOnRadioCatalogue(args):
                                                 radEMinCol='E_Min', radPACol='PA',
                                                 outSubscript=outSubscript,
                                                 optPosErrAsecValue=optPosErrAsecValue, nMagBins=15, beamSizeArcsecValue=6.0,
-                                                skipIfExists=True
+                                                skipIfExists=True,
+                                                imagesTabPath=os.path.join(startup.config['productsDir'], 'images.fits'),
+                                                retrieverOptions=retrieverOptions
                                                 )
 
     if xmatchTab is None:
@@ -943,7 +948,16 @@ def xmatch(optSurveyInput='decalsdr10'):
     radCatFilesList=sorted([f for f in glob.glob(startup.config['productsDir']+os.path.sep+'catalogs'+os.path.sep+'*_bdsfcat.fits')
                             if 'srl_bdsfcat' not in os.path.basename(f)])
 
-    args = [(radCat, optSurvey, optBandToMatch, optPosErrAsecValue) for radCat in radCatFilesList]
+    # Options for retrieving optical catalogues - credentials/URLs (e.g., RUBIN_TOKEN) are found by
+    # crossmatch.retrieve* functions from environment variables or the Berk config file (see berk.settings)
+    retrieverOptions = {'cacheDir': crossmatch.getZClusterCacheDir(defaultRoot = startup.config['cacheDir'])}
+
+    # Log in once here, so that a missing/invalid login stops the task before any work is done (rather than
+    # part way through), and so that we don't log in again for each radio catalogue
+    if optSurvey == 'DECaLSDR10':
+        retrieverOptions['DLToken'] = crossmatch.DLLogin()
+
+    args = [(radCat, optSurvey, optBandToMatch, optPosErrAsecValue, retrieverOptions) for radCat in radCatFilesList]
 
     doParallelXmatch = False
     if doParallelXmatch is True:
@@ -1701,7 +1715,8 @@ def estimateCompleteness(beginImage=0, endImage=None, nInjectionSources=5000, nR
                 minSizeArcsec=minSizeArcsec,
                 maxSizeArcsec=maxSizeArcsec,
                 minAxisRatio=minAxisRatio,
-                crowdingFactor=crowdingFactor)
+                crowdingFactor=crowdingFactor,
+                productsDir=startup.config['productsDir'])
             print("\n" + "═" * 70)
     finally:
         os.chdir(originalDir)

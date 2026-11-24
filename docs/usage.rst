@@ -26,6 +26,42 @@ Initial set-up
   information on the processed fields (e.g., ``products/images.fits``, as produced by the ``builddb``
   task).
 
+Settings for cross-matching
+---------------------------
+
+Cross-matching with optical surveys (the ``xmatch`` task, the ``xmatch`` command, or
+:mod:`berk.crossmatch`) uses the following settings:
+
+* ``ZCLUSTER_CACHE``: Directory under which optical catalogue queries are cached (in ``zCluster/cache``).
+  If not set, ``BERK_ROOT/cache`` is used by the ``xmatch`` task, and ``~/.cache/berk`` otherwise.
+
+* ``DL_USERNAME``, ``DL_PASSWORD``: Data Lab credentials, used to retrieve DECaLS catalogues. These
+  are usually not needed: once you have logged in to Data Lab (e.g., with ``datalab login``, or by
+  entering your username and password when prompted by **Berk**), the token stored in
+  ``~/.datalab`` is re-used for as long as it is valid. If ``DL_USERNAME`` is set, the stored token for
+  that user is used. **Berk** will not prompt for a username and password when not running
+  interactively (e.g., in a batch job) - so, before submitting an ``xmatch`` job, run ``datalab login``
+  (e.g., on a login node).
+
+* ``RUBIN_URL``, ``RUBIN_TOKEN``: URL of the Rubin TAP service, and your access token, used to retrieve
+  Rubin catalogues.
+
+Each of these can be given as an environment variable or in the **Berk** config file. This is
+``~/.config/berk/config.toml`` by default, or can be set with the ``BERK_CONFIG`` environment variable.
+Settings go in the ``[crossmatch]`` section, using lower case names, e.g.::
+
+    [crossmatch]
+    zcluster_cache = "~/.cache/berk"
+    rubin_url = "https://..."
+    rubin_token = "..."
+
+Environment variables take precedence over the config file. As the config file may contain tokens and
+passwords, make it readable only by you (``chmod 600 ~/.config/berk/config.toml``). When using
+:mod:`berk.crossmatch` from Python, these settings can also be passed as keyword arguments (see
+:func:`berk.crossmatch.xmatchRadioOptical`, ``retrieverOptions``).
+
+Reading the config file needs Python 3.11 or later, or the ``tomli`` package.
+
 .. _Workflow:
 
 Workflow

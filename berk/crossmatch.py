@@ -5,6 +5,7 @@ Routines for cross matching, using likelihood ratio method.
 """
 
 import os
+import sys
 import numpy as np
 from astropy.coordinates import SkyCoord, search_around_sky
 from astropy.units import Quantity
@@ -12,7 +13,7 @@ from astropy import units as u
 from astropy.table import Table, hstack
 import matplotlib.pyplot as plt
 from zCluster import retrievers
-from . import startup, catalogs
+from . import catalogs, settings
 from collections import defaultdict
 from astropy.units import Quantity
 import requests
@@ -26,28 +27,54 @@ from astropy_healpix import HEALPix
 def DLLogin(username=None, password=None, max_attempts=3):
     """
     Logs into Data Lab and returns a token.
-    Prompts user if username/password are not provided.
-    Retries up to max_attempts times if login fails.
+
+    If no password is found (see below), a token stored in ``$HOME/.datalab`` by a previous login (e.g.,
+    with ``datalab login``, or an earlier run of this function) is used, if it is still valid. Otherwise,
+    the username and password are taken from the arguments if given, otherwise from the DL_USERNAME and
+    DL_PASSWORD environment variables or the Berk config file (see :mod:`berk.settings`), and the user is
+    prompted for any that are not found. Retries up to max_attempts times if login fails.
+
+    If not running interactively (e.g., in a batch job), the user is never prompted - instead, an
+    exception is raised if no valid login can be made.
     """
-    username = username or os.getenv("DL_USERNAME")
-    password = password or os.getenv("DL_PASSWORD")
+    username = settings.get('DL_USERNAME', username, required = False)
+    password = settings.get('DL_PASSWORD', password, required = False, secret = True)
+
+    # Re-use a token stored in $HOME/.datalab if there is a valid one
+    if password is None:
+        storedUser = username if username is not None else ac.whoAmI()
+        if storedUser != 'anonymous':
+            # With no password, this returns the stored token for storedUser (if it is valid)
+            token = ac.login(storedUser)
+            if ac.isValidToken(token):
+                print("\nUsing stored Data Lab login for %s" % (storedUser))
+                return token
+
+    # Prompting in a batch job would fail (or hang, depending on where stdin points)
+    interactive = sys.stdin is not None and sys.stdin.isatty()
+    notInteractiveMsg = "No valid Data Lab login found, and cannot prompt for a username and password as not running interactively (e.g., in a batch job). Run 'datalab login' first (e.g., on a login node), or set DL_USERNAME and DL_PASSWORD (see berk.settings)."
 
     if username is None:
+        if interactive == False:
+            raise RuntimeError(notInteractiveMsg)
         username = input("Enter Data Lab username: ")
 
     attempt = 0
     while attempt < max_attempts:
         if password is None:
+            if interactive == False:
+                raise RuntimeError(notInteractiveMsg)
             password = getpass("Enter Data Lab password: ")
 
-        try:
-            token = ac.login(username, password)
-            print("\nLogin to %s successful!" %ac.whoAmI())
+        # NOTE: authClient.login returns an error message (rather than raising an exception) if login fails
+        token = ac.login(username, password)
+        if ac.isValidToken(token):
+            print("\nLogin to Data Lab as %s successful!" % (username))
             return token
-        except Exception as e:
-            print("\nLogin failed:", e)
-            password = None  # prompt again on next loop
-            attempt += 1
+
+        print("\nLogin failed:", token)
+        password = None  # prompt again on next loop
+        attempt += 1
 
     # If we get here, all attempts failed
     raise RuntimeError("Failed to login to Data Lab after %d attempts." % max_attempts)
@@ -388,7 +415,7 @@ def _baseCatName(name):
     return name
 
 #------------------------------------------------------------------------------------------------------------
-def getCentreRadiusFromImagesTab(radioCatFilePath):
+def getCentreRadiusFromImagesTab(radioCatFilePath, imagesTabPath):
     """
     Retrieve the pointing centre coordinates and radius
     for a given radio catalogue from the 'images.fits' table.
@@ -398,6 +425,8 @@ def getCentreRadiusFromImagesTab(radioCatFilePath):
             (e.g., the PyBDSF output file). The function uses the catalogue
             name to locate the corresponding image entry in the global
             `images.fits` table.
+        imagesTabPath (:obj:`str`): Path to the global `images.fits` table (normally found in the
+            products directory, i.e., ``startup.config['productsDir']``).
 
     Returns:
         tuple:
@@ -412,8 +441,7 @@ def getCentreRadiusFromImagesTab(radioCatFilePath):
     catalogName = radioCatFilePath.split(os.path.sep)[-1]
     commonFilenamePart = _baseCatName(catalogName)
 
-    globalImagesFileName = startup.config['productsDir']+os.path.sep+"images.fits"
-    globalImagesTab = Table.read(globalImagesFileName)
+    globalImagesTab = Table.read(imagesTabPath)
 
     fieldMask = np.array([commonFilenamePart in p for p in globalImagesTab['path']])
 
@@ -512,14 +540,38 @@ def getDECaLSSkyAreaSqDeg(decalsCat, healPixNSide=4096, healPixCountCol='nest409
 
     return totalAreaSqDeg
 
-def retrieveDECaLSDR10(centerRA, centerDec, radiusDeg):
+def getZClusterCacheDir(cacheDir = None, defaultRoot = None):
+    """Returns the directory used by zCluster to cache optical catalogue queries.
+
+    Args:
+        cacheDir (:obj:`str`, optional): If given, this is returned as is.
+        defaultRoot (:obj:`str`, optional): Directory under which the cache is placed, if the ZCLUSTER_CACHE
+            setting is not found (as an environment variable or in the Berk config file). If not given,
+            ``~/.cache/berk`` is used.
+
+    Returns:
+        Path to the cache directory (``<root>/zCluster/cache``, where root is set by ZCLUSTER_CACHE or
+        `defaultRoot`).
+
+    """
+    if cacheDir is not None:
+        return cacheDir
+    if defaultRoot is None:
+        defaultRoot = os.path.join("~", ".cache", "berk")
+    root = settings.get('ZCLUSTER_CACHE', default = defaultRoot)
+    return os.path.join(os.path.expanduser(root), "zCluster", "cache")
+
+def retrieveDECaLSDR10(centerRA, centerDec, radiusDeg, cacheDir = None, DLToken = None):
     """  Retrieve DECaLS sources within a circular region around a given sky position.
 
     Args:
         centerRA (:obj:`float`): Right ascension (RA) of the centre of the search region, in degrees.
         centerDec (:obj:`float`): Declination (Dec) of the centre of the search region, in degrees.
         radiusDeg (:obj:`float`): Search radius around the central position, in degrees.
-        DR (:obj:`str`, optional): DECaLS data release to use. Currently only 'DR10' is supported. Default is 'DR10'.
+        cacheDir (:obj:`str`, optional): Directory in which zCluster caches query results. If not given,
+            see :func:`getZClusterCacheDir`.
+        DLToken (:obj:`str`, optional): Data Lab authentication token. If not given, :func:`DLLogin` is used
+            to get one.
 
     Returns:
         :obj:`astropy.table.Table`: Table of DECaLS sources within the specified region.
@@ -528,16 +580,17 @@ def retrieveDECaLSDR10(centerRA, centerDec, radiusDeg):
         :obj:`Exception`: If a data release other than 'DR10' is requested.
     """
 
-    DL_token = DLLogin()
+    if DLToken is None:
+        DLToken = DLLogin()
 
     print("\nRetrieving DECaLS DR10 sources with RA_central=%.2f deg, Dec_central=%.2f deg, and radius=%.2f deg" \
           % (centerRA, centerDec, radiusDeg))
-    zClusterCacheDir = os.path.join(os.environ['ZCLUSTER_CACHE'], "zCluster", "cache")
+    zClusterCacheDir = getZClusterCacheDir(cacheDir)
     resultRetrieve = retrievers.DL_DECaLSDR10RetrieverPhotoZ(centerRA, centerDec,
                                                              halfBoxSizeDeg = radiusDeg,
                                                              DR = None,
                                                              optionsDict={'altCacheDir': zClusterCacheDir,
-                                                                          'token': DL_token})
+                                                                          'token': DLToken})
 
     if resultRetrieve is not None:
         decalsCat = Table(resultRetrieve)
@@ -546,13 +599,19 @@ def retrieveDECaLSDR10(centerRA, centerDec, radiusDeg):
 
     return decalsCat
 
-def retrieveRubinDP1(centerRA, centerDec, radiusDeg):
+def retrieveRubinDP1(centerRA, centerDec, radiusDeg, cacheDir = None, RubinURL = None, RubinToken = None):
     """  Retrieve Rubin DP1 sources within a circular region around a given sky position.
 
     Args:
         centerRA (:obj:`float`): Right ascension (RA) of the centre of the search region, in degrees.
         centerDec (:obj:`float`): Declination (Dec) of the centre of the search region, in degrees.
         radiusDeg (:obj:`float`): Search radius around the central position, in degrees.
+        cacheDir (:obj:`str`, optional): Directory in which zCluster caches query results. If not given,
+            see :func:`getZClusterCacheDir`.
+        RubinURL (:obj:`str`, optional): URL of the Rubin TAP service. If not given, the RUBIN_URL setting
+            is used (see :mod:`berk.settings`).
+        RubinToken (:obj:`str`, optional): Rubin authentication token. If not given, the RUBIN_TOKEN setting
+            is used (see :mod:`berk.settings`).
 
     Returns:
         :obj:`astropy.table.Table`: Table of Rubin sources within the specified region.
@@ -561,10 +620,10 @@ def retrieveRubinDP1(centerRA, centerDec, radiusDeg):
 
     print("\nRetrieving Rubin sources with RA_central=%.2f deg, Dec_central=%.2f deg, and radius=%.2f deg" \
           % (centerRA, centerDec, radiusDeg))
-    zClusterCacheDir = os.environ['ZCLUSTER_CACHE']+os.path.sep+"zCluster"+os.path.sep+"cache"
+    zClusterCacheDir = getZClusterCacheDir(cacheDir)
 
-    RubinURL = os.environ['RUBIN_URL']
-    RubinToken = os.environ['RUBIN_TOKEN']
+    RubinURL = settings.get('RUBIN_URL', RubinURL)
+    RubinToken = settings.get('RUBIN_TOKEN', RubinToken, secret = True)
 
     tapSession = requests.Session()
     tapSession.headers['Authorization'] = 'Bearer %s' %RubinToken
@@ -583,6 +642,10 @@ def retrieveRubinDP1(centerRA, centerDec, radiusDeg):
         return None
 
     return RubinCat
+
+# Optical survey name (as used by xmatchRadioOptical) -> function used to retrieve the optical catalogue
+RETRIEVERS = {'DECaLSDR10': retrieveDECaLSDR10,
+              'RubinDP1': retrieveRubinDP1}
 
 def getFRSymErr(rOffsetDeg, radioSource, opticalSource, radERACol, radEDecCol, optPosErrCol):
 
@@ -968,7 +1031,9 @@ def computeLR(radioCat, opticalCat, searchRadiusDegVal, optMagCol, magBins, qMLi
 
 def xmatchRadioOptical(radioCatFilePath, radioBand, xmatchDirPath, optSurvey, optMagCol, searchRadiusArcsec, radRACol, radDecCol, 
                        radERACol, radEDecCol, radEMajCol, radEMinCol, radPACol, outSubscript, optPosErrAsecValue, nMagBins=15, 
-                       beamSizeArcsecValue=6.0, nAreaTimeOptFetch=2.0, skipIfExists=True, dofRSymErr=True):
+                       beamSizeArcsecValue=6.0, nAreaTimeOptFetch=2.0, skipIfExists=True, dofRSymErr=True,
+                       imagesTabPath=None, centreRADeg=None, centreDecDeg=None, radiusDeg=None,
+                       opticalCat=None, retrieverOptions=None):
     """
     Perform likelihood ratio crossmatching between a radio source catalog and an optical survey.
 
@@ -1001,6 +1066,23 @@ def xmatchRadioOptical(radioCatFilePath, radioBand, xmatchDirPath, optSurvey, op
         nAreaTimeOptFetch (:obj:`float`, optional): Factor of extra optical area to be fetched. Default is 2.0.
         skipIfExists (:obj:`bool`, optional): Skip processing if output files exist. Default is True.
         dofRSymErr (:obj:`bool`, optional): Uses symmetric error approach to calculate f(r). Default is True.
+        imagesTabPath (:obj:`str`, optional): Path to the global `images.fits` table, used to look up the
+            pointing centre and radius for the radio catalogue (as done in the berk pipeline).
+        centreRADeg (:obj:`float`, optional): RA (degrees) of the centre of the radio catalogue footprint.
+        centreDecDeg (:obj:`float`, optional): Dec (degrees) of the centre of the radio catalogue footprint.
+        radiusDeg (:obj:`float`, optional): Radius (degrees) of the radio catalogue footprint.
+        opticalCat (:obj:`~astropy.table.Table`, optional): Optical catalogue to crossmatch against, used
+            instead of retrieving one from the `optSurvey` database. This must have 'RADeg' and 'decDeg'
+            columns and the `optMagCol` column. The sky area it covers is taken from its 'AREASQDEG' meta
+            keyword if present, otherwise it is calculated from a 'nest4096' (HEALPix) column.
+        retrieverOptions (:obj:`dict`, optional): Keyword arguments passed to the function that retrieves
+            the optical catalogue (see :data:`RETRIEVERS`, e.g., :func:`retrieveRubinDP1`) - for example,
+            `cacheDir`, `RubinURL`, `RubinToken`.
+
+    Note:
+        The footprint of the radio catalogue is set by `centreRADeg`, `centreDecDeg`, and `radiusDeg`
+        if all are given; otherwise it is read from `imagesTabPath` if given; otherwise it is estimated
+        from the positions of the sources in the radio catalogue itself.
 
     Returns:
         astropy.table.Table: Table of best crossmatched sources with LR values and Reliability and Completeness in meta.
@@ -1012,8 +1094,13 @@ def xmatchRadioOptical(radioCatFilePath, radioBand, xmatchDirPath, optSurvey, op
     optPosErrValueDeg = optPosErrAsecValue/3600.0
 
     radCatName = radioCatFilePath.split(os.path.sep)[-1]
-    captureBlockId = radCatName.split('_')[3]
-    targetName = _baseCatName(radCatName.split('_1024ch_')[1])
+    try:
+        captureBlockId = radCatName.split('_')[3]
+        targetName = _baseCatName(radCatName.split('_1024ch_')[1])
+    except IndexError:
+        # Not a catalogue produced by the berk pipeline (file name doesn't follow the usual pattern)
+        captureBlockId = 'unknown'
+        targetName = _baseCatName(radCatName)
     xmatchIndividualDirPath = os.path.join(xmatchDirPath, 'xmatch_%s' %outSubscript)
     xmatchTabName = xmatchIndividualDirPath+os.path.sep+"xmatchtable_%s" %outSubscript+".fits"
     xmatchBestMatchTabName = xmatchIndividualDirPath+os.path.sep+"xmatchtable_bestmatches_%s" %outSubscript+".fits"
@@ -1066,7 +1153,12 @@ def xmatchRadioOptical(radioCatFilePath, radioBand, xmatchDirPath, optSurvey, op
 
     radioSourcesCoords = SkyCoord(ra=radRAValDegList * u.deg, dec=radDecValDegList * u.deg, frame='icrs')
 
-    centerRA, centerDec, radiusDeg = getCentreRadiusFromImagesTab(radioCatFilePath)
+    if centreRADeg is not None and centreDecDeg is not None and radiusDeg is not None:
+        centerRA, centerDec = centreRADeg, centreDecDeg
+    elif imagesTabPath is not None:
+        centerRA, centerDec, radiusDeg = getCentreRadiusFromImagesTab(radioCatFilePath, imagesTabPath)
+    else:
+        centerRA, centerDec, radiusDeg = getCentreRadiusFromCatalog(radioSources, radRACol, radDecCol)
 
     sigmaRadPosDeg = np.sqrt(radioSources[radERACol]**2 + radioSources[radEDecCol]**2)
     sigmaRadPosMeanDeg = np.mean(sigmaRadPosDeg)
@@ -1077,7 +1169,7 @@ def xmatchRadioOptical(radioCatFilePath, radioBand, xmatchDirPath, optSurvey, op
 
     optCatFileName = xmatchIndividualDirPath+os.path.sep+'%s_sources_%s.fits' %(optSurvey, radCatName.replace(".fits", ""))
 
-    if os.path.exists(optCatFileName):
+    if opticalCat is None and os.path.exists(optCatFileName):
         opticalSources = Table.read(optCatFileName, format='fits')
 
         nOptInFootprint, footprintRadiusDeg = countOpticalInRadioFootprint(radioSources, opticalSources, radRACol, radDecCol, optRACol, optDecCol)
@@ -1092,12 +1184,14 @@ def xmatchRadioOptical(radioCatFilePath, radioBand, xmatchDirPath, optSurvey, op
         # Radius for which optical catalogue is to be fetched
         radiusDegOptFetch = radiusDeg*nAreaTimeOptFetch
 
-        if optSurvey == 'DECaLSDR10':
-            opticalSourcesRaw = retrieveDECaLSDR10(centerRA, centerDec, radiusDegOptFetch)
-        elif optSurvey == 'RubinDP1':
-            opticalSourcesRaw = retrieveRubinDP1(centerRA, centerDec, radiusDegOptFetch)
+        if opticalCat is not None:
+            opticalSourcesRaw = opticalCat
+        elif optSurvey in RETRIEVERS.keys():
+            if retrieverOptions is None:
+                retrieverOptions = {}
+            opticalSourcesRaw = RETRIEVERS[optSurvey](centerRA, centerDec, radiusDegOptFetch, **retrieverOptions)
         else:
-            print("\nERROR: Berk is currently setup for DECaLSDR10 and RubinDP1 only.")
+            print("\nERROR: Berk is currently setup for %s only." % (", ".join(RETRIEVERS.keys())))
             return None
 
         if opticalSourcesRaw is None:
@@ -1123,7 +1217,10 @@ def xmatchRadioOptical(radioCatFilePath, radioBand, xmatchDirPath, optSurvey, op
         os.makedirs(xmatchIndividualDirPath, exist_ok = True)
 
         # getting sky area covered by the optical catalogue (DECaLS for now!)
-        opticalSkyAreaSqDeg = getDECaLSSkyAreaSqDeg(opticalSources, healPixNSide=4096, healPixCountCol='nest4096')
+        if 'AREASQDEG' in opticalSources.meta.keys():
+            opticalSkyAreaSqDeg = opticalSources.meta['AREASQDEG']
+        else:
+            opticalSkyAreaSqDeg = getDECaLSSkyAreaSqDeg(opticalSources, healPixNSide=4096, healPixCountCol='nest4096')
 
         opticalSources.meta['AREASQDEG'] = opticalSkyAreaSqDeg
         opticalSources.write(optCatFileName, format='fits', overwrite=True)

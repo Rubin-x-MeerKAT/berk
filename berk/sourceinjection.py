@@ -19,7 +19,7 @@ from astropy.coordinates import SkyCoord
 import astropy.units as u
 from astropy.modeling.models import Gaussian2D
 from multiprocessing import Pool
-from berk import catalogs, crossmatch, startup
+from berk import catalogs, crossmatch
 import bdsf
 
 # ---------------------------------------------------------------------------
@@ -889,7 +889,7 @@ def analyse2DCompleteness(allInj2D, allRec2D, fluxEdges, sizeEdges, sizeCfg, ima
 
 def executeSingle(imageName, nInjectionSources=5000, nRepetitions=1, minFluxJyInj=1e-5, maxFluxJyInj=1.0,
                   radiusFactorToInject=0.95, outDir=None, injectUnresolvedOnly=False,
-                  minSizeArcsec=1.0, maxSizeArcsec=60.0, minAxisRatio=0.3, crowdingFactor=5.0):
+                  minSizeArcsec=1.0, maxSizeArcsec=60.0, minAxisRatio=0.3, crowdingFactor=5.0, productsDir=None):
     """
     Executes the source injection and completeness analysis for a single image.
 
@@ -905,13 +905,15 @@ def executeSingle(imageName, nInjectionSources=5000, nRepetitions=1, minFluxJyIn
     - minSizeArcsec, maxSizeArcsec: range of the injected deconvolved major-axis FWHM in arcsec; sizes are drawn log-uniformly (default: 1-60).
     - minAxisRatio: minor/major axis ratio is drawn uniformly in [minAxisRatio, 1] (default: 0.3). The position angle is uniform in [0, 180) deg.
     - crowdingFactor: minimum separation between injected sources in units of their mean observed FWHM (default: 5).
+    - productsDir: Path to the berk products directory, searched (after the current directory) for existing PyBDSF
+      catalogues and maps. If None, only the current directory is searched (default: None).
     """
 
     currentDir = os.getcwd()
     imageBaseName = os.path.basename(imageName).split(".fits")[0]
     catBaseName = os.path.basename(imageName).split(".")[0]
 
-    localProdDir  = startup.config['productsDir']
+    localProdDir = productsDir
 
     needExtraction = False
 
@@ -926,7 +928,7 @@ def executeSingle(imageName, nInjectionSources=5000, nRepetitions=1, minFluxJyIn
     if os.path.exists(os.path.join(currentDir, pybdsfCatFileName)):
         pybdsfCatFilePath = os.path.join(currentDir, pybdsfCatFileName)
         print("\nUsing existing PyBDSF catalogue from current directory: %s\n" % pybdsfCatFilePath)
-    elif os.path.exists(os.path.join(localProdDir, "catalogs", pybdsfCatFileName)):
+    elif localProdDir is not None and os.path.exists(os.path.join(localProdDir, "catalogs", pybdsfCatFileName)):
         pybdsfCatFilePath = os.path.join(localProdDir, "catalogs", pybdsfCatFileName)
         print("\nUsing existing PyBDSF catalogue from berk products directory: %s\n" % pybdsfCatFilePath)
     elif os.path.exists(os.path.join(currentDir, rawCatFileName)):
@@ -938,7 +940,7 @@ def executeSingle(imageName, nInjectionSources=5000, nRepetitions=1, minFluxJyIn
     if os.path.exists(os.path.join(currentDir, residualFileName)):
         residualFilePath = os.path.join(currentDir, residualFileName)
         print("\nUsing existing residual image from current directory: %s\n" % residualFilePath)
-    elif os.path.exists(os.path.join(localProdDir, "residual", residualFileName)):
+    elif localProdDir is not None and os.path.exists(os.path.join(localProdDir, "residual", residualFileName)):
         residualFilePath = os.path.join(localProdDir, "residual", residualFileName)
         print("\nUsing existing residual image from berk products directory: %s\n" % residualFilePath)
     else:
@@ -947,7 +949,7 @@ def executeSingle(imageName, nInjectionSources=5000, nRepetitions=1, minFluxJyIn
     if os.path.exists(os.path.join(currentDir, rmsFileName)):
         rmsFilePath = os.path.join(currentDir, rmsFileName)
         print("\nUsing existing RMS map from current directory: %s\n" % rmsFilePath)
-    elif os.path.exists(os.path.join(localProdDir, "rms",  rmsFileName)):
+    elif localProdDir is not None and os.path.exists(os.path.join(localProdDir, "rms",  rmsFileName)):
         rmsFilePath  = os.path.join(localProdDir, "rms",  rmsFileName)
         print("\nUsing existing RMS map from berk products directory: %s\n" % rmsFilePath)
     else:
@@ -956,7 +958,7 @@ def executeSingle(imageName, nInjectionSources=5000, nRepetitions=1, minFluxJyIn
     if os.path.exists(os.path.join(currentDir, meanFileName)):
         meanFilePath = os.path.join(currentDir, meanFileName)
         print("\nUsing existing mean map from current directory: %s\n" % meanFilePath)
-    elif os.path.exists(os.path.join(localProdDir, "mean", meanFileName)):
+    elif localProdDir is not None and os.path.exists(os.path.join(localProdDir, "mean", meanFileName)):
         meanFilePath = os.path.join(localProdDir, "mean", meanFileName)
         print("\nUsing existing mean map from berk products directory: %s\n" % meanFilePath)
     else:
@@ -1077,16 +1079,16 @@ def executeSingle(imageName, nInjectionSources=5000, nRepetitions=1, minFluxJyIn
 
 
 def execute(imageName=None, nInjectionSources=5000, nRepetitions=1, minFluxJyInj=1e-5, maxFluxJyInj=1.0, radiusFactorToInject=0.95, injectUnresolvedOnly=False,
-            minSizeArcsec=1.0, maxSizeArcsec=60.0, minAxisRatio=0.3, crowdingFactor=5.0):
+            minSizeArcsec=1.0, maxSizeArcsec=60.0, minAxisRatio=0.3, crowdingFactor=5.0, productsDir=None):
     """
     Main function to execute the source injection and completeness analysis.
 
     Args:
     - imageName: Name of the image file to process. If None, all '*-image.fits' files in current directory will be processed.
-    - pybdsfCatFilePath: Path to the PyBDSF catalogue file. If None, it will be searched in the current directory and then in the local products directory.
-    - rmsFilePath: Path to the RMS map file. If None, it will be searched in the current directory and then in the local products directory.
-    - meanFilePath: Path to the mean map file. If None, it will be searched in the current directory and then in the local products directory.
-    - residualFilePath: Path to the residual image file. If None, it will be searched in the current directory and then in the local products directory.
+    - pybdsfCatFilePath: Path to the PyBDSF catalogue file. If None, it will be searched in the current directory and then in productsDir (if given).
+    - rmsFilePath: Path to the RMS map file. If None, it will be searched in the current directory and then in productsDir (if given).
+    - meanFilePath: Path to the mean map file. If None, it will be searched in the current directory and then in productsDir (if given).
+    - residualFilePath: Path to the residual image file. If None, it will be searched in the current directory and then in productsDir (if given).
     - nInjectionSources: Number of sources to inject (default: 10000).
     - nRepetitions: Number of repetitions for the injection (default: 100).
     - minFluxJyInj: Minimum flux density of injected sources in Jy (default: 1e-5).
@@ -1096,10 +1098,12 @@ def execute(imageName=None, nInjectionSources=5000, nRepetitions=1, minFluxJyInj
     - minSizeArcsec, maxSizeArcsec: range of the injected deconvolved major-axis FWHM in arcsec; sizes are drawn log-uniformly (default: 1-60).
     - minAxisRatio: minor/major axis ratio is drawn uniformly in [minAxisRatio, 1] (default: 0.3). The position angle is uniform in [0, 180) deg.
     - crowdingFactor: minimum separation between injected sources in units of their mean observed FWHM (default: 5).
+    - productsDir: Path to the berk products directory, searched (after the current directory) for existing PyBDSF
+      catalogues and maps. If None, only the current directory is searched (default: None).
     """
 
     if imageName is not None:
-        executeSingle(imageName, nInjectionSources, nRepetitions, minFluxJyInj, maxFluxJyInj, radiusFactorToInject, None, injectUnresolvedOnly, minSizeArcsec=minSizeArcsec, maxSizeArcsec=maxSizeArcsec, minAxisRatio=minAxisRatio, crowdingFactor=crowdingFactor)
+        executeSingle(imageName, nInjectionSources, nRepetitions, minFluxJyInj, maxFluxJyInj, radiusFactorToInject, None, injectUnresolvedOnly, minSizeArcsec=minSizeArcsec, maxSizeArcsec=maxSizeArcsec, minAxisRatio=minAxisRatio, crowdingFactor=crowdingFactor, productsDir=productsDir)
         return
 
     print("No imageName provided. Searching for FITS images in current directory...\n")
@@ -1118,7 +1122,7 @@ def execute(imageName=None, nInjectionSources=5000, nRepetitions=1, minFluxJyInj
         print("Working on %s" % imageFile)
 
         try:
-            executeSingle(imageFile, nInjectionSources, nRepetitions, minFluxJyInj, maxFluxJyInj, radiusFactorToInject, None, injectUnresolvedOnly, minSizeArcsec=minSizeArcsec, maxSizeArcsec=maxSizeArcsec, minAxisRatio=minAxisRatio, crowdingFactor=crowdingFactor)
+            executeSingle(imageFile, nInjectionSources, nRepetitions, minFluxJyInj, maxFluxJyInj, radiusFactorToInject, None, injectUnresolvedOnly, minSizeArcsec=minSizeArcsec, maxSizeArcsec=maxSizeArcsec, minAxisRatio=minAxisRatio, crowdingFactor=crowdingFactor, productsDir=productsDir)
         except Exception as e:
             print("Error processing %s: %s" % (imageFile, e))
             print("Skipping this file and moving on...\n")

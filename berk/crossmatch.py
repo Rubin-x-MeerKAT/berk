@@ -422,6 +422,15 @@ def _baseCatName(name):
             name = name[:-len(suffix)]
     return name
 
+def _isCatalogInList(catalogName, listFileName):
+    """Returns True if the radio catalogue `catalogName` is listed in the text file `listFileName` (as
+    written by :func:`berk.catalogs.listCatalogInFile`), comparing names as done by :func:`_baseCatName`."""
+    if os.path.exists(listFileName) == False:
+        return False
+    with open(listFileName, 'r', encoding="utf-8") as infile:
+        listedNames = [line.strip() for line in infile]
+    return _baseCatName(catalogName) in [_baseCatName(n) for n in listedNames if n]
+
 #------------------------------------------------------------------------------------------------------------
 def getCentreRadiusFromImagesTab(radioCatFilePath, imagesTabPath):
     """
@@ -1037,11 +1046,11 @@ def computeLR(radioCat, opticalCat, searchRadiusDegVal, optMagCol, magBins, qMLi
 
     return radOptMergedTab
 
-def xmatchRadioOptical(radioCatFilePath, radioBand, xmatchDirPath, optSurvey, optMagCol, searchRadiusArcsec, radRACol, radDecCol, 
+def xmatchRadioOptical(radioCat, radioBand, xmatchDirPath, optSurvey, optMagCol, searchRadiusArcsec, radRACol, radDecCol, 
                        radERACol, radEDecCol, radEMajCol, radEMinCol, radPACol, outSubscript, optPosErrAsecValue, nMagBins=15, 
                        beamSizeArcsecValue=6.0, nAreaTimeOptFetch=2.0, skipIfExists=True, dofRSymErr=True,
                        imagesTabPath=None, centreRADeg=None, centreDecDeg=None, radiusDeg=None,
-                       opticalCat=None, retrieverOptions=None):
+                       opticalCat=None, retrieverOptions=None, radioCatName=None, useNoMatchLists=False):
     """
     Perform likelihood ratio crossmatching between a radio source catalog and an optical survey.
 
@@ -1053,7 +1062,9 @@ def xmatchRadioOptical(radioCatFilePath, radioBand, xmatchDirPath, optSurvey, op
       - and spatial probability density f(r) based on offsets.
 
     Args:
-        radioCatFilePath (:obj:`str`): Path to the input radio catalog FITS file.
+        radioCat (:obj:`str` or :obj:`~astropy.table.Table`): The radio catalogue - either the path to a FITS
+            file (the table is read from extension 1, as written by PyBDSF), or a Table. As well as the
+            columns given below, this must have a (unique) 'Source_id' column, as in PyBDSF catalogues.
         radioBand (:obj:`str`): Radio frequency band identifier ('L', 'UHF', 'S').
         xmatchDirPath (:obj:`str`): Directory to save all resulting output files and plots.
         optSurvey (:obj:`str`): Optical survey name (e.g., 'DECaLSDR10', 'RubinDP1').
@@ -1086,8 +1097,20 @@ def xmatchRadioOptical(radioCatFilePath, radioBand, xmatchDirPath, optSurvey, op
         retrieverOptions (:obj:`dict`, optional): Keyword arguments passed to the function that retrieves
             the optical catalogue (see :data:`RETRIEVERS`, e.g., :func:`retrieveRubinDP1`) - for example,
             `cacheDir`, `RubinURL`, `RubinToken`.
+        radioCatName (:obj:`str`, optional): Name of the radio catalogue, used in messages, output file
+            names, and the lists of catalogues with no optical sources/counterparts kept in `xmatchDirPath`.
+            Defaults to the file name if `radioCat` is a path, or `outSubscript` if it is a Table.
+        useNoMatchLists (:obj:`bool`, optional): If True, record radio catalogues for which there are no
+            optical sources, or no optical counterparts, in lists (text files) in `xmatchDirPath`, and (if
+            `skipIfExists` is True) skip catalogues that are already listed. This is used by the berk
+            pipeline, so that such catalogues are skipped in later runs. Default is False.
 
     Note:
+        Results are cached using `outSubscript` and the catalogue name (see `radioCatName`): if
+        `skipIfExists` is True, previous results are returned. The optical catalogue retrieved for
+        the radio catalogue is saved, and re-used in later runs (even if `skipIfExists` is False). So,
+        use a different `outSubscript` for each different radio catalogue.
+
         The footprint of the radio catalogue is set by `centreRADeg`, `centreDecDeg`, and `radiusDeg`
         if all are given; otherwise it is read from `imagesTabPath` if given; otherwise it is estimated
         from the positions of the sources in the radio catalogue itself.
@@ -1101,7 +1124,12 @@ def xmatchRadioOptical(radioCatFilePath, radioBand, xmatchDirPath, optSurvey, op
     searchRadiusDegVal = searchRadiusArcsec/3600.0
     optPosErrValueDeg = optPosErrAsecValue/3600.0
 
-    radCatName = radioCatFilePath.split(os.path.sep)[-1]
+    if radioCatName is not None:
+        radCatName = radioCatName
+    elif isinstance(radioCat, Table):
+        radCatName = outSubscript
+    else:
+        radCatName = os.path.basename(radioCat)
     try:
         captureBlockId = radCatName.split('_')[3]
         targetName = _baseCatName(radCatName.split('_1024ch_')[1])
@@ -1119,35 +1147,33 @@ def xmatchRadioOptical(radioCatFilePath, radioBand, xmatchDirPath, optSurvey, op
             xmatchTable = Table.read(xmatchBestMatchTabName)
             return xmatchTable
 
-    # checking if this catalog is listed as having no optical sources in the area
+    # Lists of catalogues with no optical sources in the area / no optical counterparts (used by the pipeline)
     noOptSourcesFilename = xmatchDirPath+os.path.sep+'no_%s_sources.txt' %optSurvey
-
-    if os.path.exists(noOptSourcesFilename):
-        with open(noOptSourcesFilename, 'r', encoding="utf-8") as infile:
-            noOptSourcesCatNames = [line.strip() for line in infile]
-        if _baseCatName(radCatName) in [_baseCatName(n) for n in noOptSourcesCatNames if n]:
-            return None
-
-    # checking if this catalog is listed as having no optical counterparts in the optical
     noOptCounterpartsFilename = xmatchDirPath+os.path.sep+'no_counterparts_%s_%sband.txt' \
                            %(optSurvey, optMagCol)
 
-    if os.path.exists(noOptCounterpartsFilename):
-        with open(noOptCounterpartsFilename, 'r', encoding="utf-8") as infile:
-            noOptCounterpartsCatNames = [line.strip() for line in infile]
-        if _baseCatName(radCatName) in [_baseCatName(n) for n in noOptCounterpartsCatNames if n]:
+    if useNoMatchLists is True and skipIfExists is True:
+        if _isCatalogInList(radCatName, noOptSourcesFilename) or _isCatalogInList(radCatName, noOptCounterpartsFilename):
             return None
+
+    def recordNoMatch(listFileName):
+        """Adds this radio catalogue to the given list (if useNoMatchLists is True, and it is not already listed)."""
+        if useNoMatchLists is True and _isCatalogInList(radCatName, listFileName) == False:
+            catalogs.listCatalogInFile(radCatName, listFileName)
 
     print("\n" + "-" * 100)
     print("║ Radio catalogue: %s ║" %radCatName)
     print("-" * 100 + "\n")
 
-    radioSources = Table.read(radioCatFilePath, format='fits', hdu=1)
+    if isinstance(radioCat, Table):
+        radioSources = radioCat.copy() # so that we don't modify the caller's table (e.g., fixRA)
+    else:
+        radioSources = Table.read(radioCat, format='fits', hdu=1)
 
     nRadio = len(radioSources)
     print("\nNumber of radio sources: %d" %nRadio)
 
-    radColumns = [radRACol, radDecCol, radERACol, radEDecCol, radEMajCol, radEMinCol, radPACol]
+    radColumns = ['Source_id', radRACol, radDecCol, radERACol, radEDecCol, radEMajCol, radEMinCol, radPACol]
 
     if not all(col in radioSources.colnames for col in radColumns):
         print("\nERROR: Required columns of radio catalogue is not well set!")
@@ -1164,7 +1190,7 @@ def xmatchRadioOptical(radioCatFilePath, radioBand, xmatchDirPath, optSurvey, op
     if centreRADeg is not None and centreDecDeg is not None and radiusDeg is not None:
         centerRA, centerDec = centreRADeg, centreDecDeg
     elif imagesTabPath is not None:
-        centerRA, centerDec, radiusDeg = getCentreRadiusFromImagesTab(radioCatFilePath, imagesTabPath)
+        centerRA, centerDec, radiusDeg = getCentreRadiusFromImagesTab(radCatName, imagesTabPath)
     else:
         centerRA, centerDec, radiusDeg = getCentreRadiusFromCatalog(radioSources, radRACol, radDecCol)
 
@@ -1183,7 +1209,7 @@ def xmatchRadioOptical(radioCatFilePath, radioBand, xmatchDirPath, optSurvey, op
         nOptInFootprint, footprintRadiusDeg = countOpticalInRadioFootprint(radioSources, opticalSources, radRACol, radDecCol, optRACol, optDecCol)
         if nOptInFootprint == 0:
             print("\n%s: %s sources exist around the pointing but none inside its footprint (radius %.2f deg)...!" %(radCatName, optSurvey, footprintRadiusDeg))
-            catalogs.listCatalogInFile(radCatName, noOptSourcesFilename)
+            recordNoMatch(noOptSourcesFilename)
             return None
 
         # getting sky area covered by the optical catalogue (DECaLS for now!) 
@@ -1204,7 +1230,7 @@ def xmatchRadioOptical(radioCatFilePath, radioBand, xmatchDirPath, optSurvey, op
 
         if opticalSourcesRaw is None:
             print("\nRetrieval process unsuccessfull.")
-            catalogs.listCatalogInFile(radCatName, noOptSourcesFilename)
+            recordNoMatch(noOptSourcesFilename)
             return None
 
         # filtering optical catalogue
@@ -1212,14 +1238,14 @@ def xmatchRadioOptical(radioCatFilePath, radioBand, xmatchDirPath, optSurvey, op
 
         if len(opticalSources) == 0:
             print("\n%s: No optical sources with reliable %s-magnitude found in %s database...!" %(radCatName, optMagCol, optSurvey))
-            catalogs.listCatalogInFile(radCatName, noOptSourcesFilename)
+            recordNoMatch(noOptSourcesFilename)
             return None
 
         # the region fetched is about four times the area of the pointing: are there sources inside the pointing itself?
         nOptInFootprint, footprintRadiusDeg = countOpticalInRadioFootprint(radioSources, opticalSources, radRACol, radDecCol, optRACol, optDecCol)
         if nOptInFootprint == 0:
             print("\n%s: %s sources exist around the pointing but none inside its footprint (radius %.2f deg)...!" %(radCatName, optSurvey, footprintRadiusDeg))
-            catalogs.listCatalogInFile(radCatName, noOptSourcesFilename)
+            recordNoMatch(noOptSourcesFilename)
             return None
 
         os.makedirs(xmatchIndividualDirPath, exist_ok = True)
@@ -1287,7 +1313,7 @@ def xmatchRadioOptical(radioCatFilePath, radioBand, xmatchDirPath, optSurvey, op
                searchRadRmaxDegVal=searchRadiusDegVal, nM=nM, Q0=Q0) 
     
     if qM is None:
-        catalogs.listCatalogInFile(radCatName, noOptCounterpartsFilename)
+        recordNoMatch(noOptCounterpartsFilename)
         return None
 
     print("\nComputing LR ...")
@@ -1299,7 +1325,7 @@ def xmatchRadioOptical(radioCatFilePath, radioBand, xmatchDirPath, optSurvey, op
 
     if xmatchTable is None:
         print("\n%s: No cross-matched objects...!" %radCatName)
-        catalogs.listCatalogInFile(radCatName, noOptCounterpartsFilename)
+        recordNoMatch(noOptCounterpartsFilename)
         return None
 
     if 'captureBlockId' not in xmatchTable.columns:
@@ -1343,7 +1369,7 @@ def xmatchRadioOptical(radioCatFilePath, radioBand, xmatchDirPath, optSurvey, op
         print("\nNo cross-matched sources above LR threshold!")
         writeLRStats(xmatchIndividualDirPath, outSubscript, radCatName, Q0, CRBalanceLRThreshold, CRBalanceRel, CRBalanceComp,
                      searchRadiusArcsec, nRadio, len(opticalSources), 0, optSurvey, optMagCol)
-        catalogs.listCatalogInFile(radCatName, noOptCounterpartsFilename)
+        recordNoMatch(noOptCounterpartsFilename)
         return None
 
 

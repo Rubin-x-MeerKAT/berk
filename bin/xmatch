@@ -82,7 +82,7 @@ if __name__ == '__main__':
 
     os.makedirs(outPath, exist_ok = True)
 
-    xmatchTab = crossmatch.xmatchRadioOptical(radioCatFilePath = radioCatFilePath, radioBand = radioBand,
+    xmatchTab = crossmatch.xmatchRadioOptical(radioCat = radioCatFilePath, radioBand = radioBand,
                                               xmatchDirPath = outPath, optSurvey = optSurvey+optSurveyDR,
                                               optMagCol = optMagCol, searchRadiusArcsec = searchRadiusAsec,
                                               radRACol = radRACol, radDecCol = radDecCol,

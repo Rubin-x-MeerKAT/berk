@@ -896,7 +896,7 @@ def _processXmatchOnRadioCatalogue(args):
     searchRadiusDegVal = 3 * sigmaTotalDeg
     searchRadiusArcsec = searchRadiusDegVal * 3600
 
-    xmatchTab = crossmatch.xmatchRadioOptical(radioCatFilePath=radCat,
+    xmatchTab = crossmatch.xmatchRadioOptical(radioCat=radCat,
                                                 radioBand=radBandName,
                                                 xmatchDirPath=xmatchDirPath,
                                                 optSurvey=optSurvey,
@@ -910,7 +910,8 @@ def _processXmatchOnRadioCatalogue(args):
                                                 optPosErrAsecValue=optPosErrAsecValue, nMagBins=15, beamSizeArcsecValue=6.0,
                                                 skipIfExists=True,
                                                 imagesTabPath=os.path.join(startup.config['productsDir'], 'images.fits'),
-                                                retrieverOptions=retrieverOptions
+                                                retrieverOptions=retrieverOptions,
+                                                useNoMatchLists=True
                                                 )
 
     if xmatchTab is None:

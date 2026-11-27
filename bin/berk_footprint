@@ -1,0 +1,91 @@
+#!/usr/bin/env python
+
+"""
+
+Make the sky footprint of berk-processed MeerKAT images (as a MOC), and cut catalogues to it.
+
+The footprint is the union of the non-blank pixels of the images, so overlapping pointings are counted once
+in the area. Examples:
+
+    berk_footprint make /path/to/images -o MeerKAT_footprint_L.fits --band L
+    berk_footprint cut DR6_cluster-catalog_v1.0.fits -f MeerKAT_footprint_L.fits
+    berk_footprint cut images_EDR.fits -f MeerKAT_footprint_L.fits --ra-col centre_RADeg --dec-col centre_decDeg
+    berk_footprint area MeerKAT_footprint_L.fits
+
+"""
+
+import os
+import sys
+import argparse
+import astropy.table as atpy
+from berk import footprint
+
+#--------------------------------------------------------------------------------------------------
+def make_parser():
+    parser = argparse.ArgumentParser("berk_footprint", description = "Make the sky footprint (MOC) of\
+                                     berk-processed MeerKAT images, and cut catalogues to it.")
+    subparsers = parser.add_subparsers(dest = "command", required = True)
+
+    makeParser = subparsers.add_parser("make", help = "Make a footprint MOC from a directory of images")
+    makeParser.add_argument("imageDir", help = "Directory containing the images")
+    makeParser.add_argument("-o", "--output", default = "MeerKAT_footprint.fits",
+                            help = "Output MOC file (FITS; default: MeerKAT_footprint.fits)")
+    makeParser.add_argument("-p", "--pattern", default = footprint.IMAGE_PATTERN,
+                            help = "File name pattern of the images (default: %s)" % (footprint.IMAGE_PATTERN))
+    makeParser.add_argument("-b", "--band", default = None, help = "Only use images in this band (e.g., L,\
+                            UHF, S; found from the image header frequency). Default: all images")
+    makeParser.add_argument("--order", type = int, default = footprint.DEFAULT_ORDER, help = "HEALPix order\
+                            of the footprint (default: %d, ~12.9 arcsec cells)" % (footprint.DEFAULT_ORDER))
+
+    cutParser = subparsers.add_parser("cut", help = "Write the subset of a catalogue that lies within a footprint\
+                                      to InMeerKATFootprint_<catalogue name>.fits")
+    cutParser.add_argument("catalogFileName", help = "Catalogue file (any format astropy can read, e.g. FITS or CSV)")
+    cutParser.add_argument("-f", "--footprint", required = True, help = "Footprint MOC file (from berk_footprint make)")
+    cutParser.add_argument("--ra-col", default = "RADeg", help = "RA column name, in decimal degrees (default: RADeg)")
+    cutParser.add_argument("--dec-col", default = "decDeg", help = "Dec column name, in decimal degrees (default: decDeg)")
+    cutParser.add_argument("-o", "--output", default = None, help = "Output file (default:\
+                           InMeerKATFootprint_<catalogue name>.fits in the current directory)")
+
+    areaParser = subparsers.add_parser("area", help = "Print the area covered by a footprint MOC")
+    areaParser.add_argument("footprint", help = "Footprint MOC file")
+
+    return parser
+
+#--------------------------------------------------------------------------------------------------
+if __name__ == '__main__':
+
+    parser = make_parser()
+    args = parser.parse_args()
+
+    if args.command == "make":
+        if not os.path.isdir(args.imageDir):
+            parser.error("image directory not found: %s" % (args.imageDir))
+        imgPaths = footprint.findImages(args.imageDir, pattern = args.pattern, band = args.band)
+        if len(imgPaths) == 0:
+            parser.error("no images matching %s%s found in %s" % (args.pattern, "" if args.band is None
+                         else " (in %s band)" % (args.band), args.imageDir))
+        if args.band is None:
+            bands = sorted(set(footprint.getImageBand(p) for p in imgPaths))
+            if len(bands) > 1:
+                print("WARNING: the images are in more than one band (%s) - use --band to make a footprint"
+                      " for one band" % (", ".join(bands)))
+        moc = footprint.makeFootprintMOC(imgPaths, order = args.order)
+        moc.save(args.output, format = "fits", overwrite = True)
+        print("Wrote %s (%d images; area = %.3f sq. deg.)" % (args.output, len(imgPaths),
+                                                              footprint.getFootprintAreaSqDeg(moc)))
+
+    elif args.command == "cut":
+        if not os.path.exists(args.catalogFileName):
+            parser.error("catalogue file not found: %s" % (args.catalogFileName))
+        moc = footprint.readFootprintMOC(args.footprint)
+        tab = atpy.Table().read(args.catalogFileName)
+        inTab = footprint.getTabInFootprint(tab, moc, RACol = args.ra_col, decCol = args.dec_col)
+        outFileName = args.output
+        if outFileName is None:
+            outFileName = "InMeerKATFootprint_%s.fits" % (os.path.splitext(os.path.basename(args.catalogFileName))[0])
+        inTab.write(outFileName, overwrite = True)
+        print("Wrote %s (%d of the %d input objects are within the footprint)" % (outFileName, len(inTab), len(tab)))
+
+    elif args.command == "area":
+        moc = footprint.readFootprintMOC(args.footprint)
+        print("%s: %.3f sq. deg." % (args.footprint, footprint.getFootprintAreaSqDeg(moc)))

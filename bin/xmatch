@@ -15,9 +15,10 @@ def make_parser():
     parser=argparse.ArgumentParser("xmatch")
 
     parser.add_argument("catalog", help="A .fits table to crossmatch")
-    parser.add_argument("-s", "--survey", help="The optical survey to be crossmatched with",
+    parser.add_argument("-s", "--survey", help="The optical survey to be crossmatched with (combined with --surveydr,\
+                        e.g., DECaLS + DR10, or Rubin + DP2)",
                         default='DECaLS', type=str)
-    parser.add_argument("--surveydr", help="The optical survey data release",
+    parser.add_argument("--surveydr", help="The optical survey data release (e.g., DR10 for DECaLS; DP1 or DP2 for Rubin)",
                         default='DR10', type=str)
     parser.add_argument("--radioband", help="The frequency band of radio data",
                         default='L', type=str)
@@ -41,6 +42,16 @@ def make_parser():
                         default='E_Min', type=str)
     parser.add_argument("--radpacol", help="Error position angle column of radio catalog",
                         default='PA', type=str)
+    parser.add_argument("--centrera", help="RA (degrees) of the centre of the radio catalogue footprint. If\
+                        --centrera, --centredec and --footprintradius are not all given, the footprint is\
+                        estimated from the radio catalogue source positions", default=None, type=float)
+    parser.add_argument("--centredec", help="Dec (degrees) of the centre of the radio catalogue footprint",
+                        default=None, type=float)
+    parser.add_argument("--footprintradius", help="Radius (degrees) of the radio catalogue footprint",
+                        default=None, type=float)
+    parser.add_argument("--imagestab", help="Path to a berk images.fits table, used to look up the radio\
+                        catalogue footprint (alternative to --centrera, --centredec, --footprintradius)",
+                        default=None, type=str)
 
     return parser
 
@@ -68,8 +79,17 @@ if __name__ == '__main__':
 
     radioCatFilePath = os.path.abspath(radioCat)
 
-    outSubscript = '%s_%s%s_%sband_%sasec' %(radioCat.replace('.fits',''), optSurvey, optSurveyDR, optMagCol, str(searchRadiusAsec).replace(".","p"))
+    outSubscript = '%s_%s%s_%sband_%sasec' %(os.path.basename(radioCat).replace('.fits',''), optSurvey, optSurveyDR, optMagCol, str(searchRadiusAsec).replace(".","p"))
 
-    outFile = outPath+os.path.sep+'xmatchTable_%s.fits' %outSubscript
+    os.makedirs(outPath, exist_ok = True)
 
-    xmatchTab = crossmatch.xmatchRadioOptical(radioCatFilePath, radioBand, outPath, outFile, optSurvey, optSurveyDR, optMagCol, searchRadiusAsec, makePlots, radRACol, radDecCol, radERACol, radEDecCol, radEMajCol, radEMinCol, radPACol, outSubscript, optPosErrAsecValue=0.2, nMagBins=15, beamSizeArcsecValue=6.0, saveFiles = True)
+    xmatchTab = crossmatch.xmatchRadioOptical(radioCat = radioCatFilePath, radioBand = radioBand,
+                                              xmatchDirPath = outPath, optSurvey = optSurvey+optSurveyDR,
+                                              optMagCol = optMagCol, searchRadiusArcsec = searchRadiusAsec,
+                                              radRACol = radRACol, radDecCol = radDecCol,
+                                              radERACol = radERACol, radEDecCol = radEDecCol,
+                                              radEMajCol = radEMajCol, radEMinCol = radEMinCol, radPACol = radPACol,
+                                              outSubscript = outSubscript, optPosErrAsecValue = 0.2, nMagBins = 15,
+                                              beamSizeArcsecValue = 6.0, imagesTabPath = args.imagestab,
+                                              centreRADeg = args.centrera, centreDecDeg = args.centredec,
+                                              radiusDeg = args.footprintradius)

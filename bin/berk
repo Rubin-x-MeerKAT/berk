@@ -47,8 +47,8 @@ def makeParser():
                         https://archive-gw-1.kat.ac.za/captureBlockId/captureBlockId_sdp_l0.full.rdb?token=longTokenString.\
                         For the other tasks ('process', 'analyse'), this should be the captureBlockId itself.")
     parser.add_argument("-s", "--opticalsurvey", dest="optSurvey", default = 'decalsdr10', help="Name of optical survey to crossmatch (default: decalsdr10).\
-                        Should be one of: decalsdr10 or rubindp1.",
-                        choices=['decalsdr10', 'rubindp1'])
+                        Should be one of: decalsdr10, rubindp1 or rubindp2.",
+                        choices=['decalsdr10', 'rubindp1', 'rubindp2'])
     parser.add_argument("-d", "--dr", dest="dataRelease", default=None, help="Name of data release to build or summarize.\
                         Should be one of: edr or dr1.",
                         choices=['parent', 'edr', 'dr1'])

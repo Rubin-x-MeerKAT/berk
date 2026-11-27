@@ -15,9 +15,10 @@ def make_parser():
     parser=argparse.ArgumentParser("xmatch")
 
     parser.add_argument("catalog", help="A .fits table to crossmatch")
-    parser.add_argument("-s", "--survey", help="The optical survey to be crossmatched with",
+    parser.add_argument("-s", "--survey", help="The optical survey to be crossmatched with (combined with --surveydr,\
+                        e.g., DECaLS + DR10, or Rubin + DP2)",
                         default='DECaLS', type=str)
-    parser.add_argument("--surveydr", help="The optical survey data release",
+    parser.add_argument("--surveydr", help="The optical survey data release (e.g., DR10 for DECaLS; DP1 or DP2 for Rubin)",
                         default='DR10', type=str)
     parser.add_argument("--radioband", help="The frequency band of radio data",
                         default='L', type=str)

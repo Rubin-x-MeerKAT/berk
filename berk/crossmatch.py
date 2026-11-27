@@ -522,32 +522,41 @@ def countOpticalInRadioFootprint(radioCat, opticalCat, radRACol, radDecCol, optR
                          dec=catalogs.getUnitlessValues(opticalCat[optDecCol]) * u.deg, frame='icrs')
     return int(np.sum(centre.separation(optCoords).deg <= radiusDeg)), radiusDeg
 
-def getDECaLSSkyAreaSqDeg(decalsCat, healPixNSide=4096, healPixCountCol='nest4096'):
+def getSkyAreaSqDeg(optCat, healPixNSide=4096, healPixCountCol='nest4096', raCol='RADeg', decCol='decDeg'):
     """
-    Calculates the effective sky area using a HEALPix-based method.
+    Calculates the effective sky area covered by an optical catalogue, using a HEALPix-based method (the number
+    of HEALPix pixels that contain at least one source, times the pixel area).
+
+    If the catalogue has a column of HEALPix indices (e.g., 'nest4096' in DECaLS DR10), this is used. Otherwise
+    (e.g., for Rubin catalogues), the HEALPix indices are calculated from the source positions.
 
     Args:
-        decalsCat (:obj:`~astropy.table.Table`): DECaLS catalogue in Astropy Table format.
-        healPixNSide (int): HEALPix Nside resolution of the index column (default: 4096 for DECaLS DR10).
+        optCat (:obj:`~astropy.table.Table`): Optical catalogue in Astropy Table format.
+        healPixNSide (int): HEALPix Nside resolution (default: 4096, as for the DECaLS DR10 index column).
         healPixCountCol (str): Column name containing the HEALPix index in the NESTED scheme (e.g., 'nest4096').
+        raCol, decCol (str): Position columns (degrees), used if `healPixCountCol` is not in the catalogue.
 
     Returns:
         float:
             Total sky area in square degrees spanned by the catalogue based on the unique HEALPix footprint.
     """
 
-    # Check for the HEALPix column
-    if healPixCountCol not in decalsCat.colnames:
-        print("ERROR: %s column not found in the table. Cannot calculate HEALPix area." %healPixCountCol)
+    hp = HEALPix(nside=healPixNSide, order='nested', frame='icrs')
+
+    if healPixCountCol in optCat.colnames:
+        # tractor cat documentation says:
+        # nest4096: HEALPIX index (Nsides 4096, Nest scheme)
+        healPixIndices = optCat[healPixCountCol]
+    elif raCol in optCat.colnames and decCol in optCat.colnames:
+        healPixIndices = hp.lonlat_to_healpix(catalogs.getUnitlessValues(optCat[raCol]) * u.deg,
+                                              catalogs.getUnitlessValues(optCat[decCol]) * u.deg)
+    else:
+        print("ERROR: Neither %s nor %s, %s columns found in the table. Cannot calculate HEALPix area."
+              % (healPixCountCol, raCol, decCol))
         return None
 
     # Get all unique HEALPix indices (the survey footprint)
-    uniqueHealpixIndices = np.unique(decalsCat[healPixCountCol])
-    numUniquePixels = len(uniqueHealpixIndices)
-
-    # tractor cat documentation says:
-    # best4096: HEALPIX index (Nsides 4096, Nest scheme)
-    hp = HEALPix(nside=healPixNSide, order='nested', frame='icrs')
+    numUniquePixels = len(np.unique(healPixIndices))
 
     # Get the area of one pixel
     areaPerPixelSqDegVal = hp.pixel_area.to(u.deg**2).value
@@ -556,6 +565,9 @@ def getDECaLSSkyAreaSqDeg(decalsCat, healPixNSide=4096, healPixCountCol='nest409
     totalAreaSqDeg = numUniquePixels * areaPerPixelSqDegVal
 
     return totalAreaSqDeg
+
+# Old name, kept for backwards compatibility
+getDECaLSSkyAreaSqDeg = getSkyAreaSqDeg
 
 def getZClusterCacheDir(cacheDir = None, defaultRoot = None):
     """Returns the directory used by zCluster to cache optical catalogue queries.
@@ -616,6 +628,34 @@ def retrieveDECaLSDR10(centerRA, centerDec, radiusDeg, cacheDir = None, DLToken 
 
     return decalsCat
 
+def _retrieveRubin(retriever, releaseLabel, centerRA, centerDec, radiusDeg, cacheDir = None, RubinURL = None,
+                   RubinToken = None):
+    """Retrieve Rubin sources within a circular region around a given sky position, using the given zCluster
+    retriever function (e.g., :func:`zCluster.retrievers.RubinDP2Retriever`). See :func:`retrieveRubinDP1`
+    for the arguments.
+
+    """
+
+    print("\nRetrieving Rubin %s sources with RA_central=%.2f deg, Dec_central=%.2f deg, and radius=%.2f deg" \
+          % (releaseLabel, centerRA, centerDec, radiusDeg))
+    zClusterCacheDir = getZClusterCacheDir(cacheDir)
+
+    RubinURL = settings.get('RUBIN_URL', RubinURL)
+    RubinToken = settings.get('RUBIN_TOKEN', RubinToken, secret = True)
+
+    tapSession = requests.Session()
+    tapSession.headers['Authorization'] = 'Bearer %s' %RubinToken
+
+    tapService = vo.dal.TAPService(RubinURL, session=tapSession)
+
+    resultRetrieve = retriever(centerRA, centerDec, halfBoxSizeDeg = radiusDeg,
+                               optionsDict={'altCacheDir': zClusterCacheDir, 'TAP': tapService})
+
+    if resultRetrieve is None or len(resultRetrieve) == 0:
+        return None
+
+    return Table(resultRetrieve)
+
 def retrieveRubinDP1(centerRA, centerDec, radiusDeg, cacheDir = None, RubinURL = None, RubinToken = None):
     """  Retrieve Rubin DP1 sources within a circular region around a given sky position.
 
@@ -635,34 +675,35 @@ def retrieveRubinDP1(centerRA, centerDec, radiusDeg, cacheDir = None, RubinURL =
 
     """
 
-    print("\nRetrieving Rubin sources with RA_central=%.2f deg, Dec_central=%.2f deg, and radius=%.2f deg" \
-          % (centerRA, centerDec, radiusDeg))
-    zClusterCacheDir = getZClusterCacheDir(cacheDir)
+    return _retrieveRubin(retrievers.RubinDP1Retriever, 'DP1', centerRA, centerDec, radiusDeg, cacheDir = cacheDir,
+                          RubinURL = RubinURL, RubinToken = RubinToken)
 
-    RubinURL = settings.get('RUBIN_URL', RubinURL)
-    RubinToken = settings.get('RUBIN_TOKEN', RubinToken, secret = True)
+def retrieveRubinDP2(centerRA, centerDec, radiusDeg, cacheDir = None, RubinURL = None, RubinToken = None):
+    """  Retrieve Rubin DP2 sources within a circular region around a given sky position.
 
-    tapSession = requests.Session()
-    tapSession.headers['Authorization'] = 'Bearer %s' %RubinToken
+    Args:
+        centerRA (:obj:`float`): Right ascension (RA) of the centre of the search region, in degrees.
+        centerDec (:obj:`float`): Declination (Dec) of the centre of the search region, in degrees.
+        radiusDeg (:obj:`float`): Search radius around the central position, in degrees.
+        cacheDir (:obj:`str`, optional): Directory in which zCluster caches query results. If not given,
+            see :func:`getZClusterCacheDir`.
+        RubinURL (:obj:`str`, optional): URL of the Rubin TAP service. If not given, the RUBIN_URL setting
+            is used (see :mod:`berk.settings`).
+        RubinToken (:obj:`str`, optional): Rubin authentication token. If not given, the RUBIN_TOKEN setting
+            is used (see :mod:`berk.settings`).
 
-    tapService = vo.dal.TAPService(RubinURL, session=tapSession)
+    Returns:
+        :obj:`astropy.table.Table`: Table of Rubin sources within the specified region.
 
-    resultRetrieve = retrievers.RubinDP1Retriever(centerRA, centerDec,
-                                                halfBoxSizeDeg = radiusDeg,
-                                                optionsDict={
-                                                    'altCacheDir': zClusterCacheDir,
-                                                    'TAP': tapService})
+    """
 
-    if resultRetrieve is not None:
-        RubinCat = Table(resultRetrieve)
-    else:
-        return None
-
-    return RubinCat
+    return _retrieveRubin(retrievers.RubinDP2Retriever, 'DP2', centerRA, centerDec, radiusDeg, cacheDir = cacheDir,
+                          RubinURL = RubinURL, RubinToken = RubinToken)
 
 # Optical survey name (as used by xmatchRadioOptical) -> function used to retrieve the optical catalogue
 RETRIEVERS = {'DECaLSDR10': retrieveDECaLSDR10,
-              'RubinDP1': retrieveRubinDP1}
+              'RubinDP1': retrieveRubinDP1,
+              'RubinDP2': retrieveRubinDP2}
 
 def getFRSymErr(rOffsetDeg, radioSource, opticalSource, radERACol, radEDecCol, optPosErrCol):
 
@@ -1067,7 +1108,7 @@ def xmatchRadioOptical(radioCat, radioBand, xmatchDirPath, optSurvey, optMagCol,
             columns given below, this must have a (unique) 'Source_id' column, as in PyBDSF catalogues.
         radioBand (:obj:`str`): Radio frequency band identifier ('L', 'UHF', 'S').
         xmatchDirPath (:obj:`str`): Directory to save all resulting output files and plots.
-        optSurvey (:obj:`str`): Optical survey name (e.g., 'DECaLSDR10', 'RubinDP1').
+        optSurvey (:obj:`str`): Optical survey name (e.g., 'DECaLSDR10', 'RubinDP1', 'RubinDP2').
         optMagCol (:obj:`str`): Column name for optical magnitudes used in LR calculation.
         searchRadiusArcsec (:obj:`float`): Search radius around radio positions in arcseconds.
         makePlots (:obj:`bool`): Whether to generate diagnostic plots.
@@ -1212,8 +1253,11 @@ def xmatchRadioOptical(radioCat, radioBand, xmatchDirPath, optSurvey, optMagCol,
             recordNoMatch(noOptSourcesFilename)
             return None
 
-        # getting sky area covered by the optical catalogue (DECaLS for now!) 
-        opticalSkyAreaSqDeg = getDECaLSSkyAreaSqDeg(opticalSources, healPixNSide=4096, healPixCountCol='nest4096')
+        # getting sky area covered by the optical catalogue
+        if 'AREASQDEG' in opticalSources.meta.keys():
+            opticalSkyAreaSqDeg = opticalSources.meta['AREASQDEG']
+        else:
+            opticalSkyAreaSqDeg = getSkyAreaSqDeg(opticalSources, raCol=optRACol, decCol=optDecCol)
     else:
         # Radius for which optical catalogue is to be fetched
         radiusDegOptFetch = radiusDeg*nAreaTimeOptFetch
@@ -1250,11 +1294,11 @@ def xmatchRadioOptical(radioCat, radioBand, xmatchDirPath, optSurvey, optMagCol,
 
         os.makedirs(xmatchIndividualDirPath, exist_ok = True)
 
-        # getting sky area covered by the optical catalogue (DECaLS for now!)
+        # getting sky area covered by the optical catalogue
         if 'AREASQDEG' in opticalSources.meta.keys():
             opticalSkyAreaSqDeg = opticalSources.meta['AREASQDEG']
         else:
-            opticalSkyAreaSqDeg = getDECaLSSkyAreaSqDeg(opticalSources, healPixNSide=4096, healPixCountCol='nest4096')
+            opticalSkyAreaSqDeg = getSkyAreaSqDeg(opticalSources, raCol=optRACol, decCol=optDecCol)
 
         opticalSources.meta['AREASQDEG'] = opticalSkyAreaSqDeg
         opticalSources.write(optCatFileName, format='fits', overwrite=True)

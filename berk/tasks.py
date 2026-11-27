@@ -932,6 +932,8 @@ def xmatch(optSurveyInput='decalsdr10'):
     optSurveyParamDict = {'decalsdr10': {'surveyTag': 'DECaLSDR10',
                                          'optPosErrAsecValue': 0.2},
                           'rubindp1': {'surveyTag': 'RubinDP1',
+                                         'optPosErrAsecValue': 0.05},
+                          'rubindp2': {'surveyTag': 'RubinDP2',
                                          'optPosErrAsecValue': 0.05}}
 
     optSurvey = optSurveyParamDict[optSurveyInput]['surveyTag']

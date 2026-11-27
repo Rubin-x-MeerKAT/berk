@@ -951,8 +951,8 @@ def xmatch(optSurveyInput='decalsdr10'):
     radCatFilesList=sorted([f for f in glob.glob(startup.config['productsDir']+os.path.sep+'catalogs'+os.path.sep+'*_bdsfcat.fits')
                             if 'srl_bdsfcat' not in os.path.basename(f)])
 
-    # Options for retrieving optical catalogues - credentials/URLs (e.g., RUBIN_TOKEN) are found by
-    # crossmatch.retrieve* functions from environment variables or the Berk config file (see berk.settings)
+    # Options for retrieving optical catalogues - credentials are found by the crossmatch.retrieve* functions
+    # (Data Lab: see crossmatch.DLLogin; Rubin: the token in ~/.rsp-tap.token)
     retrieverOptions = {'cacheDir': crossmatch.getZClusterCacheDir(defaultRoot = startup.config['cacheDir'])}
 
     # Log in once here, so that a missing/invalid login stops the task before any work is done (rather than

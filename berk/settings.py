@@ -5,7 +5,7 @@ User settings for Berk (e.g., credentials and URLs for optical survey databases)
 Settings are resolved in this order:
 
     1. A value passed explicitly to the function that needs it (keyword argument).
-    2. An environment variable (e.g., ``RUBIN_TOKEN``).
+    2. An environment variable (e.g., ``ZCLUSTER_CACHE``).
     3. The Berk config file - this is ``$BERK_CONFIG`` if that environment variable is set, otherwise
        ``~/.config/berk/config.toml``.
     4. A default value (if there is one).
@@ -14,8 +14,6 @@ The config file is in TOML format, with settings grouped into sections, e.g.::
 
     [crossmatch]
     zcluster_cache = "~/.cache/berk"
-    rubin_url = "https://..."
-    rubin_token = "..."
     dl_username = "..."
     dl_password = "..."
 
@@ -79,8 +77,8 @@ def get(envVar, value = None, section = 'crossmatch', default = None, required =
     and finally `default`.
 
     Args:
-        envVar (:obj:`str`): Name of the environment variable (e.g., 'RUBIN_TOKEN'). The corresponding
-            key in the config file is the lower case version of this (e.g., 'rubin_token').
+        envVar (:obj:`str`): Name of the environment variable (e.g., 'DL_PASSWORD'). The corresponding
+            key in the config file is the lower case version of this (e.g., 'dl_password').
         value (optional): A value given explicitly (e.g., by a keyword argument). If not None, this is
             returned as is.
         section (:obj:`str`, optional): Section of the config file in which to look for the setting.

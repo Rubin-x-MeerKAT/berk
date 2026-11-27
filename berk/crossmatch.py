@@ -16,8 +16,6 @@ from zCluster import retrievers
 from . import catalogs, settings
 from collections import defaultdict
 from astropy.units import Quantity
-import requests
-import pyvo as vo
 # The Data Lab client (dl) is optional - it is only needed for retrieving DECaLS catalogues (see DLLogin)
 ac = None
 on_rtd=os.environ.get('READTHEDOCS', None)
@@ -628,35 +626,32 @@ def retrieveDECaLSDR10(centerRA, centerDec, radiusDeg, cacheDir = None, DLToken 
 
     return decalsCat
 
-def _retrieveRubin(retriever, releaseLabel, centerRA, centerDec, radiusDeg, cacheDir = None, RubinURL = None,
-                   RubinToken = None):
-    """Retrieve Rubin sources within a circular region around a given sky position, using the given zCluster
-    retriever function (e.g., :func:`zCluster.retrievers.RubinDP2Retriever`). See :func:`retrieveRubinDP1`
-    for the arguments.
+def _retrieveRubin(database, centerRA, centerDec, radiusDeg, cacheDir = None):
+    """Retrieve Rubin sources within a circular region around a given sky position, using zCluster.
+
+    Args:
+        database (:obj:`str`): zCluster database name (e.g., 'RubinDP1', 'RubinDP2').
+
+    See :func:`retrieveRubinDP1` for the other arguments.
 
     """
 
-    print("\nRetrieving Rubin %s sources with RA_central=%.2f deg, Dec_central=%.2f deg, and radius=%.2f deg" \
-          % (releaseLabel, centerRA, centerDec, radiusDeg))
+    print("\nRetrieving %s sources with RA_central=%.2f deg, Dec_central=%.2f deg, and radius=%.2f deg" \
+          % (database, centerRA, centerDec, radiusDeg))
     zClusterCacheDir = getZClusterCacheDir(cacheDir)
 
-    RubinURL = settings.get('RUBIN_URL', RubinURL)
-    RubinToken = settings.get('RUBIN_TOKEN', RubinToken, secret = True)
-
-    tapSession = requests.Session()
-    tapSession.headers['Authorization'] = 'Bearer %s' %RubinToken
-
-    tapService = vo.dal.TAPService(RubinURL, session=tapSession)
-
+    # zCluster sets up the TAP service (with the token from ~/.rsp-tap.token). Only the TAP service is
+    # taken from its options - not e.g. maxMagError, as we don't cut on magnitude errors here
+    retriever, zClusterOptions, _ = retrievers.getRetriever(database)
     resultRetrieve = retriever(centerRA, centerDec, halfBoxSizeDeg = radiusDeg,
-                               optionsDict={'altCacheDir': zClusterCacheDir, 'TAP': tapService})
+                               optionsDict={'altCacheDir': zClusterCacheDir, 'TAP': zClusterOptions['TAP']})
 
     if resultRetrieve is None or len(resultRetrieve) == 0:
         return None
 
     return Table(resultRetrieve)
 
-def retrieveRubinDP1(centerRA, centerDec, radiusDeg, cacheDir = None, RubinURL = None, RubinToken = None):
+def retrieveRubinDP1(centerRA, centerDec, radiusDeg, cacheDir = None):
     """  Retrieve Rubin DP1 sources within a circular region around a given sky position.
 
     Args:
@@ -665,20 +660,20 @@ def retrieveRubinDP1(centerRA, centerDec, radiusDeg, cacheDir = None, RubinURL =
         radiusDeg (:obj:`float`): Search radius around the central position, in degrees.
         cacheDir (:obj:`str`, optional): Directory in which zCluster caches query results. If not given,
             see :func:`getZClusterCacheDir`.
-        RubinURL (:obj:`str`, optional): URL of the Rubin TAP service. If not given, the RUBIN_URL setting
-            is used (see :mod:`berk.settings`).
-        RubinToken (:obj:`str`, optional): Rubin authentication token. If not given, the RUBIN_TOKEN setting
-            is used (see :mod:`berk.settings`).
 
     Returns:
         :obj:`astropy.table.Table`: Table of Rubin sources within the specified region.
 
+    Note:
+        The Rubin Science Platform TAP service is accessed using the token in ``~/.rsp-tap.token`` (see
+        https://rsp.lsst.io/guides/auth/creating-user-tokens.html for how to create one), as handled by
+        :func:`zCluster.retrievers.getRetriever`.
+
     """
 
-    return _retrieveRubin(retrievers.RubinDP1Retriever, 'DP1', centerRA, centerDec, radiusDeg, cacheDir = cacheDir,
-                          RubinURL = RubinURL, RubinToken = RubinToken)
+    return _retrieveRubin('RubinDP1', centerRA, centerDec, radiusDeg, cacheDir = cacheDir)
 
-def retrieveRubinDP2(centerRA, centerDec, radiusDeg, cacheDir = None, RubinURL = None, RubinToken = None):
+def retrieveRubinDP2(centerRA, centerDec, radiusDeg, cacheDir = None):
     """  Retrieve Rubin DP2 sources within a circular region around a given sky position.
 
     Args:
@@ -687,18 +682,18 @@ def retrieveRubinDP2(centerRA, centerDec, radiusDeg, cacheDir = None, RubinURL =
         radiusDeg (:obj:`float`): Search radius around the central position, in degrees.
         cacheDir (:obj:`str`, optional): Directory in which zCluster caches query results. If not given,
             see :func:`getZClusterCacheDir`.
-        RubinURL (:obj:`str`, optional): URL of the Rubin TAP service. If not given, the RUBIN_URL setting
-            is used (see :mod:`berk.settings`).
-        RubinToken (:obj:`str`, optional): Rubin authentication token. If not given, the RUBIN_TOKEN setting
-            is used (see :mod:`berk.settings`).
 
     Returns:
         :obj:`astropy.table.Table`: Table of Rubin sources within the specified region.
 
+    Note:
+        The Rubin Science Platform TAP service is accessed using the token in ``~/.rsp-tap.token`` (see
+        https://rsp.lsst.io/guides/auth/creating-user-tokens.html for how to create one), as handled by
+        :func:`zCluster.retrievers.getRetriever`.
+
     """
 
-    return _retrieveRubin(retrievers.RubinDP2Retriever, 'DP2', centerRA, centerDec, radiusDeg, cacheDir = cacheDir,
-                          RubinURL = RubinURL, RubinToken = RubinToken)
+    return _retrieveRubin('RubinDP2', centerRA, centerDec, radiusDeg, cacheDir = cacheDir)
 
 # Optical survey name (as used by xmatchRadioOptical) -> function used to retrieve the optical catalogue
 RETRIEVERS = {'DECaLSDR10': retrieveDECaLSDR10,
@@ -1136,8 +1131,8 @@ def xmatchRadioOptical(radioCat, radioBand, xmatchDirPath, optSurvey, optMagCol,
             columns and the `optMagCol` column. The sky area it covers is taken from its 'AREASQDEG' meta
             keyword if present, otherwise it is calculated from a 'nest4096' (HEALPix) column.
         retrieverOptions (:obj:`dict`, optional): Keyword arguments passed to the function that retrieves
-            the optical catalogue (see :data:`RETRIEVERS`, e.g., :func:`retrieveRubinDP1`) - for example,
-            `cacheDir`, `RubinURL`, `RubinToken`.
+            the optical catalogue (see :data:`RETRIEVERS`, e.g., :func:`retrieveDECaLSDR10`) - for example,
+            `cacheDir`, `DLToken`.
         radioCatName (:obj:`str`, optional): Name of the radio catalogue, used in messages, output file
             names, and the lists of catalogues with no optical sources/counterparts kept in `xmatchDirPath`.
             Defaults to the file name if `radioCat` is a path, or `outSubscript` if it is a Table.

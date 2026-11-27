@@ -18,6 +18,22 @@ from reproject import reproject_interp
 from reproject.mosaicking import find_optimal_celestial_wcs, reproject_and_coadd
 
 #------------------------------------------------------------------------------------
+def getBandKey(freqGHz):
+    """Return band name ('L' or 'UHF') based on freqGHz.
+
+    """
+    if freqGHz >= 0.9 and freqGHz < 1.7:
+        bandKey='L'
+    elif freqGHz >= 0.6 and freqGHz < 0.9:
+        bandKey='UHF'
+    elif freqGHz >= 1.7 and freqGHz < 3.5:
+        bandKey='S'
+    else:
+        raise ValueError("%f - Not sure what band this is - need to add a band key for it" %freqGHz)
+
+    return bandKey
+
+#------------------------------------------------------------------------------------
 def getImageAreaSqDeg(imgFileName):
     """Calculate the total sky area of a given FITS image
     file(image or rms) in square degrees.

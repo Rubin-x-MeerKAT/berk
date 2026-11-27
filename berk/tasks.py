@@ -13,7 +13,7 @@ import datetime
 import astropy.table as atpy
 from astropy.io import fits
 from astropy.table import Column
-from . import startup, jobs, catalogs, images,  __version__, crossmatch, summaryPlots, sourceinjection
+from . import startup, jobs, catalogs, images,  __version__, crossmatch, summaryPlots, sourceinjection, footprint
 import shlex
 from astropy.coordinates import SkyCoord
 import astropy.units as u
@@ -87,20 +87,8 @@ def store(captureBlockId):
     sys.exit()
 
 #------------------------------------------------------------------------------------------------------------
-def getBandKey(freqGHz):
-    """Return band name ('L' or 'UHF') based on freqGHz.
-
-    """
-    if freqGHz >= 0.9 and freqGHz < 1.7:
-        bandKey='L'
-    elif freqGHz >= 0.6 and freqGHz < 0.9:
-        bandKey='UHF'
-    elif freqGHz >= 1.7 and freqGHz < 3.5:
-        bandKey='S'
-    else:
-        raise ValueError("%f - Not sure what band this is - need to add a band key for it" %freqGHz)
-
-    return bandKey
+# Moved to images (kept here for backwards compatibility)
+getBandKey = images.getBandKey
 
 #------------------------------------------------------------------------------------------------------------
 def listObservations():
@@ -1245,7 +1233,22 @@ def summarize(dataBase='PARENT'):
         bandMaskImages = imagesTab['band'] == band
         bandDataImages = imagesTab[bandMaskImages]
         bandCountImages = len(bandDataImages)
-        bandTotalArea = bandDataImages['skyArea_sqDeg'].sum()
+        bandSummedArea = bandDataImages['skyArea_sqDeg'].sum()
+
+        # Area of the footprint (overlapping pointings counted once) - also written as a MOC file
+        footprintFileName = os.path.join(dataBaseDir, "MeerKAT_footprint_%s%s.fits" % (band, subScript))
+        imgPaths = [os.path.join(dataBaseDir, p) for p in bandDataImages['path']]
+        missingPaths = [p for p in imgPaths if not os.path.exists(p)]
+        if len(missingPaths) == 0:
+            print("\nMaking %s-band footprint..." % (band))
+            bandFootprint = footprint.makeFootprintMOC(imgPaths, verbose = False)
+            bandFootprint.save(footprintFileName, format = "fits", overwrite = True)
+            print("Wrote %s" % (footprintFileName))
+            bandTotalArea = footprint.getFootprintAreaSqDeg(bandFootprint)
+        else:
+            print("\nWARNING: %d %s-band images not found (e.g., %s) - total area is the sum of the pointing areas"
+                  " (overlaps counted more than once)" % (len(missingPaths), band, missingPaths[0]))
+            bandTotalArea = bandSummedArea
         bandTotalAreaDict[band] = bandTotalArea
 
         catFileName = os.path.join(dataBaseDir, "survey_catalog_%s%s.fits" % (band, subScript))
@@ -1258,9 +1261,9 @@ def summarize(dataBase='PARENT'):
 
         print("\n---------------- %s band --------------------" %band)
         print("\nNumber of pointings: %d \
-                \nTotal area: %.3f sq. deg. \
+                \nTotal area: %.3f sq. deg. (sum of pointing areas: %.3f sq. deg.) \
                 \nNumber of PyBDSF sources: %d \
-              \nNumber of DECaLS cross-matches: %d\n" % (bandCountImages, bandTotalArea, nPybdsfSources, bandCountXmatches))
+              \nNumber of DECaLS cross-matches: %d\n" % (bandCountImages, bandTotalArea, bandSummedArea, nPybdsfSources, bandCountXmatches))
 
     # Plotting sky coverage
 
